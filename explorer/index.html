@@ -26,7 +26,6 @@
 
         <section id="panel-filters" class="view-panel" role="tabpanel" hidden>
           <section class="filters" aria-labelledby="filters-heading">
-            <h2 id="filters-heading">Filters</h2>
             <form id="search-form" class="filter-form">
               <div class="field taxon-field">
                 <label for="taxon-input">Taxon</label>
@@ -44,20 +43,18 @@
               <div class="field">
                 <label for="place-input">Place</label>
                 <input id="place-input" type="search" autocomplete="off" placeholder="e.g. Yosemite National Park…" aria-autocomplete="list" aria-controls="place-suggestions" aria-expanded="false" />
-                <p class="field-hint">Clears location filter.</p>
                 <ul id="place-suggestions" class="suggestions" role="listbox" hidden></ul>
                 <input type="hidden" id="place-id" value="" />
                 <p id="place-selected" class="selected-pill hidden"></p>
               </div>
 
               <fieldset class="location-fieldset">
-                <legend>Near my location</legend>
+                <legend>Nearby</legend>
                 <div class="location-row">
                   <button type="button" id="btn-geo" class="btn secondary">Use my location</button>
                   <button type="button" id="btn-clear-geo" class="btn secondary" hidden>Clear location</button>
                   <label class="inline">Radius (km)<input type="number" id="radius-km" min="1" max="500" value="25" step="1" /></label>
                 </div>
-                <p class="field-hint">Coordinates are not shared in links.</p>
                 <p id="geo-status" class="status-line" role="status"></p>
                 <input type="hidden" id="lat" value="" />
                 <input type="hidden" id="lng" value="" />
@@ -93,22 +90,20 @@
 
               <div class="field">
                 <label for="uploaded-days">Uploaded within last N days</label>
-                <input id="uploaded-days" type="number" min="1" max="3650" step="1" placeholder="e.g. 7 (leave empty for any time)" />
+                <input id="uploaded-days" type="number" min="1" max="3650" step="1" placeholder="e.g. 7" />
               </div>
 
               <fieldset class="months-fieldset media-popular-fieldset">
-                <legend>Media &amp; popularity</legend>
-                <p class="field-hint">Uncheck both for any media type.</p>
+                <legend>More filters</legend>
                 <div class="card-meta-checks">
-                  <label class="card-meta-label"><input type="checkbox" id="media-photos" checked /> Photos</label>
-                  <label class="card-meta-label"><input type="checkbox" id="media-sounds" /> Sounds</label>
-                  <label class="card-meta-label"><input type="checkbox" id="popular-only" /> Popular only</label>
+                  <label class="card-meta-label"><input type="checkbox" id="media-photos" checked />Has photos</label>
+                  <label class="card-meta-label"><input type="checkbox" id="media-sounds" />Has sounds</label>
+                  <label class="card-meta-label"><input type="checkbox" id="popular-only" />Popular only</label>
                 </div>
               </fieldset>
 
               <fieldset class="months-fieldset card-meta-fieldset">
-                <legend>Observation &amp; species card details</legend>
-                <p class="field-hint">Extra details on cards.</p>
+                <legend>Details shown</legend>
                 <div class="card-meta-checks">
                   <label class="card-meta-label"><input type="checkbox" id="meta-faves" checked /> Favorites count</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-species-count" checked /> Observations per species</label>
