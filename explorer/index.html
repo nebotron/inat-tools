@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Hints only; GitHub Pages may still cache — use unique ?v= on local assets (bump when css/js changes). -->
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>iNaturalist observation browser</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <link rel="stylesheet" href="styles.css?v=perf1" />
+    <link rel="preconnect" href="https://api.inaturalist.org" />
+    <link rel="icon" href="favicon.png?v=inat300" type="image/png" sizes="300x300" />
+    <link rel="apple-touch-icon" href="favicon.png?v=inat300" />
+  </head>
+  <body>
+    <main>
+      <div class="view-shell">
+        <div class="view-tabs" role="tablist" aria-label="App view">
+          <button type="button" class="tab" role="tab" data-view="filters" aria-selected="true" aria-controls="panel-filters">Filters</button>
+          <button type="button" class="tab" role="tab" data-view="observations" aria-selected="false" aria-controls="panel-observations">Observations</button>
+          <button type="button" class="tab" role="tab" data-view="species" aria-selected="false" aria-controls="panel-species">Species</button>
+          <button type="button" class="tab" role="tab" data-view="map" aria-selected="false" aria-controls="panel-map">Map</button>
+        </div>
+
+        <section id="panel-filters" class="view-panel" role="tabpanel" hidden>
+          <section class="filters" aria-labelledby="filters-heading">
+            <h2 id="filters-heading">Filters</h2>
+            <form id="search-form" class="filter-form">
+              <div class="field taxon-field">
+                <label for="taxon-input">Taxon</label>
+                <input id="taxon-input" type="search" autocomplete="off" placeholder="Search species or group…" aria-autocomplete="list" aria-controls="taxon-suggestions" aria-expanded="false" />
+                <ul id="taxon-suggestions" class="suggestions" role="listbox" hidden></ul>
+                <input type="hidden" id="taxon-id" value="" />
+                <p id="taxon-selected" class="selected-pill hidden"></p>
+              </div>
+
+              <div class="field">
+                <label for="user-login">Observer username</label>
+                <input id="user-login" class="input-login" type="text" placeholder="iNaturalist username" autocapitalize="none" autocomplete="username" spellcheck="false" />
+              </div>
+
+              <div class="field">
+                <label for="place-input">Place</label>
+                <input id="place-input" type="search" autocomplete="off" placeholder="e.g. Yosemite National Park…" aria-autocomplete="list" aria-controls="place-suggestions" aria-expanded="false" />
+                <p class="field-hint">Clears location filter.</p>
+                <ul id="place-suggestions" class="suggestions" role="listbox" hidden></ul>
+                <input type="hidden" id="place-id" value="" />
+                <p id="place-selected" class="selected-pill hidden"></p>
+              </div>
+
+              <fieldset class="location-fieldset">
+                <legend>Near my location</legend>
+                <div class="location-row">
+                  <button type="button" id="btn-geo" class="btn secondary">Use my location</button>
+                  <button type="button" id="btn-clear-geo" class="btn secondary" hidden>Clear location</button>
+                  <label class="inline">Radius (km)<input type="number" id="radius-km" min="1" max="500" value="25" step="1" /></label>
+                </div>
+                <p class="field-hint">Coordinates are not shared in links.</p>
+                <p id="geo-status" class="status-line" role="status"></p>
+                <input type="hidden" id="lat" value="" />
+                <input type="hidden" id="lng" value="" />
+              </fieldset>
+
+              <div class="field taxon-field">
+                <label for="unobserved-input">Unobserved by</label>
+                <input id="unobserved-input" class="input-login" type="text" placeholder="iNaturalist username" autocapitalize="none" autocomplete="username" spellcheck="false" />
+              </div>
+
+              <fieldset class="months-fieldset">
+                <legend>Months observed</legend>
+                <div id="months-grid" class="months-grid" role="group" aria-label="Months of the year"></div>
+              </fieldset>
+
+              <div class="field">
+                <label for="quality-grade">Quality grade</label>
+                <select id="quality-grade">
+                  <option value="">Any</option>
+                  <option value="research">Research grade</option>
+                  <option value="needs_id">Needs ID</option>
+                  <option value="casual">Casual</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="sort-mode">Sort</label>
+                <select id="sort-mode">
+                  <option value="recent" selected>Most recently uploaded</option>
+                  <option value="faves">Most faved</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="uploaded-days">Uploaded within last N days</label>
+                <input id="uploaded-days" type="number" min="1" max="3650" step="1" placeholder="e.g. 7 (leave empty for any time)" />
+              </div>
+
+              <fieldset class="months-fieldset media-popular-fieldset">
+                <legend>Media &amp; popularity</legend>
+                <p class="field-hint">Uncheck both for any media type.</p>
+                <div class="card-meta-checks">
+                  <label class="card-meta-label"><input type="checkbox" id="media-photos" checked /> Photos</label>
+                  <label class="card-meta-label"><input type="checkbox" id="media-sounds" /> Sounds</label>
+                  <label class="card-meta-label"><input type="checkbox" id="popular-only" /> Popular only</label>
+                </div>
+              </fieldset>
+
+              <fieldset class="months-fieldset card-meta-fieldset">
+                <legend>Observation &amp; species card details</legend>
+                <p class="field-hint">Extra details on cards.</p>
+                <div class="card-meta-checks">
+                  <label class="card-meta-label"><input type="checkbox" id="meta-faves" checked /> Favorites count</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-species-count" checked /> Observations per species</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-location" /> Location</label>
+                </div>
+              </fieldset>
+
+              <div class="actions">
+                <button type="button" id="btn-reset" class="btn secondary">Clear filters</button>
+              </div>
+            </form>
+          </section>
+          <footer class="site-footer">
+            <p>Data from <a href="https://www.inaturalist.org/">iNaturalist</a> using the <a href="https://api.inaturalist.org/v1/docs/">iNaturalist API</a>. This app is not affiliated with iNaturalist.</p>
+          </footer>
+        </section>
+
+        <section id="panel-observations" class="view-panel hidden" role="tabpanel" hidden>
+          <p id="error-banner-obs" class="error-banner" role="alert" hidden></p>
+          <p id="search-summary-obs" class="search-summary" aria-live="polite" hidden></p>
+          <div id="results-grid" class="results-grid"></div>
+          <div id="obs-sentinel" class="scroll-sentinel" aria-hidden="true"></div>
+        </section>
+
+        <section id="panel-species" class="view-panel hidden" role="tabpanel" hidden>
+          <p id="error-banner-species" class="error-banner" role="alert" hidden></p>
+          <p id="search-summary-species" class="search-summary" aria-live="polite" hidden></p>
+          <div id="species-grid" class="results-grid"></div>
+          <div id="species-sentinel" class="scroll-sentinel" aria-hidden="true"></div>
+        </section>
+
+        <section id="panel-map" class="view-panel hidden" role="tabpanel" hidden>
+          <p id="error-banner-map" class="error-banner" role="alert" hidden></p>
+          <div id="map-container" class="map-container" aria-label="Observation map">
+            <div id="map-loading" class="map-loading" hidden aria-hidden="true">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-dasharray="50 20" /></svg>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-detail" class="view-panel detail-panel hidden" role="tabpanel" hidden>
+          <div id="detail-content" class="detail-content"></div>
+        </section>
+      </div>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="app.js?v=deferapi1" type="module"></script>
+  </body>
+</html>

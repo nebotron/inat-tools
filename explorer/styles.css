@@ -1,0 +1,700 @@
+:root {
+  --bg: #f4f7f4;
+  --surface: #ffffff;
+  --text: #1a2e1a;
+  --muted: #4a5f4a;
+  --accent: #2d6a4f;
+  --accent-hover: #1b4332;
+  --border: #c5d4c5;
+  --danger: #9b2226;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100svh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+
+.site-header {
+  background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 55%, #40916c 100%);
+  color: #f4f7f4;
+  padding: 1.6rem 1.25rem 1.8rem;
+}
+
+.site-header h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.4rem, 4vw, 2rem);
+  font-weight: 650;
+}
+
+.site-header .tagline { margin: 0; opacity: 0.92; font-size: 0.95rem; }
+.site-header a { color: #d8f3dc; }
+
+main {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.view-shell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  /* 100vh includes area covered by mobile browser chrome; svh/dvh match the visible viewport better */
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: #eef4ee;
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 0.94rem;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  background: #fff;
+  color: var(--accent);
+}
+
+.view-panel.hidden,
+.view-panel[hidden] { display: none !important; }
+
+.view-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.filters {
+  padding: 1rem;
+}
+
+.filters h2 { margin: 0 0 0.9rem; font-size: 1.05rem; }
+
+.filter-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.9rem;
+}
+
+.field,
+.location-fieldset,
+.months-fieldset {
+  position: relative;
+  border: 1px solid var(--border);
+  padding: 0.95rem 0.7rem 0.7rem;
+}
+
+.field label,
+.location-fieldset legend,
+.months-fieldset legend {
+  position: absolute;
+  top: -0.58rem;
+  left: 0.55rem;
+  display: inline-block;
+  padding: 0 0.28rem;
+  background: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1;
+  margin: 0;
+}
+
+.field input[type="search"],
+.field input[type="text"],
+.field select,
+.field input[type="number"],
+.location-row input[type="number"] {
+  width: 100%;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--border);
+  font-size: 0.95rem;
+}
+
+.field input.input-login {
+  text-transform: lowercase;
+}
+
+.field input.input-login::placeholder {
+  text-transform: none;
+}
+
+.field-checkbox {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 1rem;
+}
+
+.field-checkbox label {
+  position: absolute;
+  top: -0.58rem;
+  left: 0.55rem;
+  display: inline-block;
+  padding: 0 0.28rem;
+  background: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1;
+  margin: 0;
+}
+
+.field-checkbox input[type="checkbox"] {
+  width: auto;
+  margin: 0.15rem 0 0 0.1rem;
+  accent-color: var(--accent);
+}
+
+.field-hint,
+.status-line {
+  margin: 0.35rem 0 0;
+  font-size: 0.79rem;
+  color: var(--muted);
+}
+
+.location-row { display: flex; gap: 0.8rem; align-items: end; }
+.location-row .inline { display: flex; flex-direction: column; font-size: 0.85rem; font-weight: 650; }
+.location-row input[type="number"] { width: 6rem; }
+
+.months-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem 0.5rem; }
+.months-grid label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.86rem; }
+
+.card-meta-fieldset .field-hint {
+  margin: 0 0 0.5rem;
+}
+
+.card-meta-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+
+.card-meta-label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.card-meta-label input {
+  accent-color: var(--accent);
+}
+
+.taxon-field { position: relative; }
+.suggestions {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: #fff;
+  position: absolute;
+  width: calc(100% - 1.4rem);
+  z-index: 1000;
+}
+.suggestions li { padding: 0.5rem 0.6rem; border-bottom: 1px solid #ebf1eb; cursor: pointer; font-size: 0.9rem; }
+.suggestions li:hover,
+.suggestions li[aria-selected="true"] { background: #e8f5e9; }
+.suggestions .sci { color: var(--muted); font-size: 0.8rem; }
+
+.selected-pill {
+  margin: 0.45rem 0 0;
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  background: #d8f3dc;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.82rem;
+}
+.selected-pill button { border: 0; background: transparent; cursor: pointer; }
+
+.hidden { display: none; }
+
+.actions { display: flex; gap: 0.6rem; align-items: center; }
+.btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.error-banner {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  color: var(--danger);
+  background: #ffebee;
+  border-bottom: 1px solid #ffcdd2;
+  font-size: 0.9rem;
+}
+
+.search-summary {
+  margin: 0;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 0;
+}
+
+.card {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 360px 360px;
+}
+
+.card a {
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.card .no-photo {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #dce8dc;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.card-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.45rem 0.5rem 0.5rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
+}
+
+.card-meta-line {
+  margin: 0 0 0.2rem;
+  color: rgba(255, 255, 255, 0.95);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.25;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+}
+
+.card-title-overlay {
+  margin: 0;
+  padding: 0;
+  color: #fff;
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.scroll-sentinel {
+  height: 1px;
+}
+
+.map-toolbar { padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); }
+.map-container { height: 100%; position: relative; }
+
+/* Observation grid heatmap tiles: widen the value ramp (layer opacity capped at 0.5 in JS). */
+img.leaflet-tile.map-heat-tiles {
+  filter: contrast(2.65) saturate(1.35) brightness(1.05);
+}
+
+.map-loading {
+  position: absolute;
+  bottom: 24px;
+  right: 10px;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  padding: 6px;
+  line-height: 0;
+  color: var(--accent);
+  pointer-events: none;
+}
+
+.map-loading svg {
+  animation: map-spin 0.8s linear infinite;
+}
+
+@keyframes map-spin {
+  to { transform: rotate(360deg); }
+}
+
+.site-footer {
+  text-align: center;
+  padding: 1.2rem 1rem 1.6rem;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .results-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+}
+
+/* Species detail page */
+
+.detail-content {
+  padding: 1rem;
+  max-width: 720px;
+}
+
+.detail-hero {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.2rem;
+}
+
+.detail-hero img {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.detail-hero-info h2 {
+  margin: 0 0 0.15rem;
+  font-size: 1.2rem;
+}
+
+.detail-hero-info .sci-name {
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.detail-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.detail-links a {
+  font-size: 0.88rem;
+}
+
+.detail-section {
+  margin-bottom: 1.5rem;
+}
+
+.detail-section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.detail-hour-note {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Species detail: no scrolling; month + hour charts share the same bar area height */
+#panel-detail.detail-panel.view-panel {
+  overflow: hidden;
+  overscroll-behavior: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+}
+
+#panel-detail.detail-panel .detail-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  touch-action: none;
+  overscroll-behavior: none;
+  max-width: none;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+}
+
+/* Hero fills leftover viewport space; photo stretches to use it */
+#panel-detail.detail-panel .detail-hero {
+  flex: 1 1 0;
+  min-height: 0;
+  margin-bottom: 0.5rem;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.65rem;
+}
+
+#panel-detail.detail-panel .detail-hero > img {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 0;
+  height: auto;
+  align-self: stretch;
+  min-height: 0;
+  max-height: none;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+#panel-detail.detail-panel .detail-hero-info {
+  flex: 0 0 auto;
+  width: min(42%, 15rem);
+  min-width: min(11rem, 38%);
+  max-width: 100%;
+}
+
+#panel-detail.detail-panel .detail-charts {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+#panel-detail.detail-panel .detail-section,
+#panel-detail.detail-panel .detail-section--hour {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+#panel-detail.detail-panel .detail-section .bar-chart {
+  flex-shrink: 0;
+  height: 6.25rem;
+  padding-top: 0.35rem;
+  overflow: hidden;
+  -webkit-overflow-scrolling: auto;
+  scrollbar-gutter: auto;
+}
+
+#panel-detail.detail-panel .bar-chart--dense {
+  min-width: 0;
+}
+
+#panel-detail.detail-panel .bar-chart--dense .bar-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 140px;
+  padding-top: 1rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+.bar-col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.bar-chart--dense .bar-col {
+  flex: 1 0 0.65rem;
+  min-width: 0.65rem;
+}
+
+.bar-fill {
+  width: 100%;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  min-height: 0;
+  transition: height 0.2s ease;
+}
+
+.bar-label {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-top: 3px;
+  white-space: nowrap;
+  text-align: center;
+  /* Fixed slot so empty tick labels do not shift bar heights relative to labeled ticks */
+  height: 1.15em;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  overflow: visible;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-count {
+  font-size: 0.58rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  text-align: center;
+}
+
+.bar-chart--dense {
+  /* ~24 narrow columns: min width so labels are readable; horizontal scroll on small viewports */
+  gap: 1px;
+  min-width: min(100%, 19rem);
+}
+.bar-chart--dense .bar-label { font-size: 0.55rem; }
+.bar-chart--dense .bar-count { font-size: 0.5rem; }
+
+.detail-loading {
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 1rem 0;
+}
+
+@media (max-width: 640px) {
+  .months-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .location-row { flex-direction: column; align-items: stretch; }
+  .map-container { min-height: 320px; }
+  .results-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+
+  .detail-hero { flex-direction: column; }
+  .detail-hero img { width: 100%; height: auto; max-height: 240px; }
+
+  .bar-count { display: none; }
+  .bar-chart { height: 100px; padding-top: 0.25rem; }
+  .bar-chart--dense { min-width: 17.5rem; }
+  .bar-chart--dense .bar-label { font-size: 0.56rem; }
+
+  /* Species detail: compact layout + safe area (flex + no scroll: see global #panel-detail.detail-panel rules) */
+  #panel-detail.detail-panel .detail-content {
+    /* env(safe-area-inset-bottom) is the home indicator; add extra for Safari’s bottom toolbar / floating bar */
+    padding: 0.35rem 0.55rem calc(0.35rem + max(2.5rem, env(safe-area-inset-bottom, 0px)));
+  }
+
+  #panel-detail.detail-panel .detail-charts {
+    gap: 0.35rem;
+  }
+
+  /* Stack: large photo uses vertical space above text + charts */
+  #panel-detail.detail-panel .detail-hero {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+  }
+
+  #panel-detail.detail-panel .detail-hero > img {
+    flex: 1 1 0;
+    width: 100% !important;
+    min-height: 0;
+    max-height: none !important;
+    height: auto;
+    align-self: stretch;
+    object-fit: cover;
+  }
+
+  #panel-detail.detail-panel .detail-hero-info {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+  }
+
+  #panel-detail.detail-panel .detail-hero-info h2 {
+    font-size: 0.92rem;
+    line-height: 1.2;
+  }
+
+  #panel-detail.detail-panel .detail-hero-info .sci-name {
+    font-size: 0.72rem;
+    margin: 0 0 0.25rem;
+  }
+
+  #panel-detail.detail-panel .detail-links {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.55rem;
+  }
+
+  #panel-detail.detail-panel .detail-links a {
+    font-size: 0.76rem;
+  }
+
+  #panel-detail.detail-panel .detail-section h3 {
+    font-size: 0.78rem;
+    margin: 0 0 0.12rem;
+    font-weight: 650;
+  }
+
+  #panel-detail.detail-panel .detail-hour-note {
+    margin: 0 0 0.15rem;
+    font-size: 0.65rem;
+  }
+
+  #panel-detail.detail-panel .detail-section .bar-chart {
+    height: 5rem;
+    padding-top: 0.25rem;
+  }
+
+  #panel-detail.detail-panel .detail-loading {
+    padding: 0.35rem 0;
+    font-size: 0.78rem;
+  }
+}

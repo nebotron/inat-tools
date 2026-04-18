@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, minimum-scale=1, user-scalable=no"
+    />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="description" content="Square-crop photos on your device." />
+    <title>Square crop</title>
+    <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
+    <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
+    <link rel="stylesheet" href="./styles.css?v=persistwarn1" />
+  </head>
+  <body class="app-body-fit">
+    <div
+      id="session-restore-overlay"
+      class="session-restore-overlay"
+      role="status"
+      aria-live="polite"
+      aria-busy="false"
+      aria-label="Restoring your session"
+      hidden
+    >
+      <div class="session-restore-overlay__inner">
+        <div class="session-restore-overlay__spinner crop-pending-spinner" aria-hidden="true"></div>
+        <p class="session-restore-overlay__text" data-default-text="Restoring your session…">Restoring your session…</p>
+        <div
+          class="session-restore-overlay__progress-wrap"
+          id="session-restore-progress-wrap"
+          hidden
+          aria-hidden="true"
+        >
+          <div
+            id="session-restore-progress"
+            class="progress session-restore-overlay__progress"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            aria-valuetext="0%"
+          >
+            <div id="session-restore-progress-fill" class="progress__fill"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <main class="app-main app-main--flow">
+      <div id="error-line" class="status error-line app-global-error" role="alert" hidden></div>
+      <p id="session-persist-warning" class="status session-persist-warning app-global-error" role="status" hidden></p>
+      <!-- Page 1: photo picker -->
+      <div id="page-setup" class="app-page app-page--setup">
+        <div class="setup-pick">
+          <label class="file-picker">
+            <input id="file-input" type="file" accept="image/*" multiple aria-label="Select photos" />
+            <span class="file-picker__btn">Select photos</span>
+          </label>
+          <p id="file-summary" class="status setup-pick__summary" role="status"></p>
+        </div>
+      </div>
+
+      <!-- Page 2: crop editor (model load + analysis progress shown above the preview) -->
+      <div id="page-crop" class="app-page app-page--crop" hidden>
+        <section class="card previews-card previews-card--minimal">
+          <p id="batch-progress" class="status batch-progress crop-flow-inline-status" role="status" hidden></p>
+          <p id="progress-line" class="status progress-line crop-flow-inline-status" hidden></p>
+          <div
+            id="progress-bar"
+            class="progress crop-flow-inline-progress"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            hidden
+          >
+            <div id="progress-fill" class="progress__fill"></div>
+          </div>
+          <div id="preview-grid" class="preview-grid" aria-live="polite"></div>
+          <p id="preview-empty" class="muted" hidden>No files selected yet.</p>
+        </section>
+      </div>
+
+      <!-- Page 4: after all crops confirmed — Download ZIP, Share, ZIP progress -->
+      <div id="page-export" class="app-page app-page--export" hidden>
+        <section class="card export-page-card">
+          <div id="share-prep-progress" class="share-prep-progress" hidden aria-live="polite">
+            <div class="share-prep-progress__row">
+              <span class="share-prep-progress__spinner" aria-hidden="true"></span>
+              <p id="share-prep-line" class="share-prep-progress__line"></p>
+            </div>
+            <div
+              id="share-prep-bar"
+              class="progress share-prep-bar"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              hidden
+            >
+              <div id="share-prep-fill" class="progress__fill"></div>
+            </div>
+          </div>
+          <div class="export-actions-stack">
+            <div id="crop-export-bar" class="crop-export-bar">
+              <div class="actions edit-actions" id="edit-actions">
+                <button type="button" id="btn-crop" class="btn primary" disabled>Download ZIP</button>
+                <button type="button" id="btn-share-inat" class="btn" disabled title="Share JPEGs only">
+                  Share
+                </button>
+                <button type="button" id="btn-start-over" class="btn btn--ghost">Start over</button>
+              </div>
+            </div>
+            <div id="zip-download-panel" class="zip-download-panel zip-download-panel--crop" hidden aria-live="polite" aria-label="ZIP download progress">
+              <p class="zip-download-panel__title zip-download-panel__title--sr">ZIP download</p>
+              <p id="zip-download-line" class="status zip-download-line"></p>
+              <div
+                id="zip-download-bar"
+                class="progress zip-download-bar"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                hidden
+              >
+                <div id="zip-download-fill" class="progress__fill"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script src="./app.js?v=fullfeat1" type="module"></script>
+  </body>
+</html>
