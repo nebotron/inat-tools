@@ -47,6 +47,9 @@ let nearMeSource = "none";
 /** True when the user is filtering by nearby (radius + optional GPS), not by a named place. */
 let placeNearbyMode = false;
 
+/** Last committed label shown in the place field (cleared when the user edits the field). */
+let placeInputCommitted = "";
+
 let detailTaxonId = null;
 
 const el = {
@@ -54,18 +57,15 @@ const el = {
   taxonId: document.getElementById("taxon-id"),
   taxonSuggestions: document.getElementById("taxon-suggestions"),
   taxonSelected: document.getElementById("taxon-selected"),
+  placeInputWrap: document.getElementById("place-input-wrap"),
   placeInput: document.getElementById("place-input"),
   placeId: document.getElementById("place-id"),
   placeSuggestions: document.getElementById("place-suggestions"),
-  placeSelected: document.getElementById("place-selected"),
+  btnClearPlace: document.getElementById("btn-clear-place"),
   userLogin: document.getElementById("user-login"),
   unobservedInput: document.getElementById("unobserved-input"),
-  btnGeo: document.getElementById("btn-geo"),
-  btnClearGeo: document.getElementById("btn-clear-geo"),
   radiusKm: document.getElementById("radius-km"),
-  radiusKmValue: document.getElementById("radius-km-value"),
   nearbyControls: document.getElementById("nearby-controls"),
-  geoStatus: document.getElementById("geo-status"),
   lat: document.getElementById("lat"),
   lng: document.getElementById("lng"),
   qualityGrade: document.getElementById("quality-grade"),
@@ -133,30 +133,31 @@ function clampRadiusKm(n) {
   return Math.min(500, Math.max(1, x));
 }
 
-function syncRadiusValueLabel() {
-  if (el.radiusKmValue) el.radiusKmValue.textContent = String(clampRadiusKm(el.radiusKm.value));
-}
-
 function updatePlaceNearbyUI() {
   if (el.nearbyControls) el.nearbyControls.hidden = !placeNearbyMode;
-  if (placeNearbyMode) syncRadiusValueLabel();
 }
 
-function renderNearbyPlacePill() {
-  el.placeSelected.classList.remove("hidden");
-  el.placeSelected.innerHTML = `<span>Nearby</span><button type="button" aria-label="Clear nearby filter">x</button>`;
-  el.placeSelected.querySelector("button").addEventListener("click", () => {
-    placeNearbyMode = false;
-    el.placeSelected.classList.add("hidden");
-    el.placeSelected.innerHTML = "";
-    el.lat.value = "";
-    el.lng.value = "";
-    nearMeSource = "none";
-    el.geoStatus.textContent = "";
-    updateClearGeoButton();
-    updatePlaceNearbyUI();
-    void onLocationFilterChanged();
-  });
+function syncPlaceClearButton() {
+  if (!el.btnClearPlace) return;
+  const active = Boolean(el.placeId.value.trim() || placeNearbyMode);
+  el.btnClearPlace.hidden = !active;
+}
+
+function setCommittedPlaceDisplay(text) {
+  placeInputCommitted = text || "";
+  el.placeInput.value = placeInputCommitted;
+  syncPlaceClearButton();
+}
+
+function clearPlaceFilter() {
+  placeNearbyMode = false;
+  nearMeSource = "none";
+  el.placeId.value = "";
+  el.lat.value = "";
+  el.lng.value = "";
+  setCommittedPlaceDisplay("");
+  updatePlaceNearbyUI();
+  void onLocationFilterChanged();
 }
 
 function formatCountLabel(n, singular, plural) {
@@ -1152,7 +1153,6 @@ function readUrl() {
   }
   const r = q.get("radius") || "25";
   el.radiusKm.value = String(clampRadiusKm(r));
-  syncRadiusValueLabel();
   updatePlaceNearbyUI();
 
   el.unobservedInput.value = (q.get("unobserved") || "").toLowerCase();
@@ -1172,8 +1172,6 @@ function readUrl() {
     if (currentView === "observations") obsPage = pg;
     if (currentView === "species") speciesPage = pg;
   }
-
-  updateClearGeoButton();
 }
 
 async function hydrateSelections() {
@@ -1198,7 +1196,7 @@ async function hydrateSelections() {
       setPlaceSelection(pid, label, { fromHydrate: true });
     }
   } else if (placeNearbyMode && el.lat.value.trim() && el.lng.value.trim()) {
-    renderNearbyPlacePill();
+    setCommittedPlaceDisplay("Nearby");
     updatePlaceNearbyUI();
   }
 }
@@ -1218,19 +1216,16 @@ function setTaxonSelection(id, label) {
   scheduleUrlSync();
 }
 
-function setNearbySelection() {
+async function setNearbySelection() {
   nearMeSource = "none";
   placeNearbyMode = true;
   el.placeId.value = "";
-  el.placeInput.value = "";
   el.lat.value = "";
   el.lng.value = "";
-  el.geoStatus.textContent = "";
-  updateClearGeoButton();
-  renderNearbyPlacePill();
+  setCommittedPlaceDisplay("Nearby");
   hideSuggestion("place");
   updatePlaceNearbyUI();
-  void onLocationFilterChanged();
+  await requestNearbyGeolocation();
 }
 
 function setPlaceSelection(id, label, options = {}) {
@@ -1239,15 +1234,9 @@ function setPlaceSelection(id, label, options = {}) {
   placeNearbyMode = false;
   updatePlaceNearbyUI();
   el.placeId.value = String(id);
-  el.placeInput.value = "";
-  el.placeSelected.classList.remove("hidden");
-  el.placeSelected.innerHTML = `<span>${escapeHtml(label)}</span><button type="button" aria-label="Clear place">x</button>`;
-  el.placeSelected.querySelector("button").addEventListener("click", () => {
-    el.placeId.value = "";
-    el.placeSelected.classList.add("hidden");
-    el.placeSelected.innerHTML = "";
-    void onLocationFilterChanged();
-  });
+  setCommittedPlaceDisplay(label);
+  el.lat.value = "";
+  el.lng.value = "";
   hideSuggestion("place");
   if (fromHydrate) {
     syncUrl();
@@ -1293,16 +1282,13 @@ function renderSuggestions(kind, items) {
         li.innerHTML = `<span>Nearby</span>`;
         li.addEventListener("mousedown", (ev) => {
           ev.preventDefault();
-          setNearbySelection();
+          void setNearbySelection();
         });
       } else {
         const label = item.display_name || item.name;
         li.innerHTML = `<span>${escapeHtml(label)}</span>`;
         li.addEventListener("mousedown", (ev) => {
           ev.preventDefault();
-          el.lat.value = "";
-          el.lng.value = "";
-          el.geoStatus.textContent = "";
           setPlaceSelection(item.id, label);
         });
       }
@@ -1346,11 +1332,26 @@ function wireAutocomplete() {
   };
 
   el.placeInput.addEventListener("input", () => {
+    if (placeInputCommitted && el.placeInput.value !== placeInputCommitted) {
+      el.placeId.value = "";
+      el.lat.value = "";
+      el.lng.value = "";
+      nearMeSource = "none";
+      placeNearbyMode = false;
+      placeInputCommitted = "";
+      updatePlaceNearbyUI();
+      syncPlaceClearButton();
+      void onLocationFilterChanged();
+    }
     const q = el.placeInput.value.trim();
     showPlaceSuggestionsForQuery(q);
   });
 
   el.placeInput.addEventListener("focus", () => {
+    if (placeInputCommitted && el.placeInput.value === placeInputCommitted) {
+      hideSuggestion("place");
+      return;
+    }
     const q = el.placeInput.value.trim();
     if (q.length >= 2) showPlaceSuggestionsForQuery(q);
     else renderSuggestions("place", [NEARBY_SUGGESTION]);
@@ -1402,29 +1403,13 @@ function wireAutocomplete() {
   });
 }
 
-function updateClearGeoButton() {
-  const hasLocation = el.lat.value.trim() && el.lng.value.trim();
-  el.btnClearGeo.hidden = !hasLocation;
-}
-
-function clearGeoLocation() {
-  nearMeSource = "none";
-  el.lat.value = "";
-  el.lng.value = "";
-  el.geoStatus.textContent = "";
-  updateClearGeoButton();
-  void onLocationFilterChanged();
-}
-
 function applyGeoPosition(pos) {
   placeNearbyMode = true;
   el.placeId.value = "";
-  renderNearbyPlacePill();
+  setCommittedPlaceDisplay("Nearby");
   updatePlaceNearbyUI();
   el.lat.value = String(pos.coords.latitude);
   el.lng.value = String(pos.coords.longitude);
-  el.geoStatus.textContent = `Using ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
-  updateClearGeoButton();
 }
 
 function requestGeolocationPosition() {
@@ -1441,54 +1426,46 @@ function requestGeolocationPosition() {
   });
 }
 
+async function requestNearbyGeolocation() {
+  try {
+    const pos = await requestGeolocationPosition();
+    applyGeoPosition(pos);
+    nearMeSource = "button";
+    await onLocationFilterChanged();
+  } catch {
+    nearMeSource = "none";
+    placeNearbyMode = false;
+    el.lat.value = "";
+    el.lng.value = "";
+    setCommittedPlaceDisplay("");
+    updatePlaceNearbyUI();
+    syncUrl();
+  }
+}
+
 async function resolveNearMeFromUrl() {
-  el.geoStatus.textContent = "Requesting location...";
   try {
     const pos = await requestGeolocationPosition();
     applyGeoPosition(pos);
     nearMeSource = "url";
     await onLocationFilterChanged();
-  } catch (err) {
+  } catch {
     nearMeSource = "none";
     placeNearbyMode = false;
+    el.lat.value = "";
+    el.lng.value = "";
+    setCommittedPlaceDisplay("");
     updatePlaceNearbyUI();
-    el.geoStatus.textContent =
-      err && typeof err === "object" && "message" in err && err.message
-        ? String(err.message)
-        : "Could not get location.";
     syncUrl();
   }
 }
 
-function wireGeolocation() {
-  el.btnGeo.addEventListener("click", () => {
-    if (!navigator.geolocation) {
-      el.geoStatus.textContent = "Geolocation is not available in this browser.";
-      return;
-    }
-    el.btnGeo.disabled = true;
-    el.geoStatus.textContent = "Requesting location...";
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        applyGeoPosition(pos);
-        nearMeSource = "button";
-        el.btnGeo.disabled = false;
-        void onLocationFilterChanged();
-      },
-      (err) => {
-        nearMeSource = "none";
-        el.geoStatus.textContent =
-          err && typeof err === "object" && "message" in err && err.message
-            ? String(err.message)
-            : "Could not get location.";
-        el.btnGeo.disabled = false;
-        syncUrl();
-      },
-      { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 }
-    );
-  });
-
-  el.btnClearGeo.addEventListener("click", clearGeoLocation);
+function wirePlaceField() {
+  if (el.btnClearPlace) {
+    el.btnClearPlace.addEventListener("click", () => {
+      clearPlaceFilter();
+    });
+  }
 }
 
 function wireTabs() {
@@ -1545,7 +1522,6 @@ function wireFilterExtras() {
   el.popularOnly.addEventListener("change", onChange);
   const onRadiusChange = () => {
     el.radiusKm.value = String(clampRadiusKm(el.radiusKm.value));
-    syncRadiusValueLabel();
     void onLocationFilterChanged();
   };
   el.radiusKm.addEventListener("input", onRadiusChange);
@@ -1577,21 +1553,17 @@ function wireButtons() {
     el.taxonId.value = "";
     el.taxonSelected.hidden = true;
     el.taxonSelected.innerHTML = "";
-    el.placeInput.value = "";
     el.placeId.value = "";
-    el.placeSelected.hidden = true;
-    el.placeSelected.innerHTML = "";
-    el.userLogin.value = "";
-    el.unobservedInput.value = "";
     el.lat.value = "";
     el.lng.value = "";
     el.radiusKm.value = "25";
-    syncRadiusValueLabel();
     placeNearbyMode = false;
-    updatePlaceNearbyUI();
     nearMeSource = "none";
-    el.geoStatus.textContent = "";
-    updateClearGeoButton();
+    placeInputCommitted = "";
+    setCommittedPlaceDisplay("");
+    updatePlaceNearbyUI();
+    el.userLogin.value = "";
+    el.unobservedInput.value = "";
     el.qualityGrade.value = "";
     el.sortMode.value = "recent";
     el.mediaPhotos.checked = true;
@@ -1816,7 +1788,7 @@ async function boot() {
   }
   await hydrateSelections();
   wireAutocomplete();
-  wireGeolocation();
+  wirePlaceField();
   wireTabs();
   wireInfiniteScroll();
   wireFilterExtras();

@@ -127,13 +127,29 @@ main {
 .field input[type="search"],
 .field input[type="text"],
 .field select,
-.field input[type="number"],
-.field input[type="range"],
-.location-row input[type="number"] {
+.field input[type="number"] {
   width: 100%;
   padding: 0.55rem 0.6rem;
   border: 1px solid var(--border);
   font-size: 0.95rem;
+}
+
+.place-input-wrap {
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.place-input-wrap input[type="search"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.place-input-wrap .place-clear {
+  flex-shrink: 0;
+  padding: 0.35rem 0.65rem;
+  font-size: 1.1rem;
+  line-height: 1;
 }
 
 .field input.input-login {
@@ -182,23 +198,13 @@ main {
   margin-top: 0.65rem;
   padding-top: 0.65rem;
   border-top: 1px solid var(--border);
-}
-
-.location-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.8rem;
   align-items: end;
+  gap: 0.5rem 1rem;
 }
 
-.radius-slider-row {
-  margin-top: 0.55rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.radius-slider-row label {
+.place-field .nearby-controls .radius-label {
   position: static;
   display: block;
   padding: 0;
@@ -206,10 +212,8 @@ main {
   font-weight: 650;
 }
 
-.radius-slider-row input[type="range"] {
-  width: 100%;
-  max-width: 22rem;
-  accent-color: var(--accent);
+.place-field .nearby-controls input[type="number"] {
+  width: 6rem;
 }
 
 .months-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem 0.5rem; }
