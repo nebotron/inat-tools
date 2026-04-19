@@ -77,6 +77,8 @@ const el = {
   metaFaves: document.getElementById("meta-faves"),
   metaSpeciesCount: document.getElementById("meta-species-count"),
   metaLocation: document.getElementById("meta-location"),
+  metaNativeStatus: document.getElementById("meta-native-status"),
+  metaGrade: document.getElementById("meta-grade"),
   monthsGrid: document.getElementById("months-grid"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
@@ -296,11 +298,11 @@ function applyMediaFromQuery(q) {
 
 function parseCardMetaQuery(q) {
   if (!q.has("cardmeta")) {
-    return { faves: true, speciesCount: true, location: false };
+    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false };
   }
   const raw = q.get("cardmeta") ?? "";
   if (!raw) {
-    return { faves: false, speciesCount: false, location: false };
+    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false };
   }
   const set = new Set(
     raw
@@ -312,6 +314,8 @@ function parseCardMetaQuery(q) {
     faves: set.has("fav"),
     speciesCount: set.has("spc"),
     location: set.has("loc"),
+    nativeStatus: set.has("nat"),
+    grade: set.has("grd"),
   };
 }
 
@@ -320,18 +324,24 @@ function applyCardMetaFromQuery(q) {
   el.metaFaves.checked = o.faves;
   el.metaSpeciesCount.checked = o.speciesCount;
   el.metaLocation.checked = o.location;
+  el.metaNativeStatus.checked = o.nativeStatus;
+  el.metaGrade.checked = o.grade;
 }
 
 function formatCardMetaQuery() {
   const fav = el.metaFaves.checked;
   const spc = el.metaSpeciesCount.checked;
   const loc = el.metaLocation.checked;
-  if (fav && spc && !loc) return null;
-  if (!fav && spc && !loc) return null;
+  const nat = el.metaNativeStatus.checked;
+  const grd = el.metaGrade.checked;
+  if (fav && spc && !loc && !nat && !grd) return null;
+  if (!fav && spc && !loc && !nat && !grd) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
   if (loc) parts.push("loc");
+  if (nat) parts.push("nat");
+  if (grd) parts.push("grd");
   return parts.join(",");
 }
 
@@ -477,7 +487,32 @@ function getCardMetaOptions() {
     faves: el.metaFaves.checked,
     speciesCount: el.metaSpeciesCount.checked,
     location: el.metaLocation.checked,
+    nativeStatus: el.metaNativeStatus.checked,
+    grade: el.metaGrade.checked,
   };
+}
+
+function formatQualityGradeLabel(qg) {
+  const g = String(qg || "").trim().toLowerCase();
+  if (g === "research") return "Research grade";
+  if (g === "needs_id") return "Needs ID";
+  if (g === "casual") return "Casual";
+  return "";
+}
+
+/**
+ * From observation.taxon (iNaturalist API): `native`, `endemic` booleans.
+ * Endemic ⊂ native; introduced is inferred when `native` is false.
+ */
+function formatNativeStatusLine(obs) {
+  const t = obs && obs.taxon;
+  if (!t || typeof t !== "object") return "";
+  const endemic = t.endemic === true;
+  const native = t.native === true;
+  if (endemic) return "Endemic";
+  if (native) return "Native";
+  if (t.native === false) return "Introduced";
+  return "";
 }
 
 function observationLocationLine(obs) {
@@ -502,6 +537,14 @@ function observationMetaLines(obs) {
   if (o.location) {
     const loc = observationLocationLine(obs);
     if (loc) lines.push(loc);
+  }
+  if (o.nativeStatus) {
+    const ns = formatNativeStatusLine(obs);
+    if (ns) lines.push(ns);
+  }
+  if (o.grade) {
+    const gl = formatQualityGradeLabel(obs.quality_grade);
+    if (gl) lines.push(gl);
   }
   return lines;
 }
@@ -1557,6 +1600,8 @@ function wireFilterExtras() {
   el.metaFaves.addEventListener("change", onMeta);
   el.metaSpeciesCount.addEventListener("change", onMeta);
   el.metaLocation.addEventListener("change", onMeta);
+  el.metaNativeStatus.addEventListener("change", onMeta);
+  el.metaGrade.addEventListener("change", onMeta);
 }
 
 function wireButtons() {
@@ -1585,6 +1630,8 @@ function wireButtons() {
     el.metaFaves.checked = true;
     el.metaSpeciesCount.checked = true;
     el.metaLocation.checked = false;
+    el.metaNativeStatus.checked = false;
+    el.metaGrade.checked = false;
     el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
       x.checked = false;
     });
