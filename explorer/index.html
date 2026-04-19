@@ -10,7 +10,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/>
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=place-input-nearby2" />
+    <link rel="stylesheet" href="styles.css?v=radius-ui3" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -51,7 +51,7 @@
                 <input type="hidden" id="place-id" value="" />
                 <div id="nearby-controls" class="nearby-controls" hidden>
                   <label class="radius-label" for="radius-km">Radius (km)</label>
-                  <input type="number" id="radius-km" min="1" max="500" value="25" step="1" />
+                  <input type="text" id="radius-km" inputmode="numeric" autocomplete="off" spellcheck="false" value="25" />
                 </div>
                 <input type="hidden" id="lat" value="" />
                 <input type="hidden" id="lng" value="" />
@@ -148,6 +148,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="app.js?v=place-input-nearby2" type="module"></script>
+    <script src="app.js?v=radius-ui3" type="module"></script>
   </body>
 </html>

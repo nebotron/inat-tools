@@ -133,6 +133,13 @@ function clampRadiusKm(n) {
   return Math.min(500, Math.max(1, x));
 }
 
+/** Radius used for API and URL while the field may be temporarily empty during editing. */
+function effectiveRadiusKm() {
+  const raw = String(el.radiusKm.value ?? "").trim();
+  if (raw === "") return 25;
+  return clampRadiusKm(raw);
+}
+
 function updatePlaceNearbyUI() {
   if (el.nearbyControls) el.nearbyControls.hidden = !placeNearbyMode;
 }
@@ -345,7 +352,7 @@ function commonParams() {
     if (lat && lng) {
       p.set("lat", lat);
       p.set("lng", lng);
-      p.set("radius", String(clampRadiusKm(el.radiusKm.value || 25)));
+      p.set("radius", String(effectiveRadiusKm()));
       p.set("geo", "true");
     }
   }
@@ -785,7 +792,7 @@ async function fitMapToFilterLocation() {
     const la = parseFloat(lat);
     const ln = parseFloat(lng);
     if (Number.isNaN(la) || Number.isNaN(ln)) return;
-    const rKm = Math.max(1, parseFloat(el.radiusKm.value) || 25);
+    const rKm = effectiveRadiusKm();
     const latPad = rKm / 111;
     const cos = Math.cos((la * Math.PI) / 180);
     const lngPad = cos < 0.01 ? rKm / 111 : rKm / (111 * cos);
@@ -1055,7 +1062,7 @@ function syncUrl() {
   } else {
     q.delete("place_id");
     const hasCoords = el.lat.value.trim() && el.lng.value.trim();
-    const r = String(el.radiusKm.value || 25);
+    const r = String(effectiveRadiusKm());
     if (nearMeSource === "button" || nearMeSource === "url") {
       q.set("near_me", "1");
       q.set("radius", r);
@@ -1520,12 +1527,17 @@ function wireFilterExtras() {
   el.mediaSounds.addEventListener("change", onChange);
   el.uploadedDays.addEventListener("change", onChange);
   el.popularOnly.addEventListener("change", onChange);
-  const onRadiusChange = () => {
-    el.radiusKm.value = String(clampRadiusKm(el.radiusKm.value));
+  el.radiusKm.addEventListener("input", () => {
     void onLocationFilterChanged();
-  };
-  el.radiusKm.addEventListener("input", onRadiusChange);
-  el.radiusKm.addEventListener("change", onRadiusChange);
+    scheduleUrlSync();
+  });
+  el.radiusKm.addEventListener("blur", () => {
+    const t = el.radiusKm.value.trim();
+    if (t === "") el.radiusKm.value = "25";
+    else el.radiusKm.value = String(clampRadiusKm(t));
+    void onLocationFilterChanged();
+    syncUrl();
+  });
   el.qualityGrade.addEventListener("change", onChange);
   el.sortMode.addEventListener("change", onChange);
 

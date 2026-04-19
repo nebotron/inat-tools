@@ -196,11 +196,9 @@ main {
 
 .place-field .nearby-controls {
   margin-top: 0.65rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--border);
   display: flex;
   flex-wrap: wrap;
-  align-items: end;
+  align-items: center;
   gap: 0.5rem 1rem;
 }
 
@@ -210,9 +208,10 @@ main {
   padding: 0;
   font-size: 0.85rem;
   font-weight: 650;
+  line-height: 1.2;
 }
 
-.place-field .nearby-controls input[type="number"] {
+.place-field .nearby-controls #radius-km {
   width: 6rem;
 }
 
