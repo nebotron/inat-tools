@@ -194,7 +194,8 @@ main {
   color: var(--muted);
 }
 
-.place-field .nearby-controls {
+/* Only lay out when visible — `display: flex` would otherwise override `[hidden]`. */
+.place-field .nearby-controls:not([hidden]) {
   margin-top: 0.65rem;
   display: flex;
   flex-wrap: wrap;
