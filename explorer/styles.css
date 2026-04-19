@@ -104,7 +104,6 @@ main {
 }
 
 .field,
-.location-fieldset,
 .months-fieldset {
   position: relative;
   border: 1px solid var(--border);
@@ -112,7 +111,6 @@ main {
 }
 
 .field label,
-.location-fieldset legend,
 .months-fieldset legend {
   position: absolute;
   top: -0.58rem;
@@ -130,6 +128,7 @@ main {
 .field input[type="text"],
 .field select,
 .field input[type="number"],
+.field input[type="range"],
 .location-row input[type="number"] {
   width: 100%;
   padding: 0.55rem 0.6rem;
@@ -179,9 +178,39 @@ main {
   color: var(--muted);
 }
 
-.location-row { display: flex; gap: 0.8rem; align-items: end; }
-.location-row .inline { display: flex; flex-direction: column; font-size: 0.85rem; font-weight: 650; }
-.location-row input[type="number"] { width: 6rem; }
+.place-field .nearby-controls {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.location-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: end;
+}
+
+.radius-slider-row {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.radius-slider-row label {
+  position: static;
+  display: block;
+  padding: 0;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.radius-slider-row input[type="range"] {
+  width: 100%;
+  max-width: 22rem;
+  accent-color: var(--accent);
+}
 
 .months-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem 0.5rem; }
 .months-grid label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.86rem; }

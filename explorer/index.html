@@ -10,7 +10,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/>
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=perf1" />
+    <link rel="stylesheet" href="styles.css?v=place-nearby1" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -41,25 +41,26 @@
                 <input id="user-login" class="input-login" type="text" placeholder="iNaturalist username" autocapitalize="none" autocomplete="username" spellcheck="false" />
               </div>
 
-              <div class="field">
+              <div class="field place-field">
                 <label for="place-input">Place</label>
-                <input id="place-input" type="search" autocomplete="off" placeholder="e.g. Yosemite National Park…" aria-autocomplete="list" aria-controls="place-suggestions" aria-expanded="false" />
+                <input id="place-input" type="search" autocomplete="off" placeholder="Search place or choose Nearby…" aria-autocomplete="list" aria-controls="place-suggestions" aria-expanded="false" />
                 <ul id="place-suggestions" class="suggestions" role="listbox" hidden></ul>
                 <input type="hidden" id="place-id" value="" />
                 <p id="place-selected" class="selected-pill hidden"></p>
-              </div>
-
-              <fieldset class="location-fieldset">
-                <legend>Nearby</legend>
-                <div class="location-row">
-                  <button type="button" id="btn-geo" class="btn secondary">Use my location</button>
-                  <button type="button" id="btn-clear-geo" class="btn secondary" hidden>Clear location</button>
-                  <label class="inline">Radius (km)<input type="number" id="radius-km" min="1" max="500" value="25" step="1" /></label>
+                <div id="nearby-controls" class="nearby-controls" hidden>
+                  <div class="location-row">
+                    <button type="button" id="btn-geo" class="btn secondary">Use my location</button>
+                    <button type="button" id="btn-clear-geo" class="btn secondary" hidden>Clear location</button>
+                  </div>
+                  <div class="radius-slider-row">
+                    <label for="radius-km">Radius <span id="radius-km-value">25</span> km</label>
+                    <input type="range" id="radius-km" min="1" max="500" value="25" step="1" />
+                  </div>
+                  <p id="geo-status" class="status-line" role="status"></p>
+                  <input type="hidden" id="lat" value="" />
+                  <input type="hidden" id="lng" value="" />
                 </div>
-                <p id="geo-status" class="status-line" role="status"></p>
-                <input type="hidden" id="lat" value="" />
-                <input type="hidden" id="lng" value="" />
-              </fieldset>
+              </div>
 
               <div class="field taxon-field">
                 <label for="unobserved-input">Unobserved by</label>
@@ -152,6 +153,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="app.js?v=deferapi1" type="module"></script>
+    <script src="app.js?v=place-nearby1" type="module"></script>
   </body>
 </html>
