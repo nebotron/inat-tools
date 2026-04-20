@@ -3,6 +3,13 @@ const OBS_PER_PAGE = 60;
 /** Wild Spotter “What to Look For” — invasive reference; see `wildspotter-invasive.json` (iNat taxon IDs matched from Wild Spotter scientific names). */
 const WILD_SPOTTER_WHAT_URL = "https://www.wildspotter.org/what-to-look-for.cfm";
 
+/** Opens the taxon in the iNaturalist mobile app when installed (falls back to website on desktop). */
+function inaturalistTaxonAppUrl(taxonId) {
+  const id = taxonId != null ? String(taxonId).trim() : "";
+  if (!id) return "https://www.inaturalist.org/";
+  return `inaturalist://taxa/${id}`;
+}
+
 /** Set of iNaturalist taxon IDs from Wild Spotter list snapshot; loaded lazily from `wildspotter-invasive.json`. */
 let wildspotterInvasiveTaxonIds = null;
 
@@ -552,8 +559,8 @@ function formatQualityGradeLabel(qg) {
  * Endemic ⊂ native; introduced is inferred when `native` is false.
  * When introduced and the taxon matches Wild Spotter’s list (snapshot), append a linked "Invasive" tag.
  */
-function nativeStatusMetaSegments(obs, invasiveSet) {
-  const t = obs && obs.taxon;
+function nativeStatusMetaSegmentsForTaxon(taxon, invasiveSet) {
+  const t = taxon;
   if (!t || typeof t !== "object") return [];
   const endemic = t.endemic === true;
   const native = t.native === true;
@@ -568,6 +575,64 @@ function nativeStatusMetaSegments(obs, invasiveSet) {
     return segs;
   }
   return [];
+}
+
+function nativeStatusMetaSegments(obs, invasiveSet) {
+  return nativeStatusMetaSegmentsForTaxon(obs && obs.taxon, invasiveSet);
+}
+
+/**
+ * species_counts taxon objects omit native/endemic; load one observation per taxon (same filters) to read status.
+ */
+async function fetchObservationTaxonById(taxonIds) {
+  const map = new Map();
+  const uniq = [...new Set(taxonIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (!uniq.length) return map;
+
+  const chunkSize = 25;
+  for (let i = 0; i < uniq.length; i += chunkSize) {
+    const slice = uniq.slice(i, i + chunkSize);
+    const p = commonParams();
+    p.set("taxon_id", slice.join(","));
+    p.set("per_page", "200");
+    p.set("page", "1");
+    p.set("order_by", "created_at");
+    p.set("order", "desc");
+    try {
+      const res = await fetch(`${API}/observations?${p.toString()}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const want = new Set(slice);
+      for (const obs of data.results || []) {
+        const t = obs.taxon;
+        if (!t || t.id == null) continue;
+        const tid = Number(t.id);
+        if (want.has(tid) && !map.has(tid)) map.set(tid, t);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const missing = uniq.filter((id) => !map.has(id));
+  for (const tid of missing) {
+    const p = commonParams();
+    p.set("taxon_id", String(tid));
+    p.set("per_page", "1");
+    p.set("page", "1");
+    try {
+      const res = await fetch(`${API}/observations?${p.toString()}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const obs = (data.results || [])[0];
+      const t = obs && obs.taxon;
+      if (t && t.id != null) map.set(tid, t);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return map;
 }
 
 function renderMetaSegmentsHtml(segments) {
@@ -633,13 +698,21 @@ function observationMetaHtmlParts(obs, invasiveSet) {
   return parts;
 }
 
-function speciesMetaParts(row) {
+function speciesMetaParts(row, obsTaxonById, invasiveSet) {
   const o = getCardMetaOptions();
   const parts = [];
   if (o.speciesCount) {
     const c = row.count == null ? 0 : Number(row.count);
     const t = c === 1 ? "1 observation" : `${c} observations`;
     parts.push(`<p class="card-meta-line">${escapeHtml(t)}</p>`);
+  }
+  if (o.nativeStatus) {
+    const taxon = row.taxon || {};
+    const tid = taxon.id != null ? Number(taxon.id) : NaN;
+    const statusTaxon = !Number.isNaN(tid) && obsTaxonById ? obsTaxonById.get(tid) : null;
+    const segs = nativeStatusMetaSegmentsForTaxon(statusTaxon, invasiveSet);
+    const h = renderMetaSegmentsHtml(segs);
+    if (h) parts.push(h);
   }
   if (o.sciName) {
     const taxon = row.taxon || {};
@@ -790,6 +863,15 @@ async function runSpeciesSearch(reset) {
       })();
     }
 
+    const metaOpts = getCardMetaOptions();
+    let invasiveSet = null;
+    let obsTaxonById = null;
+    if (metaOpts.nativeStatus) {
+      invasiveSet = await ensureWildspotterInvasiveTaxonSet();
+      const ids = results.map((r) => r.taxon && r.taxon.id).filter((id) => id != null);
+      obsTaxonById = await fetchObservationTaxonById(ids);
+    }
+
     const frag = document.createDocumentFragment();
     for (const row of results) {
       const taxon = row.taxon || {};
@@ -799,7 +881,7 @@ async function runSpeciesSearch(reset) {
         href: `https://www.inaturalist.org/taxa/${taxon.id || ""}`,
         name,
         imageUrl,
-        metaParts: speciesMetaParts(row),
+        metaParts: speciesMetaParts(row, obsTaxonById, invasiveSet),
         onClick: () => showSpeciesDetail(taxon, row.count),
       }));
     }
@@ -1877,7 +1959,7 @@ async function showSpeciesDetail(taxon, obsCount) {
   const name = taxon.preferred_common_name || taxon.name || "Unknown";
   const sciName = taxon.name || "";
   const imageUrl = mediumPhotoUrl(taxon.default_photo?.url || taxon.default_photo?.medium_url || "").replace("/medium.", "/large.");
-  const inatUrl = `https://www.inaturalist.org/taxa/${taxon.id}`;
+  const inatAppUrl = inaturalistTaxonAppUrl(taxon.id);
   const searchUrl = buildSearchUrlWithSpecies(taxon.id);
 
   el.detailContent.innerHTML = `
@@ -1887,7 +1969,7 @@ async function showSpeciesDetail(taxon, obsCount) {
         <h2>${escapeHtml(name)}</h2>
         ${sciName && sciName !== name ? `<p class="sci-name">${escapeHtml(sciName)}</p>` : ""}
         <div class="detail-links">
-          <a href="${inatUrl}" rel="noopener noreferrer">View on iNaturalist &rarr;</a>
+          <a href="${escapeHtml(inatAppUrl)}">View on iNaturalist &rarr;</a>
           <a href="${escapeHtml(searchUrl)}">Search observations of this species &rarr;</a>
         </div>
       </div>
