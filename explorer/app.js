@@ -1,5 +1,8 @@
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
+/** iNaturalist list: "100 of the World's Worst Invasive Alien Species" — used to flag introduced taxa that appear on this list. */
+const INVASIVE_LIST_ID = 4428463;
+const INVASIVE_LIST_URL = `https://www.inaturalist.org/lists/${INVASIVE_LIST_ID}`;
 const SPECIES_PER_PAGE = 60;
 /** iNaturalist caps `per_page` at 200; above this we show the density grid instead of pins. */
 const MAP_PIN_THRESHOLD = 200;
@@ -79,6 +82,7 @@ const el = {
   metaLocation: document.getElementById("meta-location"),
   metaNativeStatus: document.getElementById("meta-native-status"),
   metaGrade: document.getElementById("meta-grade"),
+  metaSciName: document.getElementById("meta-sci-name"),
   monthsGrid: document.getElementById("months-grid"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
@@ -298,11 +302,11 @@ function applyMediaFromQuery(q) {
 
 function parseCardMetaQuery(q) {
   if (!q.has("cardmeta")) {
-    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false };
+    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, sciName: false };
   }
   const raw = q.get("cardmeta") ?? "";
   if (!raw) {
-    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false };
+    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, sciName: false };
   }
   const set = new Set(
     raw
@@ -316,6 +320,7 @@ function parseCardMetaQuery(q) {
     location: set.has("loc"),
     nativeStatus: set.has("nat"),
     grade: set.has("grd"),
+    sciName: set.has("sci"),
   };
 }
 
@@ -326,6 +331,7 @@ function applyCardMetaFromQuery(q) {
   el.metaLocation.checked = o.location;
   el.metaNativeStatus.checked = o.nativeStatus;
   el.metaGrade.checked = o.grade;
+  el.metaSciName.checked = o.sciName;
 }
 
 function formatCardMetaQuery() {
@@ -334,14 +340,16 @@ function formatCardMetaQuery() {
   const loc = el.metaLocation.checked;
   const nat = el.metaNativeStatus.checked;
   const grd = el.metaGrade.checked;
-  if (fav && spc && !loc && !nat && !grd) return null;
-  if (!fav && spc && !loc && !nat && !grd) return null;
+  const sci = el.metaSciName.checked;
+  if (fav && spc && !loc && !nat && !grd && !sci) return null;
+  if (!fav && spc && !loc && !nat && !grd && !sci) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
   if (loc) parts.push("loc");
   if (nat) parts.push("nat");
   if (grd) parts.push("grd");
+  if (sci) parts.push("sci");
   return parts.join(",");
 }
 
@@ -489,6 +497,7 @@ function getCardMetaOptions() {
     location: el.metaLocation.checked,
     nativeStatus: el.metaNativeStatus.checked,
     grade: el.metaGrade.checked,
+    sciName: el.metaSciName.checked,
   };
 }
 
@@ -503,16 +512,71 @@ function formatQualityGradeLabel(qg) {
 /**
  * From observation.taxon (iNaturalist API): `native`, `endemic` booleans.
  * Endemic ⊂ native; introduced is inferred when `native` is false.
+ * When introduced and the taxon is on the invasive list, append a linked "Invasive" tag.
  */
-function formatNativeStatusLine(obs) {
+function nativeStatusMetaSegments(obs, invasiveSet) {
   const t = obs && obs.taxon;
-  if (!t || typeof t !== "object") return "";
+  if (!t || typeof t !== "object") return [];
+  const taxonId = t.id != null ? Number(t.id) : NaN;
   const endemic = t.endemic === true;
   const native = t.native === true;
-  if (endemic) return "Endemic";
-  if (native) return "Native";
-  if (t.native === false) return "Introduced";
-  return "";
+  if (endemic) return [{ kind: "text", text: "Endemic" }];
+  if (native) return [{ kind: "text", text: "Native" }];
+  if (t.native === false) {
+    const segs = [{ kind: "text", text: "Introduced" }];
+    if (!Number.isNaN(taxonId) && invasiveSet && invasiveSet.has(taxonId)) {
+      segs.push({ kind: "text", text: " · " });
+      segs.push({ kind: "link", label: "Invasive", href: INVASIVE_LIST_URL });
+    }
+    return segs;
+  }
+  return [];
+}
+
+function renderMetaSegmentsHtml(segments) {
+  if (!segments.length) return "";
+  const inner = segments
+    .map((s) => {
+      if (s.kind === "text") return escapeHtml(s.text);
+      if (s.kind === "link") {
+        return `<a class="card-meta-tag-link" href="${escapeHtml(s.href)}" rel="noopener noreferrer">${escapeHtml(s.label)}</a>`;
+      }
+      return "";
+    })
+    .join("");
+  return `<p class="card-meta-line">${inner}</p>`;
+}
+
+function scientificNameMetaHtml(obs) {
+  const t = obs && obs.taxon;
+  const sci = t && typeof t.name === "string" ? t.name.trim() : "";
+  if (!sci) return "";
+  return `<p class="card-meta-line card-meta-line--sci"><em>${escapeHtml(sci)}</em></p>`;
+}
+
+/** Batch: which of these taxon IDs appear on the global invasive reference list. */
+async function fetchTaxonIdsOnInvasiveList(taxonIds) {
+  const out = new Set();
+  const uniq = [...new Set(taxonIds.filter((id) => Number.isFinite(id) && id > 0))];
+  const chunk = 200;
+  for (let i = 0; i < uniq.length; i += chunk) {
+    const slice = uniq.slice(i, i + chunk);
+    const p = new URLSearchParams();
+    p.set("id", slice.join(","));
+    p.set("list_id", String(INVASIVE_LIST_ID));
+    p.set("per_page", String(chunk));
+    try {
+      const res = await fetch(`${API}/taxa?${p.toString()}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const t of data.results || []) {
+        if (t && t.id != null) out.add(Number(t.id));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return out;
 }
 
 function observationLocationLine(obs) {
@@ -526,68 +590,84 @@ function observationLocationLine(obs) {
   return "";
 }
 
-function observationMetaLines(obs) {
+function observationMetaHtmlParts(obs, invasiveSet) {
   const o = getCardMetaOptions();
-  const lines = [];
+  const parts = [];
   if (o.faves) {
     const n = obs.faves_count;
     const c = n == null ? 0 : Number(n);
-    if (c > 0) lines.push(c === 1 ? "1 favorite" : `${c} favorites`);
+    if (c > 0) {
+      const t = c === 1 ? "1 favorite" : `${c} favorites`;
+      parts.push(`<p class="card-meta-line">${escapeHtml(t)}</p>`);
+    }
   }
   if (o.location) {
     const loc = observationLocationLine(obs);
-    if (loc) lines.push(loc);
+    if (loc) parts.push(`<p class="card-meta-line">${escapeHtml(loc)}</p>`);
   }
   if (o.nativeStatus) {
-    const ns = formatNativeStatusLine(obs);
-    if (ns) lines.push(ns);
+    const segs = nativeStatusMetaSegments(obs, invasiveSet);
+    const h = renderMetaSegmentsHtml(segs);
+    if (h) parts.push(h);
   }
   if (o.grade) {
     const gl = formatQualityGradeLabel(obs.quality_grade);
-    if (gl) lines.push(gl);
+    if (gl) parts.push(`<p class="card-meta-line">${escapeHtml(gl)}</p>`);
   }
-  return lines;
+  if (o.sciName) {
+    const sh = scientificNameMetaHtml(obs);
+    if (sh) parts.push(sh);
+  }
+  return parts;
 }
 
-function speciesMetaLines(row) {
+function speciesMetaParts(row) {
   const o = getCardMetaOptions();
-  const lines = [];
+  const parts = [];
   if (o.speciesCount) {
     const c = row.count == null ? 0 : Number(row.count);
-    lines.push(c === 1 ? "1 observation" : `${c} observations`);
+    const t = c === 1 ? "1 observation" : `${c} observations`;
+    parts.push(`<p class="card-meta-line">${escapeHtml(t)}</p>`);
   }
-  return lines;
+  if (o.sciName) {
+    const taxon = row.taxon || {};
+    const sci = typeof taxon.name === "string" ? taxon.name.trim() : "";
+    if (sci) parts.push(`<p class="card-meta-line card-meta-line--sci"><em>${escapeHtml(sci)}</em></p>`);
+  }
+  return parts;
 }
 
-function renderCard({ href, name, imageUrl, metaLines = [], onClick }) {
+function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick }) {
   const card = document.createElement("article");
   card.className = "card";
-  const metaBlock = metaLines.length
-    ? metaLines.map((line) => `<p class="card-meta-line">${escapeHtml(line)}</p>`).join("")
-    : "";
+  const metaBlock = metaParts != null
+    ? metaParts.join("")
+    : metaLines.length
+      ? metaLines.map((line) => `<p class="card-meta-line">${escapeHtml(line)}</p>`).join("")
+      : "";
+  const imgBlock = imageUrl ? `<img src="${imageUrl}" alt="" loading="lazy" />` : `<div class="no-photo">No photo</div>`;
   if (onClick) {
     card.innerHTML = `
-      <a href="${href}" role="button" style="cursor:pointer">
-        ${imageUrl ? `<img src="${imageUrl}" alt="" loading="lazy" />` : `<div class="no-photo">No photo</div>`}
-        <div class="card-bottom">
-          ${metaBlock}
-          <p class="card-title-overlay">${escapeHtml(name)}</p>
-        </div>
+      <a href="${href}" class="card-link" role="button" style="cursor:pointer">
+        ${imgBlock}
       </a>
+      <div class="card-bottom">
+        ${metaBlock}
+        <p class="card-title-overlay">${escapeHtml(name)}</p>
+      </div>
     `;
-    card.querySelector("a").addEventListener("click", (e) => { e.preventDefault(); onClick(); });
+    card.querySelector("a.card-link").addEventListener("click", (e) => { e.preventDefault(); onClick(); });
   } else {
     card.innerHTML = `
-      <a href="${href}" rel="noopener noreferrer">
-        ${imageUrl ? `<img src="${imageUrl}" alt="" loading="lazy" />` : `<div class="no-photo">No photo</div>`}
-        <div class="card-bottom">
-          ${metaBlock}
-          <p class="card-title-overlay">${escapeHtml(name)}</p>
-        </div>
+      <a href="${href}" class="card-link" rel="noopener noreferrer">
+        ${imgBlock}
       </a>
+      <div class="card-bottom">
+        ${metaBlock}
+        <p class="card-title-overlay">${escapeHtml(name)}</p>
+      </div>
     `;
-    const link = card.querySelector("a");
-    link.addEventListener("click", (e) => navigateFromCardClick(e, href));
+    card.querySelector("a.card-link").addEventListener("click", (e) => navigateFromCardClick(e, href));
   }
   return card;
 }
@@ -629,6 +709,17 @@ async function runObservationSearch(reset) {
       })();
     }
 
+    const metaOpts = getCardMetaOptions();
+    let invasiveSet = null;
+    if (metaOpts.nativeStatus) {
+      const introducedIds = [];
+      for (const obs of results) {
+        const t = obs.taxon;
+        if (t && t.native === false && t.id != null) introducedIds.push(Number(t.id));
+      }
+      invasiveSet = await fetchTaxonIdsOnInvasiveList(introducedIds);
+    }
+
     const frag = document.createDocumentFragment();
     for (const obs of results) {
       const name = obs.taxon?.preferred_common_name || obs.taxon?.name || obs.species_guess || "Unknown";
@@ -637,7 +728,7 @@ async function runObservationSearch(reset) {
         href: `https://www.inaturalist.org/observations/${obs.id}`,
         name,
         imageUrl,
-        metaLines: observationMetaLines(obs),
+        metaParts: observationMetaHtmlParts(obs, invasiveSet),
       }));
     }
     el.resultsGrid.appendChild(frag);
@@ -701,7 +792,7 @@ async function runSpeciesSearch(reset) {
         href: `https://www.inaturalist.org/taxa/${taxon.id || ""}`,
         name,
         imageUrl,
-        metaLines: speciesMetaLines(row),
+        metaParts: speciesMetaParts(row),
         onClick: () => showSpeciesDetail(taxon, row.count),
       }));
     }
@@ -1602,6 +1693,7 @@ function wireFilterExtras() {
   el.metaLocation.addEventListener("change", onMeta);
   el.metaNativeStatus.addEventListener("change", onMeta);
   el.metaGrade.addEventListener("change", onMeta);
+  el.metaSciName.addEventListener("change", onMeta);
 }
 
 function wireButtons() {
@@ -1632,6 +1724,7 @@ function wireButtons() {
     el.metaLocation.checked = false;
     el.metaNativeStatus.checked = false;
     el.metaGrade.checked = false;
+    el.metaSciName.checked = false;
     el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
       x.checked = false;
     });

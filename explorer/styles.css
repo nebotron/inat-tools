@@ -319,7 +319,18 @@ main {
   contain-intrinsic-size: 360px 360px;
 }
 
-.card a {
+.card a.card-link {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card a:not(.card-link) {
   display: block;
   width: 100%;
   height: 100%;
@@ -350,8 +361,10 @@ main {
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: 1;
   padding: 0.45rem 0.5rem 0.5rem;
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
+  pointer-events: none;
 }
 
 .card-meta-line {
@@ -361,6 +374,17 @@ main {
   font-weight: 500;
   line-height: 1.25;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+}
+
+.card-meta-line a.card-meta-tag-link {
+  pointer-events: auto;
+  color: #c8f5dc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.card-meta-line a.card-meta-tag-link:hover {
+  color: #fff;
 }
 
 .card-title-overlay {
