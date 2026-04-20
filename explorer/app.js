@@ -1,8 +1,46 @@
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
-/** iNaturalist list: "100 of the World's Worst Invasive Alien Species" — used to flag introduced taxa that appear on this list. */
-const INVASIVE_LIST_ID = 4428463;
-const INVASIVE_LIST_URL = `https://www.inaturalist.org/lists/${INVASIVE_LIST_ID}`;
+/** Wild Spotter “What to Look For” — invasive reference; see `wildspotter-invasive.json` (iNat taxon IDs matched from Wild Spotter scientific names). */
+const WILD_SPOTTER_WHAT_URL = "https://www.wildspotter.org/what-to-look-for.cfm";
+
+/** Set of iNaturalist taxon IDs from Wild Spotter list snapshot; loaded lazily from `wildspotter-invasive.json`. */
+let wildspotterInvasiveTaxonIds = null;
+
+async function ensureWildspotterInvasiveTaxonSet() {
+  if (wildspotterInvasiveTaxonIds !== null) return wildspotterInvasiveTaxonIds;
+  try {
+    const url = new URL("./wildspotter-invasive.json", import.meta.url);
+    const res = await fetch(url.href);
+    if (!res.ok) {
+      wildspotterInvasiveTaxonIds = new Set();
+      return wildspotterInvasiveTaxonIds;
+    }
+    const data = await res.json();
+    const ids = new Set(
+      (data.taxonIds || [])
+        .map((id) => Number(id))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    );
+    wildspotterInvasiveTaxonIds = ids;
+    return ids;
+  } catch {
+    wildspotterInvasiveTaxonIds = new Set();
+    return wildspotterInvasiveTaxonIds;
+  }
+}
+
+/** True if this taxon or any ancestor is in the Wild Spotter invasive snapshot. */
+function taxonMatchesWildspotterInvasive(taxon, invasiveIdSet) {
+  if (!invasiveIdSet || invasiveIdSet.size === 0 || !taxon || typeof taxon !== "object") return false;
+  const tid = taxon.id != null ? Number(taxon.id) : NaN;
+  if (!Number.isNaN(tid) && invasiveIdSet.has(tid)) return true;
+  const ac = Array.isArray(taxon.ancestor_ids) ? taxon.ancestor_ids : [];
+  for (const aid of ac) {
+    const n = Number(aid);
+    if (Number.isFinite(n) && invasiveIdSet.has(n)) return true;
+  }
+  return false;
+}
 const SPECIES_PER_PAGE = 60;
 /** iNaturalist caps `per_page` at 200; above this we show the density grid instead of pins. */
 const MAP_PIN_THRESHOLD = 200;
@@ -512,21 +550,20 @@ function formatQualityGradeLabel(qg) {
 /**
  * From observation.taxon (iNaturalist API): `native`, `endemic` booleans.
  * Endemic ⊂ native; introduced is inferred when `native` is false.
- * When introduced and the taxon is on the invasive list, append a linked "Invasive" tag.
+ * When introduced and the taxon matches Wild Spotter’s list (snapshot), append a linked "Invasive" tag.
  */
 function nativeStatusMetaSegments(obs, invasiveSet) {
   const t = obs && obs.taxon;
   if (!t || typeof t !== "object") return [];
-  const taxonId = t.id != null ? Number(t.id) : NaN;
   const endemic = t.endemic === true;
   const native = t.native === true;
   if (endemic) return [{ kind: "text", text: "Endemic" }];
   if (native) return [{ kind: "text", text: "Native" }];
   if (t.native === false) {
     const segs = [{ kind: "text", text: "Introduced" }];
-    if (!Number.isNaN(taxonId) && invasiveSet && invasiveSet.has(taxonId)) {
+    if (taxonMatchesWildspotterInvasive(t, invasiveSet)) {
       segs.push({ kind: "text", text: " · " });
-      segs.push({ kind: "link", label: "Invasive", href: INVASIVE_LIST_URL });
+      segs.push({ kind: "link", label: "Invasive", href: WILD_SPOTTER_WHAT_URL });
     }
     return segs;
   }
@@ -552,31 +589,6 @@ function scientificNameMetaHtml(obs) {
   const sci = t && typeof t.name === "string" ? t.name.trim() : "";
   if (!sci) return "";
   return `<p class="card-meta-line card-meta-line--sci"><em>${escapeHtml(sci)}</em></p>`;
-}
-
-/** Batch: which of these taxon IDs appear on the global invasive reference list. */
-async function fetchTaxonIdsOnInvasiveList(taxonIds) {
-  const out = new Set();
-  const uniq = [...new Set(taxonIds.filter((id) => Number.isFinite(id) && id > 0))];
-  const chunk = 200;
-  for (let i = 0; i < uniq.length; i += chunk) {
-    const slice = uniq.slice(i, i + chunk);
-    const p = new URLSearchParams();
-    p.set("id", slice.join(","));
-    p.set("list_id", String(INVASIVE_LIST_ID));
-    p.set("per_page", String(chunk));
-    try {
-      const res = await fetch(`${API}/taxa?${p.toString()}`);
-      if (!res.ok) continue;
-      const data = await res.json();
-      for (const t of data.results || []) {
-        if (t && t.id != null) out.add(Number(t.id));
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return out;
 }
 
 function observationLocationLine(obs) {
@@ -712,12 +724,7 @@ async function runObservationSearch(reset) {
     const metaOpts = getCardMetaOptions();
     let invasiveSet = null;
     if (metaOpts.nativeStatus) {
-      const introducedIds = [];
-      for (const obs of results) {
-        const t = obs.taxon;
-        if (t && t.native === false && t.id != null) introducedIds.push(Number(t.id));
-      }
-      invasiveSet = await fetchTaxonIdsOnInvasiveList(introducedIds);
+      invasiveSet = await ensureWildspotterInvasiveTaxonSet();
     }
 
     const frag = document.createDocumentFragment();
