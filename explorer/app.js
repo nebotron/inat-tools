@@ -2526,4 +2526,21 @@ async function boot() {
   await switchView(currentView);
 }
 
+/**
+ * When the browser restores this page from the back-forward cache (mobile Safari / WebView),
+ * JavaScript state and the DOM can still reflect the *previous* visit while `location` already
+ * matches the new shared link. Re-read the URL and reload the active view so the UI matches the address bar.
+ */
+async function resyncAppFromCurrentUrlAfterBfcache() {
+  readUrl();
+  await hydrateSelections();
+  lastMapFilterKey = null;
+  await switchView(currentView);
+}
+
+window.addEventListener("pageshow", (e) => {
+  if (!e.persisted) return;
+  void resyncAppFromCurrentUrlAfterBfcache();
+});
+
 boot();
