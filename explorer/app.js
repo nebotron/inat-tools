@@ -1,7 +1,5 @@
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
-/** Wild Spotter “What to Look For” — invasive reference; see `wildspotter-invasive.json` (iNat taxon IDs matched from Wild Spotter scientific names). */
-const WILD_SPOTTER_WHAT_URL = "https://www.wildspotter.org/what-to-look-for.cfm";
 
 /** Opens the taxon in the iNaturalist mobile app when installed (falls back to website on desktop). */
 function inaturalistTaxonAppUrl(taxonId) {
@@ -10,43 +8,110 @@ function inaturalistTaxonAppUrl(taxonId) {
   return `inaturalist://taxa/${id}`;
 }
 
-/** Set of iNaturalist taxon IDs from Wild Spotter list snapshot; loaded lazily from `wildspotter-invasive.json`. */
-let wildspotterInvasiveTaxonIds = null;
+/**
+ * Lazy-loaded King County noxious-weed data: full taxon id set, per-id class + href, and hawkweed subgenus links.
+ * @type {{
+ *   allIds: Set<number>,
+ *   byTaxonId: Map<number, { weedClass: string, href: string }>,
+ *   meadowHawkweedGenusId: number,
+ *   wallHawkweedGenusId: number,
+ *   autumnHawkweedTaxonIds: Set<number>,
+ *   meadowHawkweedHref: string,
+ *   wallHawkweedHref: string,
+ * } | null}
+ */
+let kingCountyNoxiousData = null;
 
-async function ensureWildspotterInvasiveTaxonSet() {
-  if (wildspotterInvasiveTaxonIds !== null) return wildspotterInvasiveTaxonIds;
+async function ensureKingCountyNoxiousData() {
+  if (kingCountyNoxiousData !== null) return kingCountyNoxiousData;
   try {
-    const url = new URL("./wildspotter-invasive.json", import.meta.url);
+    const url = new URL("./king-county-noxious-weeds.json", import.meta.url);
     const res = await fetch(url.href);
     if (!res.ok) {
-      wildspotterInvasiveTaxonIds = new Set();
-      return wildspotterInvasiveTaxonIds;
+      kingCountyNoxiousData = {
+        allIds: new Set(),
+        byTaxonId: new Map(),
+        meadowHawkweedGenusId: 203680,
+        wallHawkweedGenusId: 55910,
+        autumnHawkweedTaxonIds: new Set([163800]),
+        meadowHawkweedHref:
+          "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/meadow-hawkweed-subgenus",
+        wallHawkweedHref:
+          "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wall-hawkweed-subgenus",
+      };
+      return kingCountyNoxiousData;
     }
     const data = await res.json();
-    const ids = new Set(
-      (data.taxonIds || [])
-        .map((id) => Number(id))
-        .filter((n) => Number.isFinite(n) && n > 0)
-    );
-    wildspotterInvasiveTaxonIds = ids;
-    return ids;
+    const taxa = Array.isArray(data.taxa) ? data.taxa : [];
+    const allIds = new Set();
+    const byTaxonId = new Map();
+    let meadowHref = "";
+    let wallHref = "";
+    for (const row of taxa) {
+      const id = row.taxonId != null ? Number(row.taxonId) : NaN;
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const weedClass = typeof row.class === "string" ? row.class.trim().toUpperCase() : "";
+      const href = typeof row.href === "string" ? row.href.trim() : "";
+      if (weedClass !== "A" && weedClass !== "B" && weedClass !== "C") continue;
+      if (!href) continue;
+      allIds.add(id);
+      byTaxonId.set(id, { weedClass, href });
+      const sci = typeof row.scientificName === "string" ? row.scientificName : "";
+      if (sci.includes("subgenus Pilosella")) meadowHref = href;
+      if (sci.includes("subgenus Hieracium")) wallHref = href;
+    }
+    kingCountyNoxiousData = {
+      allIds,
+      byTaxonId,
+      meadowHawkweedGenusId: 203680,
+      wallHawkweedGenusId: 55910,
+      autumnHawkweedTaxonIds: new Set([163800]),
+      meadowHawkweedHref: meadowHref || "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/meadow-hawkweed-subgenus",
+      wallHawkweedHref: wallHref || "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wall-hawkweed-subgenus",
+    };
+    return kingCountyNoxiousData;
   } catch {
-    wildspotterInvasiveTaxonIds = new Set();
-    return wildspotterInvasiveTaxonIds;
+    kingCountyNoxiousData = {
+      allIds: new Set(),
+      byTaxonId: new Map(),
+      meadowHawkweedGenusId: 203680,
+      wallHawkweedGenusId: 55910,
+      autumnHawkweedTaxonIds: new Set([163800]),
+      meadowHawkweedHref:
+        "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/meadow-hawkweed-subgenus",
+      wallHawkweedHref:
+        "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wall-hawkweed-subgenus",
+    };
+    return kingCountyNoxiousData;
   }
 }
 
-/** True if this taxon or any ancestor is in the Wild Spotter invasive snapshot. */
-function taxonMatchesWildspotterInvasive(taxon, invasiveIdSet) {
-  if (!invasiveIdSet || invasiveIdSet.size === 0 || !taxon || typeof taxon !== "object") return false;
+/**
+ * King County noxious match for this taxon (including genus-level hawkweed rules), or null.
+ * @param {object | null | undefined} taxon
+ * @param {Awaited<ReturnType<typeof ensureKingCountyNoxiousData>>} kc
+ */
+function kingCountyNoxiousMatchForTaxon(taxon, kc) {
+  if (!kc || !kc.byTaxonId.size || !taxon || typeof taxon !== "object") return null;
   const tid = taxon.id != null ? Number(taxon.id) : NaN;
-  if (!Number.isNaN(tid) && invasiveIdSet.has(tid)) return true;
-  const ac = Array.isArray(taxon.ancestor_ids) ? taxon.ancestor_ids : [];
-  for (const aid of ac) {
-    const n = Number(aid);
-    if (Number.isFinite(n) && invasiveIdSet.has(n)) return true;
+  if (!Number.isNaN(tid) && kc.byTaxonId.has(tid)) return kc.byTaxonId.get(tid);
+  const ancestors = Array.isArray(taxon.ancestor_ids) ? taxon.ancestor_ids : [];
+  const autumn = kc.autumnHawkweedTaxonIds || new Set();
+  const isAutumnHawkweed =
+    autumn.has(tid) || ancestors.some((a) => autumn.has(Number(a)));
+  for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+    const aid = Number(ancestors[i]);
+    if (!Number.isFinite(aid)) continue;
+    if (aid === kc.meadowHawkweedGenusId) {
+      return { weedClass: "B", href: kc.meadowHawkweedHref };
+    }
+    if (aid === kc.wallHawkweedGenusId) {
+      if (isAutumnHawkweed) continue;
+      return { weedClass: "B", href: kc.wallHawkweedHref };
+    }
+    if (kc.byTaxonId.has(aid)) return kc.byTaxonId.get(aid);
   }
-  return false;
+  return null;
 }
 const SPECIES_PER_PAGE = 60;
 /** iNaturalist caps `per_page` at 200; above this we show the density grid instead of pins. */
@@ -116,6 +181,7 @@ const el = {
   nearbyControls: document.getElementById("nearby-controls"),
   lat: document.getElementById("lat"),
   lng: document.getElementById("lng"),
+  filterNativeStatus: document.getElementById("filter-native-status"),
   qualityGrade: document.getElementById("quality-grade"),
   sortMode: document.getElementById("sort-mode"),
   mediaPhotos: document.getElementById("media-photos"),
@@ -398,10 +464,49 @@ function formatCardMetaQuery() {
   return parts.join(",");
 }
 
-function commonParams() {
+function getEstablishmentFilter() {
+  const sel = el.filterNativeStatus;
+  const v = sel && sel.value ? sel.value : "any";
+  if (v === "native" || v === "introduced" || v === "invasive") return v;
+  return "any";
+}
+
+/**
+ * @param {object} [options]
+ * @param {"list"|"species_counts"} [options.establishmentMode]
+ * @param {string} [options.kingCountyTaxonIdsCsv] comma-separated iNat taxon IDs from the King County list (precomputed when async context has already loaded KC data)
+ */
+function commonParams(options = {}) {
+  const establishmentMode = options.establishmentMode || "list";
+  const kcCsv = options.kingCountyTaxonIdsCsv != null ? options.kingCountyTaxonIdsCsv : "";
+  const ef = getEstablishmentFilter();
+
   const p = new URLSearchParams();
-  const tid = el.taxonId.value.trim();
-  if (tid) p.set("taxon_id", tid);
+  const userTid = el.taxonId.value.trim();
+
+  if (ef === "native") {
+    p.set("native", "true");
+    if (userTid) p.set("taxon_id", userTid);
+  } else if (ef === "introduced") {
+    p.set("introduced", "true");
+    if (userTid) p.set("taxon_id", userTid);
+    if (kcCsv) p.set("without_taxon_id", kcCsv);
+  } else if (ef === "invasive") {
+    if (kcCsv) {
+      p.set("taxon_id", kcCsv);
+    } else if (userTid) {
+      p.set("taxon_id", userTid);
+    } else {
+      p.set("invasive", "true");
+    }
+    if (establishmentMode === "species_counts") {
+      p.set("introduced", "true");
+    } else if (kcCsv || userTid) {
+      p.set("invasive", "true");
+    }
+  } else if (userTid) {
+    p.set("taxon_id", userTid);
+  }
 
   const userLogin = el.userLogin.value.trim().toLowerCase();
   if (userLogin) p.set("user_login", userLogin);
@@ -449,8 +554,14 @@ function commonParams() {
   return p;
 }
 
-function observationParams(page) {
-  const p = commonParams();
+function joinKingCountyTaxonIdsCsv(kc) {
+  if (!kc || !kc.allIds || kc.allIds.size === 0) return "";
+  return [...kc.allIds].sort((a, b) => a - b).join(",");
+}
+
+async function observationParams(page) {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.set("page", String(page));
   p.set("per_page", String(OBS_PER_PAGE));
   if (el.sortMode.value === "faves") {
@@ -488,8 +599,9 @@ function sortObservationResultsForDisplay(results) {
   });
 }
 
-function speciesParams(page) {
-  const p = commonParams();
+async function speciesParams(page) {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.set("page", String(page));
   p.set("per_page", String(SPECIES_PER_PAGE));
   p.set("order", "desc");
@@ -497,21 +609,22 @@ function speciesParams(page) {
   return p;
 }
 
-function observationCountParams() {
-  const p = observationParams(1);
+async function observationCountParams() {
+  const p = await observationParams(1);
   p.set("per_page", "1");
   return p;
 }
 
-function speciesCountParams() {
-  const p = speciesParams(1);
+async function speciesCountParams() {
+  const p = await speciesParams(1);
   p.set("per_page", "1");
   return p;
 }
 
 /** Same query scope as `GET /observations/species_counts` for a taxon (list ordering params). */
-function speciesFilterParams(taxonId) {
-  const p = commonParams();
+async function speciesFilterParams(taxonId) {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.set("taxon_id", String(taxonId));
   p.set("order_by", "count");
   p.set("order", "desc");
@@ -525,8 +638,8 @@ function speciesFilterParams(taxonId) {
  * iNaturalist does not return per-month arrays on the species_counts response;
  * histogram is the supported aggregate for this chart.
  */
-function monthOfYearHistogramParams(taxonId) {
-  const p = speciesFilterParams(taxonId);
+async function monthOfYearHistogramParams(taxonId) {
+  const p = await speciesFilterParams(taxonId);
   p.delete("order_by");
   p.delete("order");
   p.delete("month");
@@ -557,9 +670,9 @@ function formatQualityGradeLabel(qg) {
 /**
  * From observation.taxon (iNaturalist API): `native`, `endemic` booleans.
  * Endemic ⊂ native; introduced is inferred when `native` is false.
- * When introduced and the taxon matches Wild Spotter’s list (snapshot), append a linked "Invasive" tag.
+ * When introduced and the taxon matches the King County noxious weed list, append a linked "Invasive (Class X)" tag.
  */
-function nativeStatusMetaSegmentsForTaxon(taxon, invasiveSet) {
+function nativeStatusMetaSegmentsForTaxon(taxon, kcData) {
   const t = taxon;
   if (!t || typeof t !== "object") return [];
   const endemic = t.endemic === true;
@@ -568,17 +681,20 @@ function nativeStatusMetaSegmentsForTaxon(taxon, invasiveSet) {
   if (native) return [{ kind: "text", text: "Native" }];
   if (t.native === false) {
     const segs = [{ kind: "text", text: "Introduced" }];
-    if (taxonMatchesWildspotterInvasive(t, invasiveSet)) {
+    const match = kingCountyNoxiousMatchForTaxon(t, kcData);
+    if (match && match.href) {
+      const wc = match.weedClass;
+      const label = wc ? `Invasive (Class ${wc})` : "Invasive";
       segs.push({ kind: "text", text: " · " });
-      segs.push({ kind: "link", label: "Invasive", href: WILD_SPOTTER_WHAT_URL });
+      segs.push({ kind: "link", label, href: match.href });
     }
     return segs;
   }
   return [];
 }
 
-function nativeStatusMetaSegments(obs, invasiveSet) {
-  return nativeStatusMetaSegmentsForTaxon(obs && obs.taxon, invasiveSet);
+function nativeStatusMetaSegments(obs, kcData) {
+  return nativeStatusMetaSegmentsForTaxon(obs && obs.taxon, kcData);
 }
 
 /**
@@ -589,10 +705,13 @@ async function fetchObservationTaxonById(taxonIds) {
   const uniq = [...new Set(taxonIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))];
   if (!uniq.length) return map;
 
+  const kc = await ensureKingCountyNoxiousData();
+  const kcCsv = joinKingCountyTaxonIdsCsv(kc);
+
   const chunkSize = 25;
   for (let i = 0; i < uniq.length; i += chunkSize) {
     const slice = uniq.slice(i, i + chunkSize);
-    const p = commonParams();
+    const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: kcCsv });
     p.set("taxon_id", slice.join(","));
     p.set("per_page", "200");
     p.set("page", "1");
@@ -616,7 +735,7 @@ async function fetchObservationTaxonById(taxonIds) {
 
   const missing = uniq.filter((id) => !map.has(id));
   for (const tid of missing) {
-    const p = commonParams();
+    const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: kcCsv });
     p.set("taxon_id", String(tid));
     p.set("per_page", "1");
     p.set("page", "1");
@@ -667,7 +786,7 @@ function observationLocationLine(obs) {
   return "";
 }
 
-function observationMetaHtmlParts(obs, invasiveSet) {
+function observationMetaHtmlParts(obs, kcData) {
   const o = getCardMetaOptions();
   const parts = [];
   if (o.faves) {
@@ -683,7 +802,7 @@ function observationMetaHtmlParts(obs, invasiveSet) {
     if (loc) parts.push(`<p class="card-meta-line">${escapeHtml(loc)}</p>`);
   }
   if (o.nativeStatus) {
-    const segs = nativeStatusMetaSegments(obs, invasiveSet);
+    const segs = nativeStatusMetaSegments(obs, kcData);
     const h = renderMetaSegmentsHtml(segs);
     if (h) parts.push(h);
   }
@@ -698,7 +817,7 @@ function observationMetaHtmlParts(obs, invasiveSet) {
   return parts;
 }
 
-function speciesMetaParts(row, obsTaxonById, invasiveSet) {
+function speciesMetaParts(row, obsTaxonById, kcData) {
   const o = getCardMetaOptions();
   const parts = [];
   if (o.speciesCount) {
@@ -710,7 +829,7 @@ function speciesMetaParts(row, obsTaxonById, invasiveSet) {
     const taxon = row.taxon || {};
     const tid = taxon.id != null ? Number(taxon.id) : NaN;
     const statusTaxon = !Number.isNaN(tid) && obsTaxonById ? obsTaxonById.get(tid) : null;
-    const segs = nativeStatusMetaSegmentsForTaxon(statusTaxon, invasiveSet);
+    const segs = nativeStatusMetaSegmentsForTaxon(statusTaxon, kcData);
     const h = renderMetaSegmentsHtml(segs);
     if (h) parts.push(h);
   }
@@ -771,7 +890,7 @@ async function runObservationSearch(reset) {
       el.resultsGrid.innerHTML = "";
     }
 
-    const listUrl = `${API}/observations?${observationParams(obsPage).toString()}`;
+    const listUrl = `${API}/observations?${(await observationParams(obsPage)).toString()}`;
     const listPromise = fetch(listUrl);
 
     const res = await listPromise;
@@ -783,7 +902,7 @@ async function runObservationSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const sRes = await fetch(`${API}/observations/species_counts?${speciesCountParams().toString()}`);
+          const sRes = await fetch(`${API}/observations/species_counts?${(await speciesCountParams()).toString()}`);
           if (!sRes.ok) return;
           const sData = await sRes.json();
           totalSpecies = sData.total_results || 0;
@@ -795,9 +914,9 @@ async function runObservationSearch(reset) {
     }
 
     const metaOpts = getCardMetaOptions();
-    let invasiveSet = null;
+    let kcData = null;
     if (metaOpts.nativeStatus) {
-      invasiveSet = await ensureWildspotterInvasiveTaxonSet();
+      kcData = await ensureKingCountyNoxiousData();
     }
 
     const frag = document.createDocumentFragment();
@@ -808,7 +927,7 @@ async function runObservationSearch(reset) {
         href: `https://www.inaturalist.org/observations/${obs.id}`,
         name,
         imageUrl,
-        metaParts: observationMetaHtmlParts(obs, invasiveSet),
+        metaParts: observationMetaHtmlParts(obs, kcData),
       }));
     }
     el.resultsGrid.appendChild(frag);
@@ -840,7 +959,7 @@ async function runSpeciesSearch(reset) {
       el.speciesGrid.innerHTML = "";
     }
 
-    const listUrl = `${API}/observations/species_counts?${speciesParams(speciesPage).toString()}`;
+    const listUrl = `${API}/observations/species_counts?${(await speciesParams(speciesPage)).toString()}`;
     const listPromise = fetch(listUrl);
 
     const res = await listPromise;
@@ -852,7 +971,7 @@ async function runSpeciesSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const oRes = await fetch(`${API}/observations?${observationCountParams().toString()}`);
+          const oRes = await fetch(`${API}/observations?${(await observationCountParams()).toString()}`);
           if (!oRes.ok) return;
           const oData = await oRes.json();
           totalObs = oData.total_results || 0;
@@ -864,10 +983,10 @@ async function runSpeciesSearch(reset) {
     }
 
     const metaOpts = getCardMetaOptions();
-    let invasiveSet = null;
+    let kcData = null;
     let obsTaxonById = null;
     if (metaOpts.nativeStatus) {
-      invasiveSet = await ensureWildspotterInvasiveTaxonSet();
+      kcData = await ensureKingCountyNoxiousData();
       const ids = results.map((r) => r.taxon && r.taxon.id).filter((id) => id != null);
       obsTaxonById = await fetchObservationTaxonById(ids);
     }
@@ -881,7 +1000,7 @@ async function runSpeciesSearch(reset) {
         href: `https://www.inaturalist.org/taxa/${taxon.id || ""}`,
         name,
         imageUrl,
-        metaParts: speciesMetaParts(row, obsTaxonById, invasiveSet),
+        metaParts: speciesMetaParts(row, obsTaxonById, kcData),
         onClick: () => showSpeciesDetail(taxon, row.count),
       }));
     }
@@ -1058,8 +1177,9 @@ function clearMapOverlays() {
   removeHeatLayer();
 }
 
-function mapAreaParams() {
-  const p = commonParams();
+async function mapAreaParams() {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("place_id");
   p.delete("lat");
   p.delete("lng");
@@ -1123,8 +1243,9 @@ function installHeatGridLayer(url, onReady) {
   setTimeout(swap, 4000);
 }
 
-function mapFilterKey() {
-  const p = commonParams();
+async function mapFilterKey() {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("place_id");
   p.delete("lat");
   p.delete("lng");
@@ -1137,7 +1258,7 @@ function mapFilterKey() {
 async function runMapSearch(forceRecheck) {
   ensureMap();
 
-  const filterKey = mapFilterKey();
+  const filterKey = await mapFilterKey();
   const filtersChanged = filterKey !== lastMapFilterKey;
   lastMapFilterKey = filterKey;
 
@@ -1146,7 +1267,7 @@ async function runMapSearch(forceRecheck) {
   showError("map", "");
 
   try {
-    const area = mapAreaParams();
+    const area = await mapAreaParams();
     const countParams = new URLSearchParams(area);
     countParams.set("per_page", "1");
     countParams.set("page", "1");
@@ -1201,7 +1322,8 @@ async function runMapSearch(forceRecheck) {
     } else {
       if (seq !== mapSearchSeq) return;
       mapMode = "heat";
-      const heatParams = commonParams();
+      const kcHeat = await ensureKingCountyNoxiousData();
+      const heatParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcHeat) });
       const url = `${API}/grid/{z}/{x}/{y}.png?${heatParams}`; /* density grid tiles (not colored_heatmap) */
       installHeatGridLayer(url, () => clearMapPins());
     }
@@ -1330,6 +1452,10 @@ function syncUrl() {
   if (el.popularOnly.checked) q.set("popular", "1");
   else q.delete("popular");
 
+  const establish = el.filterNativeStatus && el.filterNativeStatus.value ? el.filterNativeStatus.value : "any";
+  if (establish && establish !== "any") q.set("establish", establish);
+  else q.delete("establish");
+
   if (currentView != "filters") {
     q.set("view", currentView);
   } else {
@@ -1393,6 +1519,11 @@ function readUrl() {
   applyMediaFromQuery(q);
   el.uploadedDays.value = q.get("days") || "";
   el.popularOnly.checked = q.get("popular") === "1";
+
+  if (el.filterNativeStatus) {
+    const es = q.get("establish");
+    el.filterNativeStatus.value = es === "native" || es === "introduced" || es === "invasive" ? es : "any";
+  }
 
   const dtid = q.get("detail_taxon");
   if (dtid) detailTaxonId = dtid;
@@ -1739,7 +1870,10 @@ function scheduleUrlSync() {
 function refreshResultPanelsIfMetaChanged() {
   if (currentView === "observations") void runObservationSearch(true);
   else if (currentView === "species") void runSpeciesSearch(true);
-  else scheduleUrlSync();
+  else if (currentView === "map") {
+    lastMapFilterKey = null;
+    void runMapSearch(true);
+  } else scheduleUrlSync();
 }
 
 function wireFilterExtras() {
@@ -1783,6 +1917,13 @@ function wireFilterExtras() {
   el.metaNativeStatus.addEventListener("change", onMeta);
   el.metaGrade.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
+
+  if (el.filterNativeStatus) {
+    el.filterNativeStatus.addEventListener("change", () => {
+      lastMapFilterKey = null;
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
 }
 
 function wireButtons() {
@@ -1814,6 +1955,7 @@ function wireButtons() {
     el.metaNativeStatus.checked = false;
     el.metaGrade.checked = false;
     el.metaSciName.checked = false;
+    if (el.filterNativeStatus) el.filterNativeStatus.value = "any";
     el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
       x.checked = false;
     });
@@ -1986,14 +2128,15 @@ async function showSpeciesDetail(taxon, obsCount) {
     </div>
   `;
 
-  const hourSampleParams = commonParams();
+  const kcDetail = await ensureKingCountyNoxiousData();
+  const hourSampleParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcDetail) });
   hourSampleParams.set("taxon_id", String(taxon.id));
 
   const monthSection = document.getElementById("detail-month-section");
   const hourSection = document.getElementById("detail-hour-section");
 
   try {
-    const monthParams = monthOfYearHistogramParams(taxon.id);
+    const monthParams = await monthOfYearHistogramParams(taxon.id);
     const monthRes = await fetch(`${API}/observations/histogram?${monthParams}`);
     if (monthRes.ok) {
       const monthData = await monthRes.json();

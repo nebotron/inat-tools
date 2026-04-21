@@ -1,0 +1,798 @@
+{
+  "source": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/noxious-weeds-list",
+  "generated": "2026-04-21",
+  "entryCount": 113,
+  "taxa": [
+    {
+      "taxonId": 47406,
+      "scientificName": "Spartium junceum",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/rush-broom",
+      "inatName": "Spartium junceum"
+    },
+    {
+      "taxonId": 47779,
+      "scientificName": "Iris pseudacorus",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/yellow-flag-iris",
+      "inatName": "Iris pseudacorus"
+    },
+    {
+      "taxonId": 47888,
+      "scientificName": "Impatiens capensis",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/spotted-jewelweed",
+      "inatName": "Impatiens capensis"
+    },
+    {
+      "taxonId": 47892,
+      "scientificName": "Impatiens glandulifera",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/policemans-helmet",
+      "inatName": "Impatiens glandulifera"
+    },
+    {
+      "taxonId": 48152,
+      "scientificName": "Cynoglossum officinale",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/houndstongue",
+      "inatName": "Cynoglossum officinale"
+    },
+    {
+      "taxonId": 48538,
+      "scientificName": "Cytisus scoparius",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/scotch-broom",
+      "inatName": "Cytisus scoparius"
+    },
+    {
+      "taxonId": 49365,
+      "scientificName": "Carex pendula (ssp. pendula and ssp. agastachys)",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/hanging-sedge",
+      "inatName": null
+    },
+    {
+      "taxonId": 50790,
+      "scientificName": "Linaria vulgaris",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/yellow-toadflax",
+      "inatName": "Linaria vulgaris"
+    },
+    {
+      "taxonId": 51119,
+      "scientificName": "Nymphaea odorata",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/fragrant-water-lily",
+      "inatName": "Nymphaea odorata"
+    },
+    {
+      "taxonId": 51736,
+      "scientificName": "Impatiens parviflora",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/small-flowered-jewelweed",
+      "inatName": "Impatiens parviflora"
+    },
+    {
+      "taxonId": 51751,
+      "scientificName": "Ulex europaeus",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/gorse",
+      "inatName": "Ulex europaeus"
+    },
+    {
+      "taxonId": 52586,
+      "scientificName": "Silybum marianum",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/milk-thistle",
+      "inatName": "Silybum marianum"
+    },
+    {
+      "taxonId": 52588,
+      "scientificName": "Centaurea solstitialis",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/yellow-starthistle",
+      "inatName": "Centaurea solstitialis"
+    },
+    {
+      "taxonId": 52714,
+      "scientificName": "Cortaderia jubata",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/jubata-grass",
+      "inatName": "Cortaderia jubata"
+    },
+    {
+      "taxonId": 52989,
+      "scientificName": "Cirsium vulgare",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/bull-thistle",
+      "inatName": "Cirsium vulgare"
+    },
+    {
+      "taxonId": 52998,
+      "scientificName": "Conium maculatum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/poison-hemlock",
+      "inatName": "Conium maculatum"
+    },
+    {
+      "taxonId": 53021,
+      "scientificName": "Convolvulus arvensis",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/field-bindweed",
+      "inatName": "Convolvulus arvensis"
+    },
+    {
+      "taxonId": 53052,
+      "scientificName": "Foeniculum vulgare (excluding F. vulgare var. azoricum)",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-fennel",
+      "inatName": null
+    },
+    {
+      "taxonId": 53104,
+      "scientificName": "Hypochaeris radicata",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-catsear",
+      "inatName": "Hypochaeris radicata"
+    },
+    {
+      "taxonId": 53211,
+      "scientificName": "Senecio vulgaris",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-groundsel",
+      "inatName": "Senecio vulgaris"
+    },
+    {
+      "taxonId": 53403,
+      "scientificName": "Genista monspessulana",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/soft-broom",
+      "inatName": "Genista monspessulana"
+    },
+    {
+      "taxonId": 53856,
+      "scientificName": "Ilex aquifolium",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-holly",
+      "inatName": "Ilex aquifolium"
+    },
+    {
+      "taxonId": 54763,
+      "scientificName": "Acer platanoides",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/norway-maple",
+      "inatName": "Acer platanoides"
+    },
+    {
+      "taxonId": 55733,
+      "scientificName": "Chaerophyllum temulum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/rough-chervil",
+      "inatName": "Chaerophyllum temulum"
+    },
+    {
+      "taxonId": 55882,
+      "scientificName": "Hedera helix 'Baltica', Hedera helix 'Pittsburgh', Hedera helix 'Star'",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-ivy",
+      "inatName": null
+    },
+    {
+      "taxonId": 203680,
+      "scientificName": "Hieracium, subgenus Pilosella",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/meadow-hawkweed-subgenus",
+      "inatName": "Pilosella"
+    },
+    {
+      "taxonId": 55910,
+      "scientificName": "Hieracium, subgenus Hieracium (except Hieracium sabaudum)",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wall-hawkweed-subgenus",
+      "inatName": "Hieracium"
+    },
+    {
+      "taxonId": 55925,
+      "scientificName": "Geranium robertianum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/herb-robert",
+      "inatName": "Geranium robertianum"
+    },
+    {
+      "taxonId": 55971,
+      "scientificName": "Tanacetum vulgare",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-tansy",
+      "inatName": "Tanacetum vulgare"
+    },
+    {
+      "taxonId": 56002,
+      "scientificName": "Dipsacus fullonum",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-teasel",
+      "inatName": "Dipsacus fullonum"
+    },
+    {
+      "taxonId": 56015,
+      "scientificName": "Tamarix ramosissima",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/saltcedar",
+      "inatName": "Tamarix ramosissima"
+    },
+    {
+      "taxonId": 56061,
+      "scientificName": "Alliaria petiolata",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/garlic-mustard",
+      "inatName": "Alliaria petiolata"
+    },
+    {
+      "taxonId": 56077,
+      "scientificName": "Hypericum perforatum",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/st-johnswort",
+      "inatName": "Hypericum perforatum"
+    },
+    {
+      "taxonId": 56088,
+      "scientificName": "Robinia pseudoacacia",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/black-locust",
+      "inatName": "Robinia pseudoacacia"
+    },
+    {
+      "taxonId": 56174,
+      "scientificName": "Echium vulgare",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/blueweed",
+      "inatName": "Echium vulgare"
+    },
+    {
+      "taxonId": 56222,
+      "scientificName": "Tussilago farfara",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/tussilago",
+      "inatName": "Tussilago farfara"
+    },
+    {
+      "taxonId": 57278,
+      "scientificName": "Ailanthus altissima",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/tree-of-heaven",
+      "inatName": "Ailanthus altissima"
+    },
+    {
+      "taxonId": 58045,
+      "scientificName": "Xanthium spinosum",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/spiny-cocklebur",
+      "inatName": "Xanthium spinosum"
+    },
+    {
+      "taxonId": 60132,
+      "scientificName": "Cirsium arvense",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/creeping-thistle",
+      "inatName": "Cirsium arvense"
+    },
+    {
+      "taxonId": 60153,
+      "scientificName": "Lepidium latifolium",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/perennial-pepperweed",
+      "inatName": "Lepidium latifolium"
+    },
+    {
+      "taxonId": 60202,
+      "scientificName": "Myriophyllum aquaticum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/parrotfeather",
+      "inatName": "Myriophyllum aquaticum"
+    },
+    {
+      "taxonId": 60214,
+      "scientificName": "Abutilon theophrasti",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/velvetleaf",
+      "inatName": "Abutilon theophrasti"
+    },
+    {
+      "taxonId": 60220,
+      "scientificName": "Ludwigia peploides",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/floating-primrose-willow",
+      "inatName": "Ludwigia peploides"
+    },
+    {
+      "taxonId": 60316,
+      "scientificName": "Typha angustifolia, T. domingensis, and T. x glauca (and any other nonnative Typha spp.)",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/nonnative-cattails",
+      "inatName": "Typha angustifolia"
+    },
+    {
+      "taxonId": 60350,
+      "scientificName": "Artemisia absinthium",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/absinth-wormwood",
+      "inatName": "Artemisia absinthium"
+    },
+    {
+      "taxonId": 60462,
+      "scientificName": "Butomus umbellatus",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/flowering-rush",
+      "inatName": "Butomus umbellatus"
+    },
+    {
+      "taxonId": 61168,
+      "scientificName": "Arum italicum",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/orange-candleflower",
+      "inatName": "Arum italicum"
+    },
+    {
+      "taxonId": 61321,
+      "scientificName": "Lythrum salicaria",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/purple-loosestrife",
+      "inatName": "Lythrum salicaria"
+    },
+    {
+      "taxonId": 62211,
+      "scientificName": "Potentilla recta",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/sulfur-cinquefoil",
+      "inatName": "Potentilla recta"
+    },
+    {
+      "taxonId": 62338,
+      "scientificName": "Lysimachia vulgaris",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/garden-loosestrife",
+      "inatName": "Lysimachia vulgaris"
+    },
+    {
+      "taxonId": 62498,
+      "scientificName": "Jacobaea vulgaris",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/tansy-ragwort",
+      "inatName": "Jacobaea vulgaris"
+    },
+    {
+      "taxonId": 62642,
+      "scientificName": "Solanum rostratum",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/buffalobur",
+      "inatName": "Solanum rostratum"
+    },
+    {
+      "taxonId": 62666,
+      "scientificName": "Pueraria montana var. lobata",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/kudzu",
+      "inatName": null
+    },
+    {
+      "taxonId": 63337,
+      "scientificName": "Phalaris arundinacea",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/reed-canarygrass",
+      "inatName": "Phalaris arundinacea"
+    },
+    {
+      "taxonId": 64237,
+      "scientificName": "Phragmites australis",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/phragmites",
+      "inatName": "Phragmites australis"
+    },
+    {
+      "taxonId": 64240,
+      "scientificName": "Cortaderia selloana",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/pampas-grass",
+      "inatName": "Cortaderia selloana"
+    },
+    {
+      "taxonId": 70020,
+      "scientificName": "Ludwigia hexapetala",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/water-primrose",
+      "inatName": "Ludwigia hexapetala"
+    },
+    {
+      "taxonId": 75865,
+      "scientificName": "Brachypodium sylvaticum",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/false-brome",
+      "inatName": "Brachypodium sylvaticum"
+    },
+    {
+      "taxonId": 75916,
+      "scientificName": "Buddleja davidii",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/butterfly-bush",
+      "inatName": "Buddleja davidii"
+    },
+    {
+      "taxonId": 76007,
+      "scientificName": "Carduus nutans",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/musk-thistle",
+      "inatName": "Carduus nutans"
+    },
+    {
+      "taxonId": 76210,
+      "scientificName": "Centaurea diffusa",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/diffuse-knapweed",
+      "inatName": "Centaurea diffusa"
+    },
+    {
+      "taxonId": 76214,
+      "scientificName": "Centaurea stoebe",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/spotted-knapweed",
+      "inatName": "Centaurea stoebe"
+    },
+    {
+      "taxonId": 76300,
+      "scientificName": "Chondrilla juncea",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/rush-skeletonweed",
+      "inatName": "Chondrilla juncea"
+    },
+    {
+      "taxonId": 76487,
+      "scientificName": "Crupina vulgaris",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-crupina",
+      "inatName": "Crupina vulgaris"
+    },
+    {
+      "taxonId": 76584,
+      "scientificName": "Cyperus esculentus",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/yellow-nutsedge",
+      "inatName": "Cyperus esculentus"
+    },
+    {
+      "taxonId": 76610,
+      "scientificName": "Daucus carota (excluding ssp. sativus)",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wild-carrot",
+      "inatName": null
+    },
+    {
+      "taxonId": 77117,
+      "scientificName": "Euphorbia oblongata",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/eggleaf-spurge",
+      "inatName": "Euphorbia oblongata"
+    },
+    {
+      "taxonId": 77120,
+      "scientificName": "Euphorbia virgata",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/leafy-spurge",
+      "inatName": "Euphorbia virgata"
+    },
+    {
+      "taxonId": 77255,
+      "scientificName": "Geranium lucidum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/shiny-geranium",
+      "inatName": "Geranium lucidum"
+    },
+    {
+      "taxonId": 77468,
+      "scientificName": "Hydrilla verticillata",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/hydrilla",
+      "inatName": "Hydrilla verticillata"
+    },
+    {
+      "taxonId": 77509,
+      "scientificName": "Isatis tinctoria",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/dyers-woad",
+      "inatName": "Isatis tinctoria"
+    },
+    {
+      "taxonId": 77776,
+      "scientificName": "Linaria dalmatica ssp. dalmatica",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/dalmatian-toadflax",
+      "inatName": null
+    },
+    {
+      "taxonId": 78157,
+      "scientificName": "Myriophyllum spicatum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/eurasian-watermilfoil",
+      "inatName": "Myriophyllum spicatum"
+    },
+    {
+      "taxonId": 78237,
+      "scientificName": "Nymphoides peltata",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/yellow-floating-heart",
+      "inatName": "Nymphoides peltata"
+    },
+    {
+      "taxonId": 78259,
+      "scientificName": "Onopordum acanthium",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/cotton-thistle",
+      "inatName": "Onopordum acanthium"
+    },
+    {
+      "taxonId": 78707,
+      "scientificName": "Potamogeton crispus",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/curly-leaf-pondweed",
+      "inatName": "Potamogeton crispus"
+    },
+    {
+      "taxonId": 78891,
+      "scientificName": "Rubus laciniatus",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/cutleaf-blackberry",
+      "inatName": "Rubus laciniatus"
+    },
+    {
+      "taxonId": 79109,
+      "scientificName": "Silene latifolia",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/white-cockle",
+      "inatName": "Silene latifolia"
+    },
+    {
+      "taxonId": 79164,
+      "scientificName": "Spartina densiflora",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/cordgrasses",
+      "inatName": null
+    },
+    {
+      "taxonId": 79441,
+      "scientificName": "Tripleurospermum inodorum",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/scentless-mayweed",
+      "inatName": "Tripleurospermum inodorum"
+    },
+    {
+      "taxonId": 79482,
+      "scientificName": "Ventenata dubia",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/ventenata",
+      "inatName": "Ventenata dubia"
+    },
+    {
+      "taxonId": 82511,
+      "scientificName": "Euphorbia myrsinites",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/myrtle-spurge",
+      "inatName": "Euphorbia myrsinites"
+    },
+    {
+      "taxonId": 84281,
+      "scientificName": "Clinopodium vulgare",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wild-basil",
+      "inatName": "Clinopodium vulgare"
+    },
+    {
+      "taxonId": 84517,
+      "scientificName": "Epilobium hirsutum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/hairy-willow-herb",
+      "inatName": "Epilobium hirsutum"
+    },
+    {
+      "taxonId": 124544,
+      "scientificName": "Anthriscus sylvestris",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wild-chervil",
+      "inatName": "Anthriscus sylvestris"
+    },
+    {
+      "taxonId": 127391,
+      "scientificName": "Daphne laureola",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/spurge-laurel",
+      "inatName": "Daphne laureola"
+    },
+    {
+      "taxonId": 157393,
+      "scientificName": "Galega officinalis",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/goatsrue",
+      "inatName": "Galega officinalis"
+    },
+    {
+      "taxonId": 159194,
+      "scientificName": "Bassia scoparia",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/kochia",
+      "inatName": "Bassia scoparia"
+    },
+    {
+      "taxonId": 160276,
+      "scientificName": "Centaurea macrocephala",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/bighead-knapweed",
+      "inatName": "Centaurea macrocephala"
+    },
+    {
+      "taxonId": 160691,
+      "scientificName": "Clematis orientalis",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/orange-peel-clematis",
+      "inatName": "Clematis orientalis"
+    },
+    {
+      "taxonId": 160697,
+      "scientificName": "Clematis vitalba",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/old-mans-beard",
+      "inatName": "Clematis vitalba"
+    },
+    {
+      "taxonId": 163336,
+      "scientificName": "Glyceria maxima",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/reed-sweetgrass",
+      "inatName": "Glyceria maxima"
+    },
+    {
+      "taxonId": 163549,
+      "scientificName": "Hedera hibernica",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-ivy",
+      "inatName": "Hedera hibernica"
+    },
+    {
+      "taxonId": 163800,
+      "scientificName": "Hieracium sabaudum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/autumn-hawkweed",
+      "inatName": "Hieracium sabaudum"
+    },
+    {
+      "taxonId": 166466,
+      "scientificName": "Pentaglottis sempervirens",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/green-alkanet",
+      "inatName": "Pentaglottis sempervirens"
+    },
+    {
+      "taxonId": 168025,
+      "scientificName": "Rubus bifrons",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/himalayan-blackberry",
+      "inatName": "Rubus bifrons"
+    },
+    {
+      "taxonId": 168396,
+      "scientificName": "Salvia sclarea",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/clary-sage",
+      "inatName": "Salvia sclarea"
+    },
+    {
+      "taxonId": 204339,
+      "scientificName": "Lamium galeobdolon",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/yellow-archangel",
+      "inatName": "Lamium galeobdolon"
+    },
+    {
+      "taxonId": 325603,
+      "scientificName": "Schoenoplectus mucronatus",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/ricefield-bulrush",
+      "inatName": null
+    },
+    {
+      "taxonId": 593040,
+      "scientificName": "Fallopia sachalinensis",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/invasive-knotweed",
+      "inatName": null
+    },
+    {
+      "taxonId": 711103,
+      "scientificName": "Hieracium aurantiacum",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/orange-hawkweed",
+      "inatName": null
+    },
+    {
+      "taxonId": 768203,
+      "scientificName": "Persicaria wallichii",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/invasive-knotweed",
+      "inatName": null
+    },
+    {
+      "taxonId": 772903,
+      "scientificName": "Spartina alterniflora",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/cordgrasses",
+      "inatName": null
+    },
+    {
+      "taxonId": 772983,
+      "scientificName": "Spartina anglica",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/cordgrasses",
+      "inatName": null
+    },
+    {
+      "taxonId": 773004,
+      "scientificName": "Spartina patens",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/cordgrasses",
+      "inatName": null
+    },
+    {
+      "taxonId": 850784,
+      "scientificName": "Fallopia x bohemica",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/invasive-knotweed",
+      "inatName": null
+    },
+    {
+      "taxonId": 914922,
+      "scientificName": "Fallopia japonica",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/invasive-knotweed",
+      "inatName": null
+    },
+    {
+      "taxonId": 1403576,
+      "scientificName": "Centaurea x gerstlaueri",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/meadow-knapweed",
+      "inatName": null
+    },
+    {
+      "taxonId": 1404861,
+      "scientificName": "Leucanthemum vulgare",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/oxeye-daisy",
+      "inatName": "Leucanthemum vulgare"
+    },
+    {
+      "taxonId": 1437600,
+      "scientificName": "Crataegus monogyna",
+      "class": "C",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/common-hawthorn",
+      "inatName": "Crataegus monogyna"
+    },
+    {
+      "taxonId": 1555600,
+      "scientificName": "Egeria densa",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/egeria",
+      "inatName": null
+    },
+    {
+      "taxonId": 1557658,
+      "scientificName": "Heracleum mantegazzianum",
+      "class": "A",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/giant-hogweed",
+      "inatName": "Heracleum mantegazzianum"
+    },
+    {
+      "taxonId": 1619104,
+      "scientificName": "Ficaria verna",
+      "class": "B",
+      "href": "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/lesser-celandine",
+      "inatName": "Ficaria verna"
+    }
+  ]
+}

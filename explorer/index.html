@@ -10,7 +10,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/>
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=invasive-sci6" />
+    <link rel="stylesheet" href="styles.css?v=kc-noxious1" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -66,6 +66,16 @@
                 <legend>Months observed</legend>
                 <div id="months-grid" class="months-grid" role="group" aria-label="Months of the year"></div>
               </fieldset>
+
+              <div class="field">
+                <label for="filter-native-status">Native / introduced / invasive</label>
+                <select id="filter-native-status">
+                  <option value="any" selected>Any</option>
+                  <option value="native">Native</option>
+                  <option value="introduced">Introduced (not King County noxious)</option>
+                  <option value="invasive">Invasive (King County noxious weed list)</option>
+                </select>
+              </div>
 
               <div class="field">
                 <label for="quality-grade">Quality grade</label>
@@ -151,6 +161,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="app.js?v=species-native-app8" type="module"></script>
+    <script src="app.js?v=kc-noxious1" type="module"></script>
   </body>
 </html>
