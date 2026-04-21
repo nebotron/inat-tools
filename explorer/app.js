@@ -361,6 +361,204 @@ function mediumPhotoUrl(url) {
   return url.replace(/\/square\./, "/medium.");
 }
 
+/** Full-size JPEG URL from an iNaturalist photo `url` field. */
+function originalPhotoUrl(url) {
+  if (!url) return "";
+  return url.replace(/\/(square|medium|large|original)\./, "/original.");
+}
+
+function binaryStringToUint8Array(bin) {
+  const len = bin.length;
+  const out = new Uint8Array(len);
+  for (let i = 0; i < len; i += 1) out[i] = bin.charCodeAt(i) & 0xff;
+  return out;
+}
+
+function escapeFilenameSegment(s) {
+  return String(s || "photo").replace(/[^\w.\-]+/g, "_").slice(0, 120) || "photo";
+}
+
+/**
+ * EXIF date/time strings from observation API fields (UTC + offset tag for consistency).
+ * @returns {{ dateTime: string, subsecOriginal: string } | null}
+ */
+function observationExifDateParts(obs) {
+  const raw = obs && obs.time_observed_at;
+  if (raw) {
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) {
+      const pad = (n) => String(n).padStart(2, "0");
+      const y = d.getUTCFullYear();
+      const mo = pad(d.getUTCMonth() + 1);
+      const day = pad(d.getUTCDate());
+      const h = pad(d.getUTCHours());
+      const mi = pad(d.getUTCMinutes());
+      const s = pad(d.getUTCSeconds());
+      const ms = d.getUTCMilliseconds();
+      return {
+        dateTime: `${y}:${mo}:${day} ${h}:${mi}:${s}`,
+        subsecOriginal: String(ms).padStart(3, "0"),
+      };
+    }
+  }
+  const det = obs && obs.observed_on_details;
+  if (det && det.year != null) {
+    const pad = (n) => String(n).padStart(2, "0");
+    const y = det.year;
+    const mo = pad(det.month ?? 1);
+    const day = pad(det.day ?? 1);
+    const h = pad(det.hour ?? 0);
+    return {
+      dateTime: `${y}:${mo}:${day} ${h}:00:00`,
+      subsecOriginal: "000",
+    };
+  }
+  return null;
+}
+
+/**
+ * @returns {number[] | null} GeoJSON Point [lng, lat]
+ */
+function observationLngLat(obs) {
+  const g = obs && obs.geojson;
+  if (!g || g.type !== "Point" || !Array.isArray(g.coordinates)) return null;
+  const [lng, lat] = g.coordinates;
+  const ln = Number(lng);
+  const la = Number(lat);
+  if (!Number.isFinite(ln) || !Number.isFinite(la)) return null;
+  if (la < -90 || la > 90 || ln < -180 || ln > 180) return null;
+  return [ln, la];
+}
+
+function buildExifDictForObservation(obs) {
+  const px = typeof window !== "undefined" ? window.piexif : null;
+  if (!px) return null;
+
+  const exifDict = {
+    "0th": {},
+    Exif: {},
+    GPS: {},
+    Interop: {},
+    "1st": {},
+    thumbnail: null,
+  };
+
+  const dt = observationExifDateParts(obs);
+  if (dt) {
+    exifDict["0th"][px.ImageIFD.DateTime] = dt.dateTime;
+    exifDict.Exif[px.ExifIFD.DateTimeOriginal] = dt.dateTime;
+    exifDict.Exif[px.ExifIFD.DateTimeDigitized] = dt.dateTime;
+    exifDict.Exif[px.ExifIFD.SubSecTimeOriginal] = dt.subsecOriginal;
+  }
+
+  const ll = observationLngLat(obs);
+  if (ll) {
+    const [lng, lat] = ll;
+    const latRef = lat >= 0 ? "N" : "S";
+    const lngRef = lng >= 0 ? "E" : "W";
+    const gpsLat = px.GPSHelper.degToDmsRational(Math.abs(lat));
+    const gpsLng = px.GPSHelper.degToDmsRational(Math.abs(lng));
+    exifDict.GPS[px.GPSIFD.GPSVersionID] = [2, 2, 0, 0];
+    exifDict.GPS[px.GPSIFD.GPSLatitudeRef] = latRef;
+    exifDict.GPS[px.GPSIFD.GPSLatitude] = gpsLat;
+    exifDict.GPS[px.GPSIFD.GPSLongitudeRef] = lngRef;
+    exifDict.GPS[px.GPSIFD.GPSLongitude] = gpsLng;
+    exifDict.GPS[px.GPSIFD.GPSMapDatum] = "WGS-84";
+    const raw = obs && obs.time_observed_at;
+    if (raw) {
+      const d = new Date(raw);
+      if (!Number.isNaN(d.getTime())) {
+        const pad = (n) => String(n).padStart(2, "0");
+        const y = d.getUTCFullYear();
+        const mo = pad(d.getUTCMonth() + 1);
+        const day = pad(d.getUTCDate());
+        exifDict.GPS[px.GPSIFD.GPSDateStamp] = `${y}:${mo}:${day}`;
+        const h = d.getUTCHours();
+        const mi = d.getUTCMinutes();
+        const s = d.getUTCSeconds();
+        exifDict.GPS[px.GPSIFD.GPSTimeStamp] = [
+          [h, 1],
+          [mi, 1],
+          [s, 1],
+        ];
+      }
+    }
+  }
+
+  if (!dt && (!exifDict.GPS || Object.keys(exifDict.GPS).length === 0)) return null;
+  return exifDict;
+}
+
+/**
+ * Fetch full JPEG, embed EXIF from observation (GPS + observed time), trigger download.
+ * Requires CORS on the image host (e.g. inaturalist-open-data); static.inaturalist.org has no CORS.
+ */
+async function saveObservationPhotoWithExif(obs) {
+  const px = typeof window !== "undefined" ? window.piexif : null;
+  if (!px) {
+    window.alert("Could not load photo tools. Try refreshing the page.");
+    return;
+  }
+  const photo = obs && obs.photos && obs.photos[0];
+  const srcUrl = photo && photo.url ? originalPhotoUrl(photo.url) : "";
+  if (!srcUrl) {
+    window.alert("No photo to save.");
+    return;
+  }
+
+  let bin;
+  try {
+    const res = await fetch(srcUrl, { mode: "cors" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ab = await res.arrayBuffer();
+    bin = new Uint8Array(ab);
+  } catch {
+    window.alert(
+      "Could not download this image in the browser (the host may block cross-origin access). Open the observation on iNaturalist and save the photo from there."
+    );
+    return;
+  }
+
+  if (bin.length < 2 || bin[0] !== 0xff || bin[1] !== 0xd8) {
+    window.alert("This observation photo is not a JPEG; embedded location and time are only added for JPEG files here.");
+    return;
+  }
+
+  const exifDict = buildExifDictForObservation(obs);
+  if (!exifDict) {
+    window.alert("This observation has no coordinates or observed time to embed.");
+    return;
+  }
+
+  let jpegStr = "";
+  for (let i = 0; i < bin.length; i += 1) jpegStr += String.fromCharCode(bin[i]);
+  let outStr = jpegStr;
+  try {
+    const hadExif = jpegStr.indexOf("Exif\x00\x00") !== -1;
+    if (hadExif) outStr = px.remove(jpegStr);
+    const exifBytes = px.dump(exifDict);
+    outStr = px.insert(exifBytes, outStr);
+  } catch (e) {
+    window.alert(e && e.message ? e.message : "Could not embed photo metadata.");
+    return;
+  }
+
+  const out = binaryStringToUint8Array(outStr);
+  const blob = new Blob([out], { type: "image/jpeg" });
+  const id = obs && obs.id != null ? String(obs.id) : "observation";
+  const taxonBit = obs && obs.taxon && obs.taxon.name ? escapeFilenameSegment(obs.taxon.name) : "";
+  const filename = taxonBit ? `inat-${id}-${taxonBit}.jpg` : `inat-${id}.jpg`;
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
 function showError(panel, msg) {
   const node = panel === "species" ? el.speciesError : panel === "map" ? el.mapError : el.obsError;
   node.textContent = msg;
@@ -858,7 +1056,7 @@ function speciesMetaParts(row, obsTaxonById, kcData) {
   return parts;
 }
 
-function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick }) {
+function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation }) {
   const card = document.createElement("article");
   card.className = "card";
   const metaBlock = metaParts != null
@@ -866,12 +1064,19 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
     : metaLines.length
       ? metaLines.map((line) => `<p class="card-meta-line">${escapeHtml(line)}</p>`).join("")
       : "";
+  const saveBtn =
+    saveObservation && imageUrl
+      ? `<button type="button" class="card-save-photo" aria-label="Save photo with observation location and time" title="Save photo (adds GPS and observed time to file)">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
+        </button>`
+      : "";
   const imgBlock = imageUrl ? `<img src="${imageUrl}" alt="" loading="lazy" />` : `<div class="no-photo">No photo</div>`;
   if (onClick) {
     card.innerHTML = `
       <a href="${href}" class="card-link" role="button" style="cursor:pointer">
         ${imgBlock}
       </a>
+      ${saveBtn}
       <div class="card-bottom">
         ${metaBlock}
         <p class="card-title-overlay">${escapeHtml(name)}</p>
@@ -883,12 +1088,21 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
       <a href="${href}" class="card-link" rel="noopener noreferrer">
         ${imgBlock}
       </a>
+      ${saveBtn}
       <div class="card-bottom">
         ${metaBlock}
         <p class="card-title-overlay">${escapeHtml(name)}</p>
       </div>
     `;
     card.querySelector("a.card-link").addEventListener("click", (e) => navigateFromCardClick(e, href));
+  }
+  const saveEl = card.querySelector(".card-save-photo");
+  if (saveEl && saveObservation) {
+    saveEl.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void saveObservationPhotoWithExif(saveObservation);
+    });
   }
   return card;
 }
@@ -955,6 +1169,7 @@ async function runObservationSearch(reset) {
         name,
         imageUrl,
         metaParts: observationMetaHtmlParts(obs, kcData),
+        saveObservation: obs,
       }));
       appended += 1;
     }

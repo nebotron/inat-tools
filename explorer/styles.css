@@ -379,6 +379,36 @@ main {
   text-decoration: none;
 }
 
+.card-save-photo {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.card-save-photo:hover {
+  background: rgba(27, 67, 50, 0.92);
+  border-color: rgba(200, 245, 220, 0.6);
+  color: #e8f5e9;
+}
+
+.card-save-photo svg {
+  display: block;
+}
+
 .card a:not(.card-link) {
   display: block;
   width: 100%;
