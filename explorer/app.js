@@ -378,42 +378,88 @@ function escapeFilenameSegment(s) {
   return String(s || "photo").replace(/[^\w.\-]+/g, "_").slice(0, 120) || "photo";
 }
 
+const EXIF_PAD2 = (n) => String(Math.max(0, Math.min(99, Number(n) || 0))).padStart(2, "0");
+
 /**
- * EXIF date/time strings from observation API fields (UTC + offset tag for consistency).
- * @returns {{ dateTime: string, subsecOriginal: string } | null}
+ * Wall-clock components for EXIF DateTime / DateTimeOriginal (what the API reports as observed time,
+ * not forced to UTC — many viewers expect local/wall time here).
+ * @returns {{ y: number, mo: number, day: number, h: number, mi: number, s: number, subMs: number } | null}
  */
-function observationExifDateParts(obs) {
+function observationWallClockParts(obs) {
   const raw = obs && obs.time_observed_at;
-  if (raw) {
-    const d = new Date(raw);
-    if (!Number.isNaN(d.getTime())) {
-      const pad = (n) => String(n).padStart(2, "0");
-      const y = d.getUTCFullYear();
-      const mo = pad(d.getUTCMonth() + 1);
-      const day = pad(d.getUTCDate());
-      const h = pad(d.getUTCHours());
-      const mi = pad(d.getUTCMinutes());
-      const s = pad(d.getUTCSeconds());
-      const ms = d.getUTCMilliseconds();
+  if (raw && typeof raw === "string") {
+    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+    if (m) {
+      let subMs = 0;
+      const frac = raw.match(/\.(\d{1,3})/);
+      if (frac) subMs = Number((frac[1] + "000").slice(0, 3)) || 0;
       return {
-        dateTime: `${y}:${mo}:${day} ${h}:${mi}:${s}`,
-        subsecOriginal: String(ms).padStart(3, "0"),
+        y: Number(m[1]),
+        mo: Number(m[2]),
+        day: Number(m[3]),
+        h: Number(m[4]),
+        mi: Number(m[5]),
+        s: Number(m[6]),
+        subMs,
+      };
+    }
+  }
+  const s = obs && obs.observed_on_string;
+  if (s && typeof s === "string") {
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+    if (m) {
+      return {
+        y: Number(m[1]),
+        mo: Number(m[2]),
+        day: Number(m[3]),
+        h: Number(m[4]),
+        mi: Number(m[5]),
+        s: Number(m[6]),
+        subMs: 0,
       };
     }
   }
   const det = obs && obs.observed_on_details;
   if (det && det.year != null) {
-    const pad = (n) => String(n).padStart(2, "0");
-    const y = det.year;
-    const mo = pad(det.month ?? 1);
-    const day = pad(det.day ?? 1);
-    const h = pad(det.hour ?? 0);
     return {
-      dateTime: `${y}:${mo}:${day} ${h}:00:00`,
-      subsecOriginal: "000",
+      y: Number(det.year),
+      mo: Number(det.month ?? 1),
+      day: Number(det.day ?? 1),
+      h: Number(det.hour ?? 12),
+      mi: 0,
+      s: 0,
+      subMs: 0,
     };
   }
+  const on = obs && obs.observed_on;
+  if (on && typeof on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(on)) {
+    const [y, mo, day] = on.split("-").map((x) => Number(x));
+    return { y, mo, day, h: 12, mi: 0, s: 0, subMs: 0 };
+  }
   return null;
+}
+
+function formatExifDateTimeFromWallClock(w) {
+  if (!w) return null;
+  return `${w.y}:${EXIF_PAD2(w.mo)}:${EXIF_PAD2(w.day)} ${EXIF_PAD2(w.h)}:${EXIF_PAD2(w.mi)}:${EXIF_PAD2(w.s)}`;
+}
+
+/**
+ * GPS date/time in UTC per EXIF spec (from the same instant as `time_observed_at`).
+ * @returns {{ dateStamp: string, timeStamp: number[][] } | null}
+ */
+function observationGpsUtcRational(obs) {
+  const raw = obs && obs.time_observed_at;
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const dateStamp = `${d.getUTCFullYear()}:${EXIF_PAD2(d.getUTCMonth() + 1)}:${EXIF_PAD2(d.getUTCDate())}`;
+  const timeStamp = [
+    [d.getUTCHours(), 1],
+    [d.getUTCMinutes(), 1],
+    [d.getUTCSeconds(), 1],
+  ];
+  return { dateStamp, timeStamp };
 }
 
 /**
@@ -443,12 +489,17 @@ function buildExifDictForObservation(obs) {
     thumbnail: null,
   };
 
-  const dt = observationExifDateParts(obs);
-  if (dt) {
-    exifDict["0th"][px.ImageIFD.DateTime] = dt.dateTime;
-    exifDict.Exif[px.ExifIFD.DateTimeOriginal] = dt.dateTime;
-    exifDict.Exif[px.ExifIFD.DateTimeDigitized] = dt.dateTime;
-    exifDict.Exif[px.ExifIFD.SubSecTimeOriginal] = dt.subsecOriginal;
+  const wall = observationWallClockParts(obs);
+  if (wall) {
+    const dateTime = formatExifDateTimeFromWallClock(wall);
+    if (dateTime) {
+      exifDict["0th"][px.ImageIFD.DateTime] = dateTime;
+      exifDict.Exif[px.ExifIFD.DateTimeOriginal] = dateTime;
+      exifDict.Exif[px.ExifIFD.DateTimeDigitized] = dateTime;
+      exifDict.Exif[px.ExifIFD.SubSecTimeOriginal] = String(wall.subMs).padStart(3, "0");
+      exifDict.Exif[px.ExifIFD.SubSecTimeDigitized] = String(wall.subMs).padStart(3, "0");
+    }
+    exifDict.Exif[px.ExifIFD.ExifVersion] = "\x30\x32\x33\x30";
   }
 
   const ll = observationLngLat(obs);
@@ -464,34 +515,22 @@ function buildExifDictForObservation(obs) {
     exifDict.GPS[px.GPSIFD.GPSLongitudeRef] = lngRef;
     exifDict.GPS[px.GPSIFD.GPSLongitude] = gpsLng;
     exifDict.GPS[px.GPSIFD.GPSMapDatum] = "WGS-84";
-    const raw = obs && obs.time_observed_at;
-    if (raw) {
-      const d = new Date(raw);
-      if (!Number.isNaN(d.getTime())) {
-        const pad = (n) => String(n).padStart(2, "0");
-        const y = d.getUTCFullYear();
-        const mo = pad(d.getUTCMonth() + 1);
-        const day = pad(d.getUTCDate());
-        exifDict.GPS[px.GPSIFD.GPSDateStamp] = `${y}:${mo}:${day}`;
-        const h = d.getUTCHours();
-        const mi = d.getUTCMinutes();
-        const s = d.getUTCSeconds();
-        exifDict.GPS[px.GPSIFD.GPSTimeStamp] = [
-          [h, 1],
-          [mi, 1],
-          [s, 1],
-        ];
-      }
+    const gpsUtc = observationGpsUtcRational(obs);
+    if (gpsUtc) {
+      exifDict.GPS[px.GPSIFD.GPSDateStamp] = gpsUtc.dateStamp;
+      exifDict.GPS[px.GPSIFD.GPSTimeStamp] = gpsUtc.timeStamp;
     }
   }
 
-  if (!dt && (!exifDict.GPS || Object.keys(exifDict.GPS).length === 0)) return null;
+  const hasTime = wall != null;
+  const hasGps = ll != null;
+  if (!hasTime && !hasGps) return null;
   return exifDict;
 }
 
 /**
- * Fetch full JPEG, embed EXIF from observation (GPS + observed time), trigger download.
- * Requires CORS on the image host (e.g. inaturalist-open-data); static.inaturalist.org has no CORS.
+ * Fetch full JPEG, embed EXIF from observation (GPS + observed time), then share (mobile “Save Image”)
+ * or download. Requires CORS on the image host (e.g. inaturalist-open-data).
  */
 async function saveObservationPhotoWithExif(obs) {
   const px = typeof window !== "undefined" ? window.piexif : null;
@@ -549,14 +588,31 @@ async function saveObservationPhotoWithExif(obs) {
   const taxonBit = obs && obs.taxon && obs.taxon.name ? escapeFilenameSegment(obs.taxon.name) : "";
   const filename = taxonBit ? `inat-${id}-${taxonBit}.jpg` : `inat-${id}.jpg`;
 
+  const obsTime = obs && obs.time_observed_at ? new Date(obs.time_observed_at) : null;
+  const lastMod = obsTime && !Number.isNaN(obsTime.getTime()) ? obsTime.getTime() : Date.now();
+
+  const sharePayload = { files: [new File([blob], filename, { type: "image/jpeg", lastModified: lastMod })] };
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+    try {
+      if (navigator.canShare(sharePayload)) {
+        await navigator.share(sharePayload);
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+      /* fall through to download */
+    }
+  }
+
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
+  a.href = url;
   a.download = filename;
   a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(a.href);
+  URL.revokeObjectURL(url);
 }
 
 function showError(panel, msg) {
@@ -1066,7 +1122,7 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
       : "";
   const saveBtn =
     saveObservation && imageUrl
-      ? `<button type="button" class="card-save-photo" aria-label="Save photo with observation location and time" title="Save photo (adds GPS and observed time to file)">
+      ? `<button type="button" class="card-save-photo" aria-label="Share or save photo with observation location and time" title="Share / save (embeds GPS and observed time in the JPEG)">
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
         </button>`
       : "";
