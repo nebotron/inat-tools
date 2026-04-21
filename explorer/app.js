@@ -131,7 +131,7 @@ function mapPinMarkerRadius() {
 }
 
 let currentView = "filters";
-let obsPage = 1;
+/** Offset page for species_counts only; observation lists use `id_below` cursors (`obsListCursorId`) to avoid duplicate rows when the result set shifts. */
 let speciesPage = 1;
 let obsHasMore = false;
 let speciesHasMore = false;
@@ -144,6 +144,10 @@ let totalSpecies = 0;
 /** Avoid `querySelectorAll('.card')` on large grids (expensive on scroll). */
 let obsCardCount = 0;
 let speciesCardCount = 0;
+/** Minimum observation id from the last API page — passed as `id_below` for the next observations request (stable pagination). */
+let obsListCursorId = null;
+/** Observation ids already rendered; skips duplicates if any slip through. */
+const obsSeenIds = new Set();
 
 let map = null;
 let pinsLayer = null;
@@ -559,11 +563,17 @@ function joinKingCountyTaxonIdsCsv(kc) {
   return [...kc.allIds].sort((a, b) => a - b).join(",");
 }
 
-async function observationParams(page) {
+/**
+ * Observation list params. Uses `id_below` cursor pagination instead of `page` so rows are not
+ * duplicated when new observations shift offset windows (see iNaturalist API notes on `id_below`).
+ * @param {{ idBelow?: number | null }} opts
+ */
+async function observationParams(opts = {}) {
+  const idBelow = opts.idBelow != null && Number.isFinite(opts.idBelow) ? opts.idBelow : null;
   const kc = await ensureKingCountyNoxiousData();
   const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
-  p.set("page", String(page));
   p.set("per_page", String(OBS_PER_PAGE));
+  if (idBelow != null) p.set("id_below", String(Math.floor(idBelow)));
   if (el.sortMode.value === "faves") {
     p.set("order_by", "votes");
     p.set("order", "desc");
@@ -610,7 +620,7 @@ async function speciesParams(page) {
 }
 
 async function observationCountParams() {
-  const p = await observationParams(1);
+  const p = await observationParams();
   p.set("per_page", "1");
   return p;
 }
@@ -882,7 +892,8 @@ async function runObservationSearch(reset) {
   showError("obs", "");
   try {
     if (reset) {
-      obsPage = 1;
+      obsListCursorId = null;
+      obsSeenIds.clear();
       totalObs = 0;
       totalSpecies = 0;
       obsHasMore = false;
@@ -890,7 +901,7 @@ async function runObservationSearch(reset) {
       el.resultsGrid.innerHTML = "";
     }
 
-    const listUrl = `${API}/observations?${(await observationParams(obsPage)).toString()}`;
+    const listUrl = `${API}/observations?${(await observationParams({ idBelow: obsListCursorId })).toString()}`;
     const listPromise = fetch(listUrl);
 
     const res = await listPromise;
@@ -898,6 +909,11 @@ async function runObservationSearch(reset) {
     const data = await res.json();
     const results = sortObservationResultsForDisplay(data.results || []);
     totalObs = data.total_results || 0;
+
+    const rawIds = results.map((o) => (o && o.id != null ? Number(o.id) : NaN)).filter((n) => Number.isFinite(n));
+    if (rawIds.length) {
+      obsListCursorId = Math.min(...rawIds);
+    }
 
     if (reset) {
       void (async () => {
@@ -920,7 +936,11 @@ async function runObservationSearch(reset) {
     }
 
     const frag = document.createDocumentFragment();
+    let appended = 0;
     for (const obs of results) {
+      const oid = obs && obs.id != null ? Number(obs.id) : NaN;
+      if (!Number.isFinite(oid) || obsSeenIds.has(oid)) continue;
+      obsSeenIds.add(oid);
       const name = obs.taxon?.preferred_common_name || obs.taxon?.name || obs.species_guess || "Unknown";
       const imageUrl = obs.photos?.[0]?.url ? mediumPhotoUrl(obs.photos[0].url) : "";
       frag.appendChild(renderCard({
@@ -929,13 +949,15 @@ async function runObservationSearch(reset) {
         imageUrl,
         metaParts: observationMetaHtmlParts(obs, kcData),
       }));
+      appended += 1;
     }
     el.resultsGrid.appendChild(frag);
-    obsCardCount += results.length;
+    obsCardCount += appended;
 
     const loaded = obsCardCount;
-    obsHasMore = loaded < totalObs && results.length > 0;
-    if (obsHasMore) obsPage += 1;
+    const gotBatch = results.length > 0;
+    const stuckWithNoNewCards = gotBatch && appended === 0;
+    obsHasMore = !stuckWithNoNewCards && loaded < totalObs && gotBatch;
     updateSearchSummaryElements();
     syncUrl();
   } catch (err) {
@@ -1529,9 +1551,8 @@ function readUrl() {
   if (dtid) detailTaxonId = dtid;
 
   const pg = parseInt(q.get("page") || "1", 10);
-  if (!Number.isNaN(pg) && pg > 1) {
-    if (currentView === "observations") obsPage = pg;
-    if (currentView === "species") speciesPage = pg;
+  if (!Number.isNaN(pg) && pg > 1 && currentView === "species") {
+    speciesPage = pg;
   }
 }
 
@@ -1963,12 +1984,13 @@ function wireButtons() {
     el.speciesGrid.innerHTML = "";
     obsCardCount = 0;
     speciesCardCount = 0;
+    obsListCursorId = null;
+    obsSeenIds.clear();
     clearMapOverlays();
     currentHeatUrl = null;
     mapMode = null;
     lastMapFilterKey = null;
     clearErrors();
-    obsPage = 1;
     speciesPage = 1;
     obsHasMore = false;
     speciesHasMore = false;
