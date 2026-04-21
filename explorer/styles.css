@@ -82,6 +82,26 @@ main {
   color: var(--accent);
 }
 
+.view-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: #fafcf9;
+}
+
+.view-toolbar[hidden] {
+  display: none !important;
+}
+
+.btn-refresh {
+  font-size: 0.88rem;
+  padding: 0.35rem 0.85rem;
+}
+
 .view-panel.hidden,
 .view-panel[hidden] { display: none !important; }
 

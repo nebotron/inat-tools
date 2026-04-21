@@ -201,6 +201,8 @@ const el = {
   monthsGrid: document.getElementById("months-grid"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
+  viewToolbar: document.getElementById("view-toolbar"),
+  btnRefresh: document.getElementById("btn-refresh"),
   tabs: document.querySelectorAll(".tab"),
   panelFilters: document.getElementById("panel-filters"),
   panelObs: document.getElementById("panel-observations"),
@@ -1383,7 +1385,30 @@ function setActiveTabUI() {
   el.panelMap.classList.toggle("hidden", !mapOn);
   el.panelDetail.classList.toggle("hidden", !detailOn);
 
+  if (el.viewToolbar) {
+    el.viewToolbar.hidden = filtersOn;
+  }
+
   setSearchSummaryVisibility();
+}
+
+async function refreshActiveView() {
+  if (!el.btnRefresh || el.btnRefresh.disabled) return;
+  el.btnRefresh.disabled = true;
+  try {
+    if (currentView === "observations") {
+      await runObservationSearch(true);
+    } else if (currentView === "species") {
+      await runSpeciesSearch(true);
+    } else if (currentView === "map") {
+      lastMapFilterKey = null;
+      await runMapSearch(true);
+    } else if (currentView === "detail" && detailTaxonId) {
+      await loadDetailFromTaxonId(detailTaxonId);
+    }
+  } finally {
+    if (el.btnRefresh) el.btnRefresh.disabled = false;
+  }
 }
 
 async function switchView(view) {
@@ -2199,6 +2224,11 @@ async function boot() {
   wireInfiniteScroll();
   wireFilterExtras();
   wireButtons();
+  if (el.btnRefresh) {
+    el.btnRefresh.addEventListener("click", () => {
+      void refreshActiveView();
+    });
+  }
 
   await switchView(currentView);
 }
