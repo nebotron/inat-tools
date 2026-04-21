@@ -1,6 +1,18 @@
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
 
+/**
+ * Fetch from api.inaturalist.org with `cache: "no-store"` and a unique query param so browsers and
+ * intermediaries do not return stale JSON or tiles after Refresh or bfcache restore.
+ * @param {string} pathAndQuery Path under /v1/, e.g. `observations?taxon_id=1&per_page=20` or `taxa/48561`
+ */
+function inatFetch(pathAndQuery) {
+  const trimmed = pathAndQuery.replace(/^\//, "");
+  const u = new URL(trimmed, `${API}/`);
+  u.searchParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
+  return fetch(u.href, { cache: "no-store" });
+}
+
 /** Opens the taxon in the iNaturalist mobile app when installed (falls back to website on desktop). */
 function inaturalistTaxonAppUrl(taxonId) {
   const id = taxonId != null ? String(taxonId).trim() : "";
@@ -333,7 +345,7 @@ async function fetchPlacesForAutocomplete(query) {
       p.set("lng", String(lnNum));
     }
   }
-  const res = await fetch(`${API}/search?${p.toString()}`);
+  const res = await inatFetch(`search?${p.toString()}`);
   if (!res.ok) return [];
   const data = await res.json();
   const rows = data.results || [];
@@ -1027,7 +1039,7 @@ async function fetchObservationTaxonById(taxonIds) {
     p.set("order_by", "created_at");
     p.set("order", "desc");
     try {
-      const res = await fetch(`${API}/observations?${p.toString()}`);
+      const res = await inatFetch(`observations?${p.toString()}`);
       if (!res.ok) continue;
       const data = await res.json();
       const want = new Set(slice);
@@ -1049,7 +1061,7 @@ async function fetchObservationTaxonById(taxonIds) {
     p.set("per_page", "1");
     p.set("page", "1");
     try {
-      const res = await fetch(`${API}/observations?${p.toString()}`);
+      const res = await inatFetch(`observations?${p.toString()}`);
       if (!res.ok) continue;
       const data = await res.json();
       const obs = (data.results || [])[0];
@@ -1216,10 +1228,7 @@ async function runObservationSearch(reset) {
       el.resultsGrid.innerHTML = "";
     }
 
-    const listUrl = `${API}/observations?${(await observationParams({ idBelow: obsListCursorId })).toString()}`;
-    const listPromise = fetch(listUrl);
-
-    const res = await listPromise;
+    const res = await inatFetch(`observations?${(await observationParams({ idBelow: obsListCursorId })).toString()}`);
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     const data = await res.json();
     const results = sortObservationResultsForDisplay(data.results || []);
@@ -1233,7 +1242,7 @@ async function runObservationSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const sRes = await fetch(`${API}/observations/species_counts?${(await speciesCountParams()).toString()}`);
+          const sRes = await inatFetch(`observations/species_counts?${(await speciesCountParams()).toString()}`);
           if (!sRes.ok) return;
           const sData = await sRes.json();
           totalSpecies = sData.total_results || 0;
@@ -1297,10 +1306,7 @@ async function runSpeciesSearch(reset) {
       el.speciesGrid.innerHTML = "";
     }
 
-    const listUrl = `${API}/observations/species_counts?${(await speciesParams(speciesPage)).toString()}`;
-    const listPromise = fetch(listUrl);
-
-    const res = await listPromise;
+    const res = await inatFetch(`observations/species_counts?${(await speciesParams(speciesPage)).toString()}`);
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     const data = await res.json();
     const results = data.results || [];
@@ -1309,7 +1315,7 @@ async function runSpeciesSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const oRes = await fetch(`${API}/observations?${(await observationCountParams()).toString()}`);
+          const oRes = await inatFetch(`observations?${(await observationCountParams()).toString()}`);
           if (!oRes.ok) return;
           const oData = await oRes.json();
           totalObs = oData.total_results || 0;
@@ -1450,7 +1456,7 @@ async function fitMapToFilterLocation() {
 
   if (placeId) {
     try {
-      const res = await fetch(`${API}/places/${placeId}`);
+      const res = await inatFetch(`places/${placeId}`);
       if (!res.ok) return;
       const data = await res.json();
       const place = data.results?.[0];
@@ -1609,7 +1615,7 @@ async function runMapSearch(forceRecheck) {
     const countParams = new URLSearchParams(area);
     countParams.set("per_page", "1");
     countParams.set("page", "1");
-    const countRes = await fetch(`${API}/observations?${countParams.toString()}`);
+    const countRes = await inatFetch(`observations?${countParams.toString()}`);
     if (seq !== mapSearchSeq) return;
     if (!countRes.ok) throw new Error(`Request failed (${countRes.status})`);
     const countData = await countRes.json();
@@ -1623,7 +1629,7 @@ async function runMapSearch(forceRecheck) {
       const pinsParams = new URLSearchParams(area);
       pinsParams.set("per_page", String(MAP_PIN_THRESHOLD));
       pinsParams.set("page", "1");
-      const pinRes = await fetch(`${API}/observations?${pinsParams.toString()}`);
+      const pinRes = await inatFetch(`observations?${pinsParams.toString()}`);
       if (seq !== mapSearchSeq) return;
       if (!pinRes.ok) throw new Error(`Request failed (${pinRes.status})`);
       const pinData = await pinRes.json();
@@ -1662,6 +1668,7 @@ async function runMapSearch(forceRecheck) {
       mapMode = "heat";
       const kcHeat = await ensureKingCountyNoxiousData();
       const heatParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcHeat) });
+      heatParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
       const url = `${API}/grid/{z}/{x}/{y}.png?${heatParams}`; /* density grid tiles (not colored_heatmap) */
       installHeatGridLayer(url, () => clearMapPins());
     }
@@ -1900,7 +1907,7 @@ function readUrl() {
 async function hydrateSelections() {
   const tid = el.taxonId.value.trim();
   if (tid) {
-    const res = await fetch(`${API}/taxa/${tid}`);
+    const res = await inatFetch(`taxa/${tid}`);
     if (res.ok) {
       const data = await res.json();
       const taxon = data.results?.[0];
@@ -1911,7 +1918,7 @@ async function hydrateSelections() {
 
   const pid = el.placeId.value.trim();
   if (pid) {
-    const res = await fetch(`${API}/places/${pid}`);
+    const res = await inatFetch(`places/${pid}`);
     if (res.ok) {
       const data = await res.json();
       const place = data.results?.[0];
@@ -2029,7 +2036,7 @@ function wireAutocomplete() {
     if (q.length < 2) return hideSuggestion("taxon");
     taxonDebounce = setTimeout(async () => {
       try {
-        const res = await fetch(`${API}/taxa/autocomplete?q=${encodeURIComponent(q)}&per_page=12`);
+        const res = await inatFetch(`taxa/autocomplete?q=${encodeURIComponent(q)}&per_page=12`);
         const data = res.ok ? await res.json() : { results: [] };
         renderSuggestions("taxon", data.results || []);
       } catch {
@@ -2362,7 +2369,7 @@ async function sampleHourOfDayFromObservations(baseParams, maxSamples = 150, max
     hp.set("order_by", "created_at");
     hp.set("order", "desc");
     pagePromises.push(
-      fetch(`${API}/observations?${hp}`).then(async (r) => ({
+      inatFetch(`observations?${hp}`).then(async (r) => ({
         page,
         ok: r.ok,
         json: r.ok ? await r.json() : null,
@@ -2444,7 +2451,7 @@ function buildSearchUrlWithSpecies(taxonId) {
 async function loadDetailFromTaxonId(taxonId) {
   el.detailContent.innerHTML = `<p class="detail-loading">Loading species…</p>`;
   try {
-    const res = await fetch(`${API}/taxa/${taxonId}`);
+    const res = await inatFetch(`taxa/${taxonId}`);
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     const data = await res.json();
     const taxon = data.results?.[0];
@@ -2500,7 +2507,7 @@ async function showSpeciesDetail(taxon, obsCount) {
 
   try {
     const monthParams = await monthOfYearHistogramParams(taxon.id);
-    const monthRes = await fetch(`${API}/observations/histogram?${monthParams}`);
+    const monthRes = await inatFetch(`observations/histogram?${monthParams}`);
     if (monthRes.ok) {
       const monthData = await monthRes.json();
       const moy = monthData.results?.month_of_year || {};
