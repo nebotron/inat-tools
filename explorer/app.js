@@ -201,8 +201,10 @@ const el = {
   monthsGrid: document.getElementById("months-grid"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
-  viewToolbar: document.getElementById("view-toolbar"),
-  btnRefresh: document.getElementById("btn-refresh"),
+  btnRefreshObservations: document.getElementById("btn-refresh-observations"),
+  btnRefreshSpecies: document.getElementById("btn-refresh-species"),
+  btnRefreshMap: document.getElementById("btn-refresh-map"),
+  btnRefreshDetail: document.getElementById("btn-refresh-detail"),
   tabs: document.querySelectorAll(".tab"),
   panelFilters: document.getElementById("panel-filters"),
   panelObs: document.getElementById("panel-observations"),
@@ -296,9 +298,12 @@ function formatCountLabel(n, singular, plural) {
 }
 
 function updateSearchSummaryElements() {
-  const line = `${formatCountLabel(totalObs, "observation", "observations")} · ${formatCountLabel(totalSpecies, "species", "species")}`;
-  if (el.searchSummaryObs) el.searchSummaryObs.textContent = line;
-  if (el.searchSummarySpecies) el.searchSummarySpecies.textContent = line;
+  if (el.searchSummaryObs) {
+    el.searchSummaryObs.textContent = formatCountLabel(totalObs, "observation", "observations");
+  }
+  if (el.searchSummarySpecies) {
+    el.searchSummarySpecies.textContent = formatCountLabel(totalSpecies, "species", "species");
+  }
   setSearchSummaryVisibility();
 }
 
@@ -1385,16 +1390,18 @@ function setActiveTabUI() {
   el.panelMap.classList.toggle("hidden", !mapOn);
   el.panelDetail.classList.toggle("hidden", !detailOn);
 
-  if (el.viewToolbar) {
-    el.viewToolbar.hidden = filtersOn;
-  }
-
   setSearchSummaryVisibility();
 }
 
+function setRefreshButtonsDisabled(disabled) {
+  if (el.btnRefreshObservations) el.btnRefreshObservations.disabled = disabled;
+  if (el.btnRefreshSpecies) el.btnRefreshSpecies.disabled = disabled;
+  if (el.btnRefreshMap) el.btnRefreshMap.disabled = disabled;
+  if (el.btnRefreshDetail) el.btnRefreshDetail.disabled = disabled;
+}
+
 async function refreshActiveView() {
-  if (!el.btnRefresh || el.btnRefresh.disabled) return;
-  el.btnRefresh.disabled = true;
+  setRefreshButtonsDisabled(true);
   try {
     if (currentView === "observations") {
       await runObservationSearch(true);
@@ -1407,7 +1414,7 @@ async function refreshActiveView() {
       await loadDetailFromTaxonId(detailTaxonId);
     }
   } finally {
-    if (el.btnRefresh) el.btnRefresh.disabled = false;
+    setRefreshButtonsDisabled(false);
   }
 }
 
@@ -2224,8 +2231,23 @@ async function boot() {
   wireInfiniteScroll();
   wireFilterExtras();
   wireButtons();
-  if (el.btnRefresh) {
-    el.btnRefresh.addEventListener("click", () => {
+  if (el.btnRefreshObservations) {
+    el.btnRefreshObservations.addEventListener("click", () => {
+      void refreshActiveView();
+    });
+  }
+  if (el.btnRefreshSpecies) {
+    el.btnRefreshSpecies.addEventListener("click", () => {
+      void refreshActiveView();
+    });
+  }
+  if (el.btnRefreshMap) {
+    el.btnRefreshMap.addEventListener("click", () => {
+      void refreshActiveView();
+    });
+  }
+  if (el.btnRefreshDetail) {
+    el.btnRefreshDetail.addEventListener("click", () => {
       void refreshActiveView();
     });
   }
