@@ -183,6 +183,23 @@ main {
   margin: 0;
 }
 
+.field--checkbox-row .checkbox-row-label {
+  position: static;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
+}
+
+.field--checkbox-row input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--accent);
+}
+
 .field input[type="search"],
 .field input[type="text"],
 .field select,

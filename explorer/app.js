@@ -143,7 +143,7 @@ function mapPinMarkerRadius() {
 }
 
 let currentView = "filters";
-/** Offset page for species_counts only; observation lists use `id_below` cursors (`obsListCursorId`) to avoid duplicate rows when the result set shifts. */
+/** Offset page for species_counts only; observation lists use cursor pagination (`id_below` / `id_above`) to avoid duplicate rows when the result set shifts. */
 let speciesPage = 1;
 let obsHasMore = false;
 let speciesHasMore = false;
@@ -156,8 +156,10 @@ let totalSpecies = 0;
 /** Avoid `querySelectorAll('.card')` on large grids (expensive on scroll). */
 let obsCardCount = 0;
 let speciesCardCount = 0;
-/** Minimum observation id from the last API page — passed as `id_below` for the next observations request (stable pagination). */
+/** Minimum observation id from the last API page — `id_below` for descending sort (recent / faves). */
 let obsListCursorId = null;
+/** Maximum observation id from the last API page — `id_above` for ascending upload time (`oldest`). */
+let obsListCursorAscId = null;
 /** Observation ids already rendered; skips duplicates if any slip through. */
 const obsSeenIds = new Set();
 
@@ -198,6 +200,7 @@ const el = {
   lat: document.getElementById("lat"),
   lng: document.getElementById("lng"),
   filterNativeStatus: document.getElementById("filter-native-status"),
+  filterEndemic: document.getElementById("filter-endemic"),
   qualityGrade: document.getElementById("quality-grade"),
   sortMode: document.getElementById("sort-mode"),
   mediaPhotos: document.getElementById("media-photos"),
@@ -866,6 +869,8 @@ function commonParams(options = {}) {
 
   if (el.popularOnly.checked) p.set("popular", "true");
 
+  if (el.filterEndemic && el.filterEndemic.checked) p.set("endemic", "true");
+
   return p;
 }
 
@@ -875,22 +880,28 @@ function joinKingCountyTaxonIdsCsv(kc) {
 }
 
 /**
- * Observation list params. Uses `id_below` cursor pagination instead of `page` so rows are not
- * duplicated when new observations shift offset windows (see iNaturalist API notes on `id_below`).
- * @param {{ idBelow?: number | null }} opts
+ * Observation list params. Uses `id_below` (desc) or `id_above` (asc) cursor pagination instead of `page`.
+ * @param {{ idBelow?: number | null, idAbove?: number | null }} opts
  */
 async function observationParams(opts = {}) {
   const idBelow = opts.idBelow != null && Number.isFinite(opts.idBelow) ? opts.idBelow : null;
+  const idAbove = opts.idAbove != null && Number.isFinite(opts.idAbove) ? opts.idAbove : null;
   const kc = await ensureKingCountyNoxiousData();
   const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.set("per_page", String(OBS_PER_PAGE));
-  if (idBelow != null) p.set("id_below", String(Math.floor(idBelow)));
-  if (el.sortMode.value === "faves") {
+  const sort = el.sortMode.value;
+  if (sort === "faves") {
     p.set("order_by", "votes");
     p.set("order", "desc");
+    if (idBelow != null) p.set("id_below", String(Math.floor(idBelow)));
+  } else if (sort === "oldest") {
+    p.set("order_by", "created_at");
+    p.set("order", "asc");
+    if (idAbove != null) p.set("id_above", String(Math.floor(idAbove)));
   } else {
     p.set("order_by", "created_at");
     p.set("order", "desc");
+    if (idBelow != null) p.set("id_below", String(Math.floor(idBelow)));
   }
   return p;
 }
@@ -909,15 +920,26 @@ function observationCreatedAtMs(obs) {
  * API returns `order_by=votes` desc; only re-sort a page when ties need breaking by upload time.
  */
 function sortObservationResultsForDisplay(results) {
-  if (el.sortMode.value !== "faves" || !results.length) return results;
-  const counts = results.map((o) => Number(o.faves_count) || 0);
-  if (new Set(counts).size === counts.length) return results;
-  return [...results].sort((a, b) => {
-    const fa = Number(a.faves_count) || 0;
-    const fb = Number(b.faves_count) || 0;
-    if (fb !== fa) return fb - fa;
-    return observationCreatedAtMs(b) - observationCreatedAtMs(a);
-  });
+  if (!results.length) return results;
+  if (el.sortMode.value === "faves") {
+    const counts = results.map((o) => Number(o.faves_count) || 0);
+    if (new Set(counts).size === counts.length) return results;
+    return [...results].sort((a, b) => {
+      const fa = Number(a.faves_count) || 0;
+      const fb = Number(b.faves_count) || 0;
+      if (fb !== fa) return fb - fa;
+      return observationCreatedAtMs(b) - observationCreatedAtMs(a);
+    });
+  }
+  if (el.sortMode.value === "oldest") {
+    return [...results].sort((a, b) => {
+      const ta = observationCreatedAtMs(a);
+      const tb = observationCreatedAtMs(b);
+      if (ta !== tb) return ta - tb;
+      return (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
+  }
+  return results;
 }
 
 async function speciesParams(page) {
@@ -1220,6 +1242,7 @@ async function runObservationSearch(reset) {
   try {
     if (reset) {
       obsListCursorId = null;
+      obsListCursorAscId = null;
       obsSeenIds.clear();
       totalObs = 0;
       totalSpecies = 0;
@@ -1228,7 +1251,12 @@ async function runObservationSearch(reset) {
       el.resultsGrid.innerHTML = "";
     }
 
-    const res = await inatFetch(`observations?${(await observationParams({ idBelow: obsListCursorId })).toString()}`);
+    const res = await inatFetch(
+      `observations?${(await observationParams({
+        idBelow: obsListCursorId,
+        idAbove: obsListCursorAscId,
+      })).toString()}`
+    );
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     const data = await res.json();
     const results = sortObservationResultsForDisplay(data.results || []);
@@ -1236,7 +1264,11 @@ async function runObservationSearch(reset) {
 
     const rawIds = results.map((o) => (o && o.id != null ? Number(o.id) : NaN)).filter((n) => Number.isFinite(n));
     if (rawIds.length) {
-      obsListCursorId = Math.min(...rawIds);
+      if (el.sortMode.value === "oldest") {
+        obsListCursorAscId = Math.max(...rawIds);
+      } else {
+        obsListCursorId = Math.min(...rawIds);
+      }
     }
 
     if (reset) {
@@ -1810,7 +1842,7 @@ function syncUrl() {
 
   if (el.qualityGrade.value) q.set("grade", el.qualityGrade.value);
   else q.delete("grade");
-  if (el.sortMode.value != "recent") q.set("sort", el.sortMode.value);
+  if (el.sortMode.value !== "recent") q.set("sort", el.sortMode.value);
   else q.delete("sort");
 
   const mediaQ = mediaQueryFromCheckboxes();
@@ -1825,6 +1857,9 @@ function syncUrl() {
   const establish = el.filterNativeStatus && el.filterNativeStatus.value ? el.filterNativeStatus.value : "any";
   if (establish && establish !== "any") q.set("establish", establish);
   else q.delete("establish");
+
+  if (el.filterEndemic && el.filterEndemic.checked) q.set("endemic", "1");
+  else q.delete("endemic");
 
   if (currentView != "filters") {
     q.set("view", currentView);
@@ -1885,7 +1920,10 @@ function readUrl() {
   applyCardMetaFromQuery(q);
   setMonths(q.get("months") || "");
   el.qualityGrade.value = q.get("grade") || "";
-  el.sortMode.value = q.get("sort") || "recent";
+  {
+    const s = q.get("sort") || "recent";
+    el.sortMode.value = s === "oldest" || s === "faves" ? s : "recent";
+  }
   applyMediaFromQuery(q);
   el.uploadedDays.value = q.get("days") || "";
   el.popularOnly.checked = q.get("popular") === "1";
@@ -1893,6 +1931,9 @@ function readUrl() {
   if (el.filterNativeStatus) {
     const es = q.get("establish");
     el.filterNativeStatus.value = es === "native" || es === "introduced" || es === "invasive" ? es : "any";
+  }
+  if (el.filterEndemic) {
+    el.filterEndemic.checked = q.get("endemic") === "1" || q.get("endemic") === "true";
   }
 
   const dtid = q.get("detail_taxon");
@@ -2265,7 +2306,11 @@ function wireFilterExtras() {
     syncUrl();
   });
   el.qualityGrade.addEventListener("change", onChange);
-  el.sortMode.addEventListener("change", onChange);
+  el.sortMode.addEventListener("change", () => {
+    onChange();
+    lastMapFilterKey = null;
+    queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+  });
 
   const lowerLogin = (e) => {
     e.target.value = e.target.value.toLowerCase();
@@ -2289,6 +2334,12 @@ function wireFilterExtras() {
 
   if (el.filterNativeStatus) {
     el.filterNativeStatus.addEventListener("change", () => {
+      lastMapFilterKey = null;
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
+  if (el.filterEndemic) {
+    el.filterEndemic.addEventListener("change", () => {
       lastMapFilterKey = null;
       queueMicrotask(() => refreshResultPanelsIfMetaChanged());
     });
@@ -2325,6 +2376,7 @@ function wireButtons() {
     el.metaGrade.checked = false;
     el.metaSciName.checked = false;
     if (el.filterNativeStatus) el.filterNativeStatus.value = "any";
+    if (el.filterEndemic) el.filterEndemic.checked = false;
     el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
       x.checked = false;
     });
@@ -2333,6 +2385,7 @@ function wireButtons() {
     obsCardCount = 0;
     speciesCardCount = 0;
     obsListCursorId = null;
+    obsListCursorAscId = null;
     obsSeenIds.clear();
     clearMapOverlays();
     currentHeatUrl = null;
