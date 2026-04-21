@@ -367,6 +367,31 @@ function originalPhotoUrl(url) {
   return url.replace(/\/(square|medium|large|original)\./, "/original.");
 }
 
+function extensionFromPhotoUrl(url) {
+  const m = String(url || "").match(/\.(jpe?g|png|gif|webp|heic|bmp)(\?|$)/i);
+  return m ? `.${m[1].toLowerCase()}` : ".jpg";
+}
+
+function isJpegMagic(buf) {
+  return buf && buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8;
+}
+
+/**
+ * @param {object} px window.piexif
+ * @param {Uint8Array} bin
+ * @param {object} exifDict
+ * @returns {string} binary string for piexif output
+ */
+function embedExifInJpegBinaryString(px, bin, exifDict) {
+  let jpegStr = "";
+  for (let i = 0; i < bin.length; i += 1) jpegStr += String.fromCharCode(bin[i]);
+  let outStr = jpegStr;
+  const hadExif = jpegStr.indexOf("Exif\x00\x00") !== -1;
+  if (hadExif) outStr = px.remove(jpegStr);
+  const exifBytes = px.dump(exifDict);
+  return px.insert(exifBytes, outStr);
+}
+
 function binaryStringToUint8Array(bin) {
   const len = bin.length;
   const out = new Uint8Array(len);
@@ -529,8 +554,8 @@ function buildExifDictForObservation(obs) {
 }
 
 /**
- * Fetch full JPEG, embed EXIF from observation (GPS + observed time), then share (mobile “Save Image”)
- * or download. Requires CORS on the image host (e.g. inaturalist-open-data).
+ * Fetch every observation photo at original size, embed EXIF on JPEGs when possible, then Web Share
+ * all files or download each. Requires CORS on the image host for each URL.
  */
 async function saveObservationPhotoWithExif(obs) {
   const px = typeof window !== "undefined" ? window.piexif : null;
@@ -538,63 +563,70 @@ async function saveObservationPhotoWithExif(obs) {
     window.alert("Could not load photo tools. Try refreshing the page.");
     return;
   }
-  const photo = obs && obs.photos && obs.photos[0];
-  const srcUrl = photo && photo.url ? originalPhotoUrl(photo.url) : "";
-  if (!srcUrl) {
-    window.alert("No photo to save.");
-    return;
-  }
-
-  let bin;
-  try {
-    const res = await fetch(srcUrl, { mode: "cors" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const ab = await res.arrayBuffer();
-    bin = new Uint8Array(ab);
-  } catch {
-    window.alert(
-      "Could not download this image in the browser (the host may block cross-origin access). Open the observation on iNaturalist and save the photo from there."
-    );
-    return;
-  }
-
-  if (bin.length < 2 || bin[0] !== 0xff || bin[1] !== 0xd8) {
-    window.alert("This observation photo is not a JPEG; embedded location and time are only added for JPEG files here.");
+  const photos = obs && Array.isArray(obs.photos) ? obs.photos : [];
+  if (!photos.length) {
+    window.alert("No photos on this observation.");
     return;
   }
 
   const exifDict = buildExifDictForObservation(obs);
-  if (!exifDict) {
-    window.alert("This observation has no coordinates or observed time to embed.");
-    return;
-  }
-
-  let jpegStr = "";
-  for (let i = 0; i < bin.length; i += 1) jpegStr += String.fromCharCode(bin[i]);
-  let outStr = jpegStr;
-  try {
-    const hadExif = jpegStr.indexOf("Exif\x00\x00") !== -1;
-    if (hadExif) outStr = px.remove(jpegStr);
-    const exifBytes = px.dump(exifDict);
-    outStr = px.insert(exifBytes, outStr);
-  } catch (e) {
-    window.alert(e && e.message ? e.message : "Could not embed photo metadata.");
-    return;
-  }
-
-  const out = binaryStringToUint8Array(outStr);
-  const blob = new Blob([out], { type: "image/jpeg" });
   const id = obs && obs.id != null ? String(obs.id) : "observation";
-  const taxonBit = obs && obs.taxon && obs.taxon.name ? escapeFilenameSegment(obs.taxon.name) : "";
-  const filename = taxonBit ? `inat-${id}-${taxonBit}.jpg` : `inat-${id}.jpg`;
-
+  const taxonBit = obs && obs.taxon && obs.taxon.name ? escapeFilenameSegment(obs.taxon.name) : "species";
   const obsTime = obs && obs.time_observed_at ? new Date(obs.time_observed_at) : null;
   const lastMod = obsTime && !Number.isNaN(obsTime.getTime()) ? obsTime.getTime() : Date.now();
 
-  const sharePayload = { files: [new File([blob], filename, { type: "image/jpeg", lastModified: lastMod })] };
-  if (typeof navigator !== "undefined" && typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+  const files = [];
+
+  for (let i = 0; i < photos.length; i += 1) {
+    const photo = photos[i];
+    const srcUrl = photo && photo.url ? originalPhotoUrl(photo.url) : "";
+    if (!srcUrl) {
+      continue;
+    }
+    const ext = extensionFromPhotoUrl(srcUrl);
+    const baseName = photos.length > 1 ? `inat-${id}-${taxonBit}-photo-${i + 1}` : `inat-${id}-${taxonBit}`;
+
+    let bin;
     try {
-      if (navigator.canShare(sharePayload)) {
+      const res = await fetch(srcUrl, { mode: "cors" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      bin = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      continue;
+    }
+
+    if (isJpegMagic(bin) && exifDict) {
+      try {
+        const outStr = embedExifInJpegBinaryString(px, bin, exifDict);
+        const out = binaryStringToUint8Array(outStr);
+        const blob = new Blob([out], { type: "image/jpeg" });
+        const name = `${baseName}.jpg`;
+        files.push(new File([blob], name, { type: "image/jpeg", lastModified: lastMod }));
+      } catch {
+        const blob = new Blob([bin], { type: "image/jpeg" });
+        files.push(new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: lastMod }));
+      }
+    } else if (isJpegMagic(bin)) {
+      const blob = new Blob([bin], { type: "image/jpeg" });
+      files.push(new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: lastMod }));
+    } else {
+      const mime = ext === ".png" ? "image/png" : ext === ".gif" ? "image/gif" : ext === ".webp" ? "image/webp" : "application/octet-stream";
+      const blob = new Blob([bin], { type: mime });
+      files.push(new File([blob], `${baseName}${ext}`, { type: mime, lastModified: lastMod }));
+    }
+  }
+
+  if (!files.length) {
+    window.alert(
+      "Could not load any photos in the browser (the host may block cross-origin access). Open the observation on iNaturalist to download photos."
+    );
+    return;
+  }
+
+  const sharePayload = { files };
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+    try {
+      if (typeof navigator.canShare !== "function" || navigator.canShare(sharePayload)) {
         await navigator.share(sharePayload);
         return;
       }
@@ -604,15 +636,21 @@ async function saveObservationPhotoWithExif(obs) {
     }
   }
 
-  const a = document.createElement("a");
-  const url = URL.createObjectURL(blob);
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  for (let i = 0; i < files.length; i += 1) {
+    const f = files[i];
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(f);
+    a.href = url;
+    a.download = f.name;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    if (i < files.length - 1) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
 }
 
 function showError(panel, msg) {
@@ -1122,7 +1160,7 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
       : "";
   const saveBtn =
     saveObservation && imageUrl
-      ? `<button type="button" class="card-save-photo" aria-label="Share or save photo with observation location and time" title="Share / save (embeds GPS and observed time in the JPEG)">
+      ? `<button type="button" class="card-save-photo" aria-label="Share or save all photos with observation location and time" title="Share / save all photos (embeds GPS and observed time in JPEGs)">
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
         </button>`
       : "";
