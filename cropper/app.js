@@ -18,13 +18,14 @@ const MODEL_CACHE_NAME = "coco-ssd-model-v2";
 /** Default COCO-SSD variant: fewer / smaller weight shards than full mobilenet_v2 (~17), better on mobile Safari. */
 const COCO_SSD_BASE = "lite_mobilenet_v2";
 
-/** Crash / reload recovery: persist batch + crop progress to IndexedDB (debounced). */
+/** Persist per-image crop mappings by filename (debounced). */
 const SESSION_IDB_NAME = "subject-square-crop-session";
 const SESSION_IDB_VER = 1;
 const SESSION_STORE = "kv";
-const SESSION_KEY = "v1";
+const SESSION_KEY = "crop-name-mappings-v1";
 let sessionPersistTimer = null;
 let sessionDbPromise = null;
+let sessionPersistDirty = false;
 
 function openSessionIdb() {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
@@ -82,37 +83,37 @@ function isCoarsePointerPrimaryInput() {
   return cachedCoarsePointer;
 }
 
-/** Skip persisting huge clips so IndexedDB quota / memory spikes don’t take down the tab. */
-const MAX_SESSION_FILE_BYTES = 95 * 1024 * 1024;
-/** Desktop: duplicate ArrayBuffers during persist spike RSS. */
-const MAX_SESSION_TOTAL_BYTES_DESKTOP = 200 * 1024 * 1024;
-/** iOS WebKit is stricter; duplicate buffers + TF often crash before quota errors. */
-const MAX_SESSION_TOTAL_BYTES_IOS = 64 * 1024 * 1024;
-/**
- * Never persist more than N files (each `arrayBuffer()` doubles memory briefly).
- * Desktop cap must allow the advertised batch limit (`MAX_BATCH_FILES`) so reload restores
- * large selections (e.g. 100 × ~1 MiB stays under `MAX_SESSION_TOTAL_BYTES_DESKTOP`).
- */
-const SESSION_PERSIST_MAX_FILES_DESKTOP = 180;
-const SESSION_PERSIST_MAX_FILES_IOS = 36;
-
-function maxSessionTotalBytes() {
-  return isIOSOrIPadOS() ? MAX_SESSION_TOTAL_BYTES_IOS : MAX_SESSION_TOTAL_BYTES_DESKTOP;
-}
-
-function sessionPersistMaxFiles() {
-  return isIOSOrIPadOS() ? SESSION_PERSIST_MAX_FILES_IOS : SESSION_PERSIST_MAX_FILES_DESKTOP;
-}
-
 function schedulePersistSession() {
   if (typeof indexedDB === "undefined") return;
-  if (!workItems.length) return;
-  if (workItems.length > sessionPersistMaxFiles()) return;
+  if (!sessionPersistDirty) return;
   if (sessionPersistTimer != null) clearTimeout(sessionPersistTimer);
   sessionPersistTimer = setTimeout(() => {
     sessionPersistTimer = null;
     void persistSessionNow();
   }, 650);
+}
+
+function markSessionPersistDirty() {
+  if (typeof indexedDB === "undefined") return;
+  sessionPersistDirty = true;
+  schedulePersistSession();
+}
+
+function clearLegacySessionIfNeeded() {
+  if (typeof indexedDB === "undefined") return Promise.resolve();
+  return openSessionIdb()
+    .then((db) => {
+      if (!db) return;
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(SESSION_STORE, "readwrite");
+        tx.objectStore(SESSION_STORE).delete("v1");
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    })
+    .catch((e) => {
+      console.warn("clearLegacySessionIfNeeded", e);
+    });
 }
 
 /** Run pending debounced save immediately (e.g. before tab background/close). */
@@ -121,168 +122,42 @@ function flushPendingSessionPersist() {
     clearTimeout(sessionPersistTimer);
     sessionPersistTimer = null;
   }
-  if (workItems.length) void persistSessionNow();
+  if (sessionPersistDirty) void persistSessionNow();
 }
 
 async function persistSessionNow() {
-  if (typeof indexedDB === "undefined" || !workItems.length) return;
-  if (workItems.length > sessionPersistMaxFiles()) {
-    console.warn("Session persist: too many files — skipping (memory)");
-    setSessionPersistNotice(
-      `Reload recovery unavailable: this batch has ${workItems.length} photos, but saving more than ${sessionPersistMaxFiles()} files is disabled to avoid running out of memory. Download ZIP or finish before closing the tab.`
-    );
-    return;
-  }
+  if (typeof indexedDB === "undefined") return;
+  if (!sessionPersistDirty) return;
   try {
-    let totalBytes = 0;
-    const fileParts = [];
-    const cap = maxSessionTotalBytes();
-    const n = workItems.length;
-    for (let i = 0; i < n; i++) {
-      const f = workItems[i];
-      if (f.size > MAX_SESSION_FILE_BYTES) {
-        console.warn("Session persist: skipping oversized file", f.name);
-        setSessionPersistNotice(
-          `Reload recovery unavailable: “${f.name || "A photo"}” is larger than the safe save limit (${Math.round(MAX_SESSION_FILE_BYTES / (1024 * 1024))} MB). Download ZIP or remove that file.`
-        );
-        return;
-      }
-      totalBytes += f.size;
-      if (totalBytes > cap) {
-        console.warn("Session persist: batch too large to save");
-        setSessionPersistNotice(
-          `Reload recovery unavailable: total size of this batch exceeds the safe save limit (~${Math.round(cap / (1024 * 1024))} MB). Download ZIP or use fewer / smaller photos.`
-        );
-        return;
-      }
-      let buffer;
-      try {
-        buffer = await f.arrayBuffer();
-      } catch (e) {
-        console.warn("Session persist: could not read file — skipping save", e);
-        setSessionPersistNotice(
-          "Reload recovery unavailable: a photo could not be read for saving. Download ZIP to keep your work."
-        );
-        return;
-      }
-      fileParts.push({
-        name: f.name,
-        size: f.size,
-        lastModified: f.lastModified,
-        type: f.type || "",
-        buffer,
-      });
-      /** Yield so large batches are less likely to freeze or crash the tab (especially iOS). */
-      if (i < n - 1 && shouldYieldBetweenBatchItems()) await new Promise((r) => setTimeout(r, 0));
-    }
-    const payload = {
-      v: 1,
-      /** v2: newest-first `cropReviewIndex`; v3: persist omits `source`; restore does not jump review slot. */
-      cropUiRev: 3,
-      previewGeneration,
-      cropReviewIndex,
-      cropReviewDoneKeys: [...cropReviewDoneKeys],
-      analysisPendingKeys: [...analysisPendingKeys],
-      cropStateEntries: [...cropState.entries()].map(([k, v]) => [k, sanitizeCropStateForSession(v)]),
-      previewSlotErrorsEntries: [...previewSlotErrors.entries()],
-      fileParts,
-    };
     const db = await openSessionIdb();
     if (!db) return;
+    const entries = serializeCropNameMappingsForSession();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(SESSION_STORE, "readwrite");
-      tx.objectStore(SESSION_STORE).put(payload, SESSION_KEY);
+      const store = tx.objectStore(SESSION_STORE);
+      if (!entries.length) {
+        store.delete(SESSION_KEY);
+      } else {
+        store.put({ v: 1, savedAt: Date.now(), entries }, SESSION_KEY);
+      }
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+    sessionPersistDirty = false;
     setSessionPersistNotice("");
   } catch (e) {
     console.warn("persistSessionNow", e);
     setSessionPersistNotice(
-      `Reload recovery unavailable: could not save to browser storage (${e && e.message ? String(e.message) : "unknown error"}). Download ZIP to keep your work.`
+      `Saved crop mappings unavailable: could not write browser storage (${e && e.message ? String(e.message) : "unknown error"}).`
     );
-  }
-}
-
-function setSessionRestoreProgress(pct, options) {
-  const wrap = document.getElementById("session-restore-progress-wrap");
-  const bar = document.getElementById("session-restore-progress");
-  const fill = document.getElementById("session-restore-progress-fill");
-  if (!wrap || !bar || !fill) return;
-  const indeterminate = options && options.indeterminate;
-  if (indeterminate) {
-    wrap.hidden = false;
-    bar.classList.add("progress--indeterminate");
-    fill.classList.add("progress__fill--indeterminate");
-    fill.style.width = "";
-    bar.removeAttribute("aria-valuenow");
-    bar.setAttribute("aria-valuetext", "In progress");
-    return;
-  }
-  const p = Math.max(0, Math.min(100, Number(pct) || 0));
-  wrap.hidden = false;
-  bar.classList.remove("progress--indeterminate");
-  fill.classList.remove("progress__fill--indeterminate");
-  fill.style.width = `${p}%`;
-  bar.setAttribute("aria-valuenow", String(Math.round(p)));
-  bar.setAttribute("aria-valuetext", `${Math.round(p)}%`);
-}
-
-function resetSessionRestoreProgressUi() {
-  const wrap = document.getElementById("session-restore-progress-wrap");
-  const bar = document.getElementById("session-restore-progress");
-  const fill = document.getElementById("session-restore-progress-fill");
-  if (wrap) wrap.hidden = true;
-  if (bar) {
-    bar.classList.remove("progress--indeterminate");
-    bar.removeAttribute("aria-valuenow");
-    bar.removeAttribute("aria-valuetext");
-  }
-  if (fill) {
-    fill.classList.remove("progress__fill--indeterminate");
-    fill.style.width = "";
-  }
-}
-
-function setSessionRestoreOverlay(visible, options) {
-  const el = document.getElementById("session-restore-overlay");
-  if (!el) return;
-  const textEl = el.querySelector(".session-restore-overlay__text");
-  if (textEl) {
-    if (visible && options && options.text != null) {
-      textEl.textContent = String(options.text);
-    } else if (!visible) {
-      const def = textEl.getAttribute("data-default-text");
-      if (def) textEl.textContent = def;
-    }
-  }
-  if (!visible) {
-    resetSessionRestoreProgressUi();
-  } else if (options && options.progress != null) {
-    setSessionRestoreProgress(options.progress, { indeterminate: Boolean(options.progressIndeterminate) });
-  } else if (options && options.progressIndeterminate) {
-    setSessionRestoreProgress(0, { indeterminate: true });
-  }
-  el.hidden = !visible;
-  el.setAttribute("aria-busy", visible ? "true" : "false");
-  if (visible && options && options.text != null) {
-    el.setAttribute("aria-label", String(options.text).replace(/\u2026/g, "..."));
-  } else if (!visible) {
-    el.setAttribute("aria-label", "Restoring your session");
   }
 }
 
 async function tryRestoreSessionFromIdb() {
   if (typeof indexedDB === "undefined") return false;
-  let restoreUiShown = false;
   try {
     const db = await openSessionIdb();
     if (!db) return false;
-
-    setSessionRestoreOverlay(true, { text: "Loading saved session…", progressIndeterminate: true });
-    restoreUiShown = true;
-    /** Let the browser paint the overlay before IndexedDB + heavy work (otherwise it can stay blank). */
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     const payload = await new Promise((resolve, reject) => {
       const tx = db.transaction(SESSION_STORE, "readonly");
@@ -290,126 +165,22 @@ async function tryRestoreSessionFromIdb() {
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
-    if (!payload || !payload.v || !Array.isArray(payload.fileParts) || !payload.fileParts.length) {
+    if (!payload) {
       return false;
     }
-
-    let restoreTotal = 0;
-    for (const p of payload.fileParts) {
-      restoreTotal += p && typeof p.size === "number" ? p.size : 0;
-    }
-    if (
-      payload.fileParts.length > sessionPersistMaxFiles() ||
-      restoreTotal > maxSessionTotalBytes()
-    ) {
-      console.warn("tryRestoreSessionFromIdb: stored session too large — clearing");
+    const restoredEntries = parseCropNameMappingsFromSession(payload);
+    if (!restoredEntries) {
+      console.warn("tryRestoreSessionFromIdb: invalid persisted mapping payload, clearing");
       await clearPersistedSession();
       return false;
     }
-
-    const totalFiles = payload.fileParts.length;
-    const photoStepText = (index1, n) =>
-      n > 1 ? `Restoring photo ${index1} of ${n}…` : "Restoring your photo…";
-
-    setSessionRestoreOverlay(true, { text: "Unpacking saved session…", progress: 0 });
-    await new Promise((r) => requestAnimationFrame(r));
-
-    workItems = [];
-    for (let i = 0; i < payload.fileParts.length; i++) {
-      const p = payload.fileParts[i];
-      workItems.push(
-        new File([p.buffer], p.name, { type: p.type || "application/octet-stream", lastModified: p.lastModified })
-      );
-      const stepPct = ((i + 1) / totalFiles) * 50;
-      setSessionRestoreOverlay(true, {
-        text: photoStepText(i + 1, totalFiles),
-        progress: stepPct,
-      });
-      if (i < payload.fileParts.length - 1) await new Promise((r) => requestAnimationFrame(r));
-    }
-
-    setSessionRestoreOverlay(true, { text: "Applying crop data…", progress: 55 });
-    await new Promise((r) => requestAnimationFrame(r));
-
-    previewGeneration = (payload.previewGeneration != null ? Number(payload.previewGeneration) : 0) + 10000;
-    {
-      const n = workItems.length;
-      let ri = Number(payload.cropReviewIndex) || 0;
-      /** v1 sessions stored oldest-first index; v2 stores newest-first offset. */
-      if (payload.cropUiRev !== 2 && n > 0) {
-        const oldFi = Math.max(0, Math.min(ri, n - 1));
-        ri = Math.max(0, Math.min(n - 1 - oldFi, n - 1));
-      }
-      cropReviewIndex = Math.max(0, Math.min(n - 1, ri));
-    }
-    cropReviewDoneKeys.clear();
-    for (const k of payload.cropReviewDoneKeys || []) cropReviewDoneKeys.add(String(k));
-    analysisPendingKeys.clear();
-    for (const k of payload.analysisPendingKeys || []) analysisPendingKeys.add(String(k));
-    cropState.clear();
-    for (const [k, v] of payload.cropStateEntries || []) {
-      if (k && v && typeof v === "object") cropState.set(String(k), sanitizeCropStateForSession(v));
-    }
-    previewSlotErrors.clear();
-    for (const [k, v] of payload.previewSlotErrorsEntries || []) {
-      if (k != null) previewSlotErrors.set(String(k), String(v));
-    }
-    pruneAnalysisPendingKeysToWorkItems();
-
-    setSessionRestoreOverlay(true, { text: "Preparing editor…", progress: 72 });
-    await new Promise((r) => requestAnimationFrame(r));
-
-    revokePreviewUrls();
-    filePreviewUrlByKey.clear();
-    exportPrepCache.clear();
-    exportPrepInflight.clear();
-    shareSheetReadyFiles = null;
-    shareSheetPrepareGen++;
-    lastShareInatFiles = [];
-    lastShareInatSourceFiles = [];
-
-    setSessionRestoreOverlay(true, { text: "Almost ready…", progress: 92 });
-    await new Promise((r) => requestAnimationFrame(r));
-
-    /** Keep restored `cropReviewIndex` — do not jump to “first unreviewed” (that broke resume UX). */
-    if (fileSummary) {
-      fileSummary.textContent = "Restored your last session — continue where you left off.";
-    }
-    clearError();
-    if (isCropReviewFinished()) {
-      setCurrentPage("export");
-      prepareShareSheetFilesInBackground();
-    } else {
-      setCurrentPage("crop");
-      renderCropEditorSlot();
-    }
-    updateCropReviewChrome();
-    updateButtons();
-    resumeAnalysisAfterRestoreIfNeeded();
-    return true;
+    cropNameMappingByImageName.clear();
+    for (const [name, mapping] of restoredEntries) cropNameMappingByImageName.set(name, mapping);
+    return cropNameMappingByImageName.size > 0;
   } catch (e) {
     console.warn("tryRestoreSessionFromIdb", e);
     return false;
-  } finally {
-    if (restoreUiShown) setSessionRestoreOverlay(false);
   }
-}
-
-/**
- * After reload, finish background analysis for items still in `analysisPendingKeys`.
- */
-function resumeAnalysisAfterRestoreIfNeeded() {
-  if (!workItems.length || isCropReviewFinished()) return;
-  if (!analysisPendingKeys.size) return;
-  const gen = previewGeneration;
-  void ensureModel()
-    .then((detModel) => {
-      if (gen !== previewGeneration) return;
-      runRemainingAnalysisInBackground(gen, detModel, PADDING_FRAC, MIN_DETECTION_SCORE);
-    })
-    .catch((e) => {
-      console.warn("resumeAnalysisAfterRestoreIfNeeded", e);
-    });
 }
 
 const fileInput = document.getElementById("file-input");
@@ -521,6 +292,284 @@ let zipDownloadInProgress = false;
 const MIN_DETECTION_SCORE = 0;
 
 /**
+ * Persisted per-name mapping:
+ * `name -> { crop: {left, top, side, w, h, hasCrop, savedSquareCrop?}, deleted, accepted }`
+ * @type {Map<string, { crop: { left: number, top: number, side: number, w: number, h: number, hasCrop: boolean, savedSquareCrop?: { left: number, top: number, side: number } } | null, deleted: boolean, accepted: boolean }>}
+ */
+const cropNameMappingByImageName = new Map();
+/** Upload-scoped mappings chosen by the user for reapply. */
+let pendingReapplyMappingsByImageName = new Map();
+
+function normalizeImageNameForMapping(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+function toFiniteNumber(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sanitizeSquareCropArea(area) {
+  if (!area || typeof area !== "object") return null;
+  const hasCrop = area.hasCrop !== false;
+  const w = Math.max(1, Math.round(toFiniteNumber(area.w, 0)));
+  const h = Math.max(1, Math.round(toFiniteNumber(area.h, 0)));
+  let left = Math.round(toFiniteNumber(area.left, 0));
+  let top = Math.round(toFiniteNumber(area.top, 0));
+  let side = Math.round(toFiniteNumber(area.side, Math.min(w, h)));
+  const maxSide = Math.max(1, Math.min(w, h));
+  side = Math.max(1, Math.min(side, maxSide));
+  left = Math.max(0, Math.min(left, w - side));
+  top = Math.max(0, Math.min(top, h - side));
+  /** `hasCrop:false` keeps original; square is retained for “toggle back to crop”. */
+  const out = { left, top, side, w, h, hasCrop };
+  const sq = area.savedSquareCrop;
+  if (sq && typeof sq === "object") {
+    const sqSide = Math.max(1, Math.min(Math.round(toFiniteNumber(sq.side, side)), maxSide));
+    const sqLeft = Math.max(0, Math.min(Math.round(toFiniteNumber(sq.left, left)), w - sqSide));
+    const sqTop = Math.max(0, Math.min(Math.round(toFiniteNumber(sq.top, top)), h - sqSide));
+    out.savedSquareCrop = { left: sqLeft, top: sqTop, side: sqSide };
+  }
+  return out;
+}
+
+function mappingCropFromState(st) {
+  if (!st || typeof st !== "object") return null;
+  const out = sanitizeSquareCropArea({
+    left: st.left,
+    top: st.top,
+    side: st.side,
+    w: st.w,
+    h: st.h,
+    hasCrop: st.hasCrop !== false,
+    savedSquareCrop: st.savedSquareCrop,
+  });
+  return out;
+}
+
+function stateFromMappingCrop(crop) {
+  const area = sanitizeSquareCropArea(crop);
+  if (!area) return null;
+  const st = {
+    left: area.left,
+    top: area.top,
+    side: area.side,
+    w: area.w,
+    h: area.h,
+    hasCrop: area.hasCrop !== false,
+    det: null,
+  };
+  if (area.savedSquareCrop) st.savedSquareCrop = { ...area.savedSquareCrop };
+  return st;
+}
+
+function getMappingForFile(file, sourceMap) {
+  const src = sourceMap || cropNameMappingByImageName;
+  const name = normalizeImageNameForMapping(file && file.name);
+  if (!name) return null;
+  const m = src.get(name);
+  return m && typeof m === "object" ? m : null;
+}
+
+function upsertCropNameMapping(file, cropStateValue, options) {
+  const key = normalizeImageNameForMapping(file && file.name);
+  if (!key) return;
+  const opts = options || {};
+  const prev = cropNameMappingByImageName.get(key);
+  const next = {
+    crop: mappingCropFromState(cropStateValue) || (prev && prev.crop ? prev.crop : null),
+    deleted: Boolean(opts.deleted),
+    accepted: Boolean(opts.accepted),
+  };
+  cropNameMappingByImageName.set(key, next);
+  if (opts.persist !== false) markSessionPersistDirty();
+}
+
+function setCropStateForFileAndPersist(file, state, options) {
+  const opts = options || {};
+  const key = fileCacheKey(file);
+  cropState.set(key, state);
+  upsertCropNameMapping(file, state, {
+    deleted: false,
+    accepted: Boolean(opts.accepted),
+    persist: opts.persist,
+  });
+}
+
+function markMappingDeletedByFile(file, options) {
+  const opts = options || {};
+  const key = normalizeImageNameForMapping(file && file.name);
+  if (!key) return;
+  const prev = cropNameMappingByImageName.get(key);
+  cropNameMappingByImageName.set(key, {
+    crop: prev && prev.crop ? prev.crop : null,
+    deleted: true,
+    accepted: false,
+  });
+  if (opts.persist !== false) markSessionPersistDirty();
+}
+
+function markMappingAcceptedByFile(file, accepted, options) {
+  const opts = options || {};
+  const key = fileCacheKey(file);
+  const st = cropState.get(key);
+  if (!st) return;
+  upsertCropNameMapping(file, st, {
+    deleted: false,
+    accepted: Boolean(accepted),
+    persist: opts.persist,
+  });
+}
+
+function serializeCropNameMappingsForSession() {
+  const out = [];
+  for (const [name, mapping] of cropNameMappingByImageName.entries()) {
+    if (!name || !mapping || typeof mapping !== "object") continue;
+    out.push({
+      name,
+      deleted: Boolean(mapping.deleted),
+      accepted: Boolean(mapping.accepted),
+      crop: mapping.crop ? sanitizeSquareCropArea(mapping.crop) : null,
+    });
+  }
+  return out;
+}
+
+function parseCropNameMappingsFromSession(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  if (Number(payload.v) !== 1) return null;
+  if (!Array.isArray(payload.entries)) return null;
+  const out = [];
+  for (const item of payload.entries) {
+    if (!item || typeof item !== "object") continue;
+    const name = normalizeImageNameForMapping(item.name);
+    if (!name) continue;
+    const crop = item.crop ? sanitizeSquareCropArea(item.crop) : null;
+    out.push([
+      name,
+      {
+        crop,
+        deleted: Boolean(item.deleted),
+        accepted: Boolean(item.accepted),
+      },
+    ]);
+  }
+  return out;
+}
+
+function remapSquareToImageDims(square, srcW, srcH, dstW, dstH) {
+  if (!square || !srcW || !srcH || !dstW || !dstH) return null;
+  const srcMin = Math.max(1, Math.min(srcW, srcH));
+  const dstMin = Math.max(1, Math.min(dstW, dstH));
+  const sideRatio = Math.max(1 / srcMin, toFiniteNumber(square.side, srcMin) / srcMin);
+  const side = Math.max(1, Math.round(sideRatio * dstMin));
+  const cx = (toFiniteNumber(square.left, 0) + toFiniteNumber(square.side, side) / 2) / srcW;
+  const cy = (toFiniteNumber(square.top, 0) + toFiniteNumber(square.side, side) / 2) / srcH;
+  const left = Math.round(cx * dstW - side / 2);
+  const top = Math.round(cy * dstH - side / 2);
+  return sanitizeSquareCropArea({ left, top, side, w: dstW, h: dstH, hasCrop: true });
+}
+
+async function buildReappliedStateForFile(file, mapping) {
+  if (!mapping || !mapping.crop) return null;
+  const mapped = stateFromMappingCrop(mapping.crop);
+  if (!mapped) return null;
+  let dstW = mapped.w;
+  let dstH = mapped.h;
+  try {
+    const decoded = await decodeForDetectionOnly(file);
+    dstW = Number(decoded && decoded.fullW) || Number(decoded && decoded.w) || dstW;
+    dstH = Number(decoded && decoded.fullH) || Number(decoded && decoded.h) || dstH;
+    if (decoded && typeof decoded.close === "function") decoded.close();
+  } catch {
+    /* fallback to stored dimensions */
+  }
+  if (!dstW || !dstH) return mapped;
+  if (mapped.w === dstW && mapped.h === dstH) return mapped;
+  const remapped = remapSquareToImageDims(mapped, mapped.w, mapped.h, dstW, dstH);
+  if (!remapped) return mapped;
+  const next = {
+    left: remapped.left,
+    top: remapped.top,
+    side: remapped.side,
+    w: remapped.w,
+    h: remapped.h,
+    hasCrop: mapped.hasCrop !== false,
+    det: null,
+  };
+  if (mapped.savedSquareCrop) {
+    const sq = remapSquareToImageDims(mapped.savedSquareCrop, mapped.w, mapped.h, dstW, dstH);
+    if (sq) next.savedSquareCrop = { left: sq.left, top: sq.top, side: sq.side };
+  }
+  if (next.hasCrop === false && !next.savedSquareCrop) {
+    next.savedSquareCrop = { left: remapped.left, top: remapped.top, side: remapped.side };
+  }
+  return next;
+}
+
+function offerCropMappingReapply(files) {
+  if (!Array.isArray(files) || !files.length) return new Map();
+  const matches = new Map();
+  let deleted = 0;
+  let accepted = 0;
+  for (const file of files) {
+    const name = normalizeImageNameForMapping(file && file.name);
+    if (!name) continue;
+    const mapping = cropNameMappingByImageName.get(name);
+    if (!mapping) continue;
+    matches.set(name, mapping);
+    if (mapping.deleted) deleted++;
+    if (mapping.accepted) accepted++;
+  }
+  if (!matches.size) return new Map();
+  const msg =
+    `Found saved crop mappings for ${matches.size} image name${matches.size === 1 ? "" : "s"}.` +
+    (deleted ? ` ${deleted} were previously removed.` : "") +
+    (accepted ? ` ${accepted} were previously accepted.` : "") +
+    " Reapply these saved choices?";
+  if (!window.confirm(msg)) return new Map();
+  return matches;
+}
+
+async function applySavedCropMappingForCurrentBatch() {
+  let applied = 0;
+  let accepted = 0;
+  let deleted = 0;
+  const reappliedKeys = new Set();
+  if (!pendingReapplyMappingsByImageName.size || !workItems.length) return { applied, accepted, deleted };
+  const nextWorkItems = [];
+  for (const file of workItems) {
+    const mapping = getMappingForFile(file, pendingReapplyMappingsByImageName);
+    if (!mapping) {
+      nextWorkItems.push(file);
+      continue;
+    }
+    if (mapping.deleted) {
+      deleted++;
+      continue;
+    }
+    const nextState = await buildReappliedStateForFile(file, mapping);
+    if (!nextState) {
+      nextWorkItems.push(file);
+      continue;
+    }
+    nextWorkItems.push(file);
+    setCropStateForFileAndPersist(file, nextState, { accepted: Boolean(mapping.accepted), persist: false });
+    const key = fileCacheKey(file);
+    reappliedKeys.add(key);
+    if (mapping.accepted) {
+      cropReviewDoneKeys.add(key);
+      accepted++;
+    } else {
+      cropReviewDoneKeys.delete(key);
+    }
+    applied++;
+  }
+  workItems = nextWorkItems;
+  return { applied, accepted, deleted, reappliedKeys };
+}
+
+/**
  * Large batches: aggressive preview prefetch limits + do not retain export payloads in RAM after each encode.
  * Share, ZIP, and background prep still run — we only tune memory retention, not features.
  */
@@ -530,14 +579,6 @@ function heavyBatchMode() {
 
 function fileCacheKey(file) {
   return `${file.name}\0${file.size}\0${file.lastModified}`;
-}
-
-/** Decoded bitmap/canvas handles must not be persisted — strip before IndexedDB / after restore. */
-function sanitizeCropStateForSession(st) {
-  if (!st || typeof st !== "object") return st;
-  if (!("source" in st)) return st;
-  const { source: _drop, ...rest } = st;
-  return rest;
 }
 
 function clearCropState() {
@@ -562,7 +603,6 @@ function clearCropState() {
   shareSheetBuildTotal = 0;
   setSharePrepProgress(false, 0, "", {});
   clearSessionPersistNotice();
-  void clearPersistedSession();
 }
 
 function invalidateShareSheetPrep() {
@@ -730,6 +770,7 @@ function advanceCropReview() {
   if (!file) return;
   const confirmedKey = fileCacheKey(file);
   cropReviewDoneKeys.add(confirmedKey);
+  markMappingAcceptedByFile(file, true);
   queueExportPrepForKey(confirmedKey);
   syncCropReviewIndex();
   renderCropEditorSlot();
@@ -1989,6 +2030,7 @@ function removeWorkItemAndRow(file, row) {
    * that turn; touching removed `File`s then crashes the tab (esp. last photo in the set).
    */
   invalidateShareSheetPrep();
+  markMappingDeletedByFile(file);
   const key = fileCacheKey(file);
   cropState.delete(key);
   previewSlotErrors.delete(key);
@@ -2069,7 +2111,6 @@ function removeWorkItemAndRow(file, row) {
         } catch (e) {
           console.warn("releaseBatchResources (deferred empty batch)", e);
         }
-        void clearPersistedSession();
       }, 0);
     });
   } else {
@@ -2195,7 +2236,7 @@ function attachBatchRowActions(row, file, options) {
         det: prev && prev.det ? prev.det : null,
       };
       if (prev && prev.noDetectionCrop) nextState.noDetectionCrop = true;
-      cropState.set(key, nextState);
+      setCropStateForFileAndPersist(file, nextState, { accepted: false });
       const newRow = buildCropEditor(file, nextState, null, { showNextCheck, minimalChrome: true });
       row.replaceWith(newRow);
       updateButtons();
@@ -2208,13 +2249,13 @@ function attachBatchRowActions(row, file, options) {
       const w = prev && prev.w ? prev.w : 0;
       const h = prev && prev.h ? prev.h : 0;
       const saved = snapshotSquareCropFromState(prev);
-      cropState.set(key, {
+      setCropStateForFileAndPersist(file, {
         w,
         h,
         hasCrop: false,
         det: prev && prev.det ? prev.det : null,
         savedSquareCrop: saved || undefined,
-      });
+      }, { accepted: false });
       const newRow = buildOriginalOnlyRow(file, { showNextCheck, minimalChrome: true });
       row.replaceWith(newRow);
       updateButtons();
@@ -2733,7 +2774,7 @@ function buildCropEditor(file, state, manualNote, options) {
       state.top = snapped.top;
       state.side = snapped.side;
       panLayoutFloat = null;
-      cropState.set(key, state);
+      setCropStateForFileAndPersist(file, state, { accepted: false });
       syncZoomSliderFromState();
       syncFixedViewportLayout();
     },
@@ -2761,7 +2802,7 @@ function buildCropEditor(file, state, manualNote, options) {
     state.top = sq.top;
     state.side = sq.side;
     panLayoutFloat = null;
-    cropState.set(key, state);
+    setCropStateForFileAndPersist(file, state, { accepted: false });
     syncZoomSliderFromState();
     syncFixedViewportLayout();
   }
@@ -2922,7 +2963,7 @@ function buildCropEditor(file, state, manualNote, options) {
     state.left = clamped.left;
     state.top = clamped.top;
     state.side = clamped.side;
-    cropState.set(key, state);
+    setCropStateForFileAndPersist(file, state, { accepted: false });
     syncZoomSliderFromState();
     syncFixedViewportLayout();
   }
@@ -2955,7 +2996,7 @@ async function ensureManualCropStateAfterError(file, shortReason) {
   const key = fileCacheKey(file);
   const note = shortReason || "Manual crop";
   const state = { ...base, det: null, reviewNote: note };
-  cropState.set(key, state);
+  setCropStateForFileAndPersist(file, state, { accepted: false });
 }
 
 async function runManualCropOnly(gen) {
@@ -3039,7 +3080,7 @@ async function analyzeOneImage(file, detModel, padFrac, minScore, gen) {
         det: slimDetectionForState(topRawDetection(preds)),
       };
     }
-    cropState.set(key, state);
+    setCropStateForFileAndPersist(file, state, { accepted: false });
     previewSlotErrors.delete(key);
     await new Promise((r) => requestAnimationFrame(() => r()));
   } catch (err) {
@@ -3122,8 +3163,49 @@ async function runAutoCrop() {
   const totalFiles = workItems.length;
   fileSummary.textContent = `Preparing · ${totalFiles} photo(s)`;
   clearError();
+  const reapplied = await applySavedCropMappingForCurrentBatch();
+  const reappliedDeleted = reapplied.deleted || 0;
+  if (fileSummary) {
+    fileSummary.textContent = fileSummaryTextAfterReapply(
+      `Preparing · ${totalFiles} photo(s)`,
+      reapplied.applied,
+      reapplied.accepted,
+      reappliedDeleted
+    );
+  }
+  const skipAnalysisKeys = reapplied && reapplied.reappliedKeys ? reapplied.reappliedKeys : new Set();
   for (let i = 0; i < workItems.length; i++) {
-    analysisPendingKeys.add(fileCacheKey(workItems[i]));
+    const key = fileCacheKey(workItems[i]);
+    if (!skipAnalysisKeys.has(key)) analysisPendingKeys.add(key);
+  }
+  if (!workItems.length) {
+    setProgress(false, 0, "");
+    if (fileSummary) fileSummary.textContent = "All selected photos were marked as removed in saved mappings.";
+    setCurrentPage("setup");
+    updateButtons();
+    return;
+  }
+  if (analysisPendingKeys.size === 0) {
+    setProgress(false, 0, "");
+    if (fileSummary) {
+      fileSummary.textContent = fileSummaryTextAfterReapply(
+        `${workItems.length} ready — review & ✓ each`,
+        reapplied.applied,
+        reapplied.accepted,
+        reappliedDeleted
+      );
+    }
+    syncCropReviewIndex();
+    if (isCropReviewFinished()) {
+      setCurrentPage("export");
+      prepareShareSheetFilesInBackground();
+    } else {
+      setCurrentPage("crop");
+      renderCropEditorSlot();
+    }
+    updateCropReviewChrome();
+    updateButtons();
+    return;
   }
   syncCropReviewIndex();
   setProgress(true, 0, "Preparing…", { indeterminate: true });
@@ -3205,6 +3287,15 @@ function startOverFromCropFlow() {
   updateButtons();
 }
 
+function fileSummaryTextAfterReapply(baseText, applied, accepted, deleted) {
+  if (!applied && !deleted) return baseText;
+  const parts = [];
+  if (applied) parts.push(`${applied} crop mapping${applied === 1 ? "" : "s"} reapplied`);
+  if (accepted) parts.push(`${accepted} accepted`);
+  if (deleted) parts.push(`${deleted} hidden`);
+  return `${baseText} · ${parts.join(" · ")}`;
+}
+
 /* ── Event wiring ── */
 
 fileInput.addEventListener("change", async () => {
@@ -3226,6 +3317,8 @@ fileInput.addEventListener("change", async () => {
     showError("No supported images in that selection.");
     return;
   }
+
+  pendingReapplyMappingsByImageName = offerCropMappingReapply(images);
 
   if (images.length > MAX_BATCH_FILES) {
     const n = images.length;
@@ -3263,6 +3356,10 @@ fileInput.addEventListener("change", async () => {
     console.error(e);
     showError("Processing failed. Retry.", e);
     setCurrentPage("setup");
+  }).finally(() => {
+    pendingReapplyMappingsByImageName = new Map();
+    clearLegacySessionIfNeeded();
+    markSessionPersistDirty();
   });
 });
 
@@ -3664,10 +3761,11 @@ function installE2EHooksIfNeeded() {
 installE2EHooksIfNeeded();
 
 void tryRestoreSessionFromIdb().then((restored) => {
-  if (!restored) {
-    setCurrentPage("setup");
-    updateButtons();
+  setCurrentPage("setup");
+  if (restored) {
+    setSessionPersistNotice("Saved crop mappings loaded. Upload matching filenames to reapply.");
   }
+  updateButtons();
   installE2EHooksIfNeeded();
 });
 
