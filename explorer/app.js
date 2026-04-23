@@ -183,11 +183,15 @@ let placeInputCommitted = "";
 
 let detailTaxonId = null;
 
+/** Positive taxon filters (include); iNaturalist `taxon_id` comma list. */
+let taxonIncludeFilters = [];
+/** Negative taxon filters (exclude); iNaturalist `without_taxon_id` comma list. */
+let taxonExcludeFilters = [];
+
 const el = {
   taxonInput: document.getElementById("taxon-input"),
-  taxonId: document.getElementById("taxon-id"),
   taxonSuggestions: document.getElementById("taxon-suggestions"),
-  taxonSelected: document.getElementById("taxon-selected"),
+  taxonSelectedStack: document.getElementById("taxon-selected-stack"),
   placeInputWrap: document.getElementById("place-input-wrap"),
   placeInput: document.getElementById("place-input"),
   placeId: document.getElementById("place-id"),
@@ -266,6 +270,120 @@ function escapeHtml(s) {
 }
 
 const NEARBY_SUGGESTION = { __nearby: true };
+
+function parseTaxonCsvParam(raw) {
+  if (!raw || typeof raw !== "string") return [];
+  return [
+    ...new Set(
+      raw
+        .split(",")
+        .map((x) => Number(String(x).trim()))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    ),
+  ];
+}
+
+/** URL `taxon_inc` / `taxon_exc`: `id|urlencodedLabel` segments separated by commas. */
+function parseTaxonLabeledParam(raw) {
+  if (!raw || typeof raw !== "string") return [];
+  const out = [];
+  for (const seg of raw.split(",")) {
+    const s = seg.trim();
+    if (!s) continue;
+    const pipe = s.indexOf("|");
+    if (pipe === -1) {
+      const id = Number(s);
+      if (Number.isFinite(id) && id > 0) out.push({ id, label: `Taxon ${id}` });
+      continue;
+    }
+    const id = Number(s.slice(0, pipe).trim());
+    let label = "";
+    try {
+      label = decodeURIComponent(s.slice(pipe + 1));
+    } catch {
+      label = s.slice(pipe + 1);
+    }
+    if (Number.isFinite(id) && id > 0) out.push({ id, label: label.trim() || `Taxon ${id}` });
+  }
+  return out;
+}
+
+function formatTaxonLabeledParam(filters) {
+  return (filters || [])
+    .filter((f) => f && Number.isFinite(f.id) && f.id > 0)
+    .map((f) => `${f.id}|${encodeURIComponent(taxonFilterLabel(f))}`)
+    .join(",");
+}
+
+function formatTaxonCsvParam(filters) {
+  const ids = (filters || []).map((f) => f.id).filter((n) => Number.isFinite(n) && n > 0);
+  const uniq = [...new Set(ids)];
+  return uniq.sort((a, b) => a - b).join(",");
+}
+
+function mergeTaxonCsvParam(baseCsv, extraIds) {
+  const set = new Set(parseTaxonCsvParam(baseCsv));
+  for (const id of extraIds) {
+    const n = Number(id);
+    if (Number.isFinite(n) && n > 0) set.add(n);
+  }
+  return [...set].sort((a, b) => a - b).join(",");
+}
+
+function taxonFilterLabel(f) {
+  if (!f) return "";
+  const lab = typeof f.label === "string" ? f.label.trim() : "";
+  return lab || `Taxon ${f.id}`;
+}
+
+function renderTaxonSelectedStack() {
+  if (!el.taxonSelectedStack) return;
+  el.taxonSelectedStack.innerHTML = "";
+  const rows = [
+    ...taxonIncludeFilters.map((f) => ({ ...f, sign: "+", cls: "taxon-pill--include" })),
+    ...taxonExcludeFilters.map((f) => ({ ...f, sign: "−", cls: "taxon-pill--exclude" })),
+  ];
+  if (!rows.length) return;
+  rows.sort((a, b) => a.id - b.id);
+  for (const { id, sign, cls, label } of rows) {
+    const pill = document.createElement("span");
+    pill.className = `selected-pill taxon-pill ${cls}`;
+    pill.dataset.taxonId = String(id);
+    const short = taxonFilterLabel({ id, label });
+    pill.innerHTML = `<span class="taxon-pill-sign" aria-hidden="true">${sign}</span><span class="taxon-pill-label">${escapeHtml(short)}</span><button type="button" class="taxon-pill-remove" aria-label="Remove taxon filter">×</button>`;
+    pill.querySelector("button").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      taxonIncludeFilters = taxonIncludeFilters.filter((x) => x.id !== id);
+      taxonExcludeFilters = taxonExcludeFilters.filter((x) => x.id !== id);
+      renderTaxonSelectedStack();
+      lastMapFilterKey = null;
+      scheduleUrlSync();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+    el.taxonSelectedStack.appendChild(pill);
+  }
+}
+
+function appendTaxonFilter(isInclude, id, label) {
+  const tid = Number(id);
+  if (!Number.isFinite(tid) || tid <= 0) return;
+  const lab = typeof label === "string" && label.trim() ? label.trim() : `Taxon ${tid}`;
+  const entry = { id: tid, label: lab };
+  if (isInclude) {
+    taxonExcludeFilters = taxonExcludeFilters.filter((x) => x.id !== tid);
+    if (!taxonIncludeFilters.some((x) => x.id === tid)) taxonIncludeFilters.push(entry);
+  } else {
+    taxonIncludeFilters = taxonIncludeFilters.filter((x) => x.id !== tid);
+    if (!taxonExcludeFilters.some((x) => x.id === tid)) taxonExcludeFilters.push(entry);
+  }
+  renderTaxonSelectedStack();
+  el.taxonInput.value = "";
+  hideSuggestion("taxon");
+  lastMapFilterKey = null;
+  scheduleUrlSync();
+  queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+}
 
 function clampRadiusKm(n) {
   const x = Math.round(Number(n));
@@ -800,30 +918,42 @@ function commonParams(options = {}) {
   const ef = getEstablishmentFilter();
 
   const p = new URLSearchParams();
-  const userTid = el.taxonId.value.trim();
+  const incBase = formatTaxonCsvParam(taxonIncludeFilters);
+  const excBase = formatTaxonCsvParam(taxonExcludeFilters);
 
   if (ef === "native") {
     p.set("native", "true");
-    if (userTid) p.set("taxon_id", userTid);
+    if (incBase) p.set("taxon_id", incBase);
   } else if (ef === "introduced") {
     p.set("introduced", "true");
-    if (userTid) p.set("taxon_id", userTid);
-    if (kcCsv) p.set("without_taxon_id", kcCsv);
+    if (incBase) p.set("taxon_id", incBase);
+    const excMerged = mergeTaxonCsvParam(excBase, parseTaxonCsvParam(kcCsv));
+    if (excMerged) p.set("without_taxon_id", excMerged);
   } else if (ef === "invasive") {
     if (kcCsv) {
-      p.set("taxon_id", kcCsv);
-    } else if (userTid) {
-      p.set("taxon_id", userTid);
+      if (incBase) {
+        p.set("taxon_id", mergeTaxonCsvParam(kcCsv, parseTaxonCsvParam(incBase)));
+      } else {
+        p.set("taxon_id", kcCsv);
+      }
+    } else if (incBase) {
+      p.set("taxon_id", incBase);
     } else {
       p.set("invasive", "true");
     }
     if (establishmentMode === "species_counts") {
       p.set("introduced", "true");
-    } else if (kcCsv || userTid) {
+    } else if (kcCsv || incBase) {
       p.set("invasive", "true");
     }
-  } else if (userTid) {
-    p.set("taxon_id", userTid);
+    if (excBase) p.set("without_taxon_id", excBase);
+  } else if (incBase) {
+    p.set("taxon_id", incBase);
+  }
+  if (excBase && ef !== "introduced") {
+    const existing = p.get("without_taxon_id");
+    const merged = mergeTaxonCsvParam(existing || "", parseTaxonCsvParam(excBase));
+    if (merged) p.set("without_taxon_id", merged);
   }
 
   const userLogin = el.userLogin.value.trim().toLowerCase();
@@ -968,7 +1098,11 @@ async function speciesCountParams() {
 async function speciesFilterParams(taxonId) {
   const kc = await ensureKingCountyNoxiousData();
   const p = commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
-  p.set("taxon_id", String(taxonId));
+  const tid = Number(taxonId);
+  if (Number.isFinite(tid) && tid > 0) {
+    const existing = p.get("taxon_id");
+    p.set("taxon_id", mergeTaxonCsvParam(existing || "", [tid]));
+  }
   p.set("order_by", "count");
   p.set("order", "desc");
   return p;
@@ -1791,9 +1925,13 @@ function syncUrl() {
   const u = new URL(window.location.href);
   const q = new URLSearchParams(window.location.search);
 
-  const taxonId = el.taxonId.value.trim();
-  if (taxonId) q.set("taxon_id", taxonId);
-  else q.delete("taxon_id");
+  const inc = formatTaxonLabeledParam(taxonIncludeFilters);
+  const exc = formatTaxonLabeledParam(taxonExcludeFilters);
+  if (inc) q.set("taxon_inc", inc);
+  else q.delete("taxon_inc");
+  if (exc) q.set("taxon_exc", exc);
+  else q.delete("taxon_exc");
+  q.delete("taxon_id");
 
   const userLogin = el.userLogin.value.trim().toLowerCase();
   if (userLogin) q.set("observer", userLogin);
@@ -1888,8 +2026,21 @@ function readUrl() {
   const v = q.get("view");
   if (["filters", "observations", "species", "map", "detail"].includes(v)) currentView = v;
 
-  const tid = q.get("taxon_id");
-  if (tid) el.taxonId.value = tid;
+  const incRaw = q.get("taxon_inc");
+  const excRaw = q.get("taxon_exc");
+  const legacyTid = q.get("taxon_id");
+  if (incRaw || excRaw) {
+    taxonIncludeFilters = parseTaxonLabeledParam(incRaw || "");
+    taxonExcludeFilters = parseTaxonLabeledParam(excRaw || "");
+  } else if (legacyTid) {
+    const legacyIds = parseTaxonCsvParam(legacyTid);
+    taxonIncludeFilters = legacyIds.map((id) => ({ id, label: `Taxon ${id}` }));
+    taxonExcludeFilters = [];
+  } else {
+    taxonIncludeFilters = [];
+    taxonExcludeFilters = [];
+  }
+  renderTaxonSelectedStack();
   el.userLogin.value = (q.get("observer") || "").toLowerCase();
 
   const pid = q.get("place_id");
@@ -1946,17 +2097,6 @@ function readUrl() {
 }
 
 async function hydrateSelections() {
-  const tid = el.taxonId.value.trim();
-  if (tid) {
-    const res = await inatFetch(`taxa/${tid}`);
-    if (res.ok) {
-      const data = await res.json();
-      const taxon = data.results?.[0];
-      const label = taxon?.preferred_common_name || taxon?.name || `Taxon ${tid}`;
-      setTaxonSelection(tid, label);
-    }
-  }
-
   const pid = el.placeId.value.trim();
   if (pid) {
     const res = await inatFetch(`places/${pid}`);
@@ -1970,21 +2110,6 @@ async function hydrateSelections() {
     setCommittedPlaceDisplay("Nearby");
     updatePlaceNearbyUI();
   }
-}
-
-function setTaxonSelection(id, label) {
-  el.taxonId.value = String(id);
-  el.taxonInput.value = "";
-  el.taxonSelected.classList.remove("hidden");
-  el.taxonSelected.innerHTML = `<span>${escapeHtml(label)}</span><button type="button" aria-label="Clear taxon">x</button>`;
-  el.taxonSelected.querySelector("button").addEventListener("click", () => {
-    el.taxonId.value = "";
-    el.taxonSelected.classList.add("hidden");
-    el.taxonSelected.innerHTML = "";
-    scheduleUrlSync();
-  });
-  hideSuggestion("taxon");
-  scheduleUrlSync();
 }
 
 async function setNearbySelection() {
@@ -2042,12 +2167,36 @@ function renderSuggestions(kind, items) {
     const li = document.createElement("li");
     li.setAttribute("role", "option");
     if (kind === "taxon") {
+      li.className = "suggestions-taxon-row";
       const label = item.preferred_common_name || item.name;
-      li.innerHTML = `<span>${escapeHtml(label)}</span>${item.preferred_common_name ? `<div class="sci">${escapeHtml(item.name)}</div>` : ""}`;
-      li.addEventListener("mousedown", (ev) => {
+      const text = document.createElement("div");
+      text.className = "suggestions-taxon-text";
+      text.innerHTML = `<span>${escapeHtml(label)}</span>${item.preferred_common_name ? `<div class="sci">${escapeHtml(item.name)}</div>` : ""}`;
+      const actions = document.createElement("div");
+      actions.className = "suggestions-taxon-actions";
+      const btnPlus = document.createElement("button");
+      btnPlus.type = "button";
+      btnPlus.className = "suggestions-taxon-btn suggestions-taxon-btn--plus";
+      btnPlus.setAttribute("aria-label", "Include this taxon");
+      btnPlus.title = "Include (+)";
+      btnPlus.textContent = "+";
+      const btnMinus = document.createElement("button");
+      btnMinus.type = "button";
+      btnMinus.className = "suggestions-taxon-btn suggestions-taxon-btn--minus";
+      btnMinus.setAttribute("aria-label", "Exclude this taxon");
+      btnMinus.title = "Exclude (−)";
+      btnMinus.textContent = "−";
+      const add = (inc) => (ev) => {
         ev.preventDefault();
-        setTaxonSelection(item.id, label);
-      });
+        ev.stopPropagation();
+        appendTaxonFilter(inc, item.id, label);
+      };
+      btnPlus.addEventListener("mousedown", add(true));
+      btnMinus.addEventListener("mousedown", add(false));
+      actions.appendChild(btnPlus);
+      actions.appendChild(btnMinus);
+      li.appendChild(text);
+      li.appendChild(actions);
     } else if (kind === "place") {
       if (item === NEARBY_SUGGESTION) {
         li.innerHTML = `<span>Nearby</span>`;
@@ -2148,7 +2297,8 @@ function wireAutocomplete() {
       items.forEach((li, i) => li.setAttribute("aria-selected", i === taxonHighlight ? "true" : "false"));
     } else if (e.key === "Enter" && taxonHighlight >= 0) {
       e.preventDefault();
-      items[taxonHighlight].dispatchEvent(new MouseEvent("mousedown"));
+      const plus = items[taxonHighlight].querySelector(".suggestions-taxon-btn--plus");
+      if (plus) plus.dispatchEvent(new MouseEvent("mousedown"));
     } else if (e.key === "Escape") {
       hideSuggestion("taxon");
     }
@@ -2349,9 +2499,9 @@ function wireFilterExtras() {
 function wireButtons() {
   el.btnReset.addEventListener("click", () => {
     el.taxonInput.value = "";
-    el.taxonId.value = "";
-    el.taxonSelected.hidden = true;
-    el.taxonSelected.innerHTML = "";
+    taxonIncludeFilters = [];
+    taxonExcludeFilters = [];
+    renderTaxonSelectedStack();
     el.placeId.value = "";
     el.lat.value = "";
     el.lng.value = "";
@@ -2489,10 +2639,17 @@ function renderBarChart(data, labels, opts = {}) {
   return chart;
 }
 
-function buildSearchUrlWithSpecies(taxonId) {
+function buildSearchUrlWithSpecies(taxonId, label) {
   const u = new URL(window.location.href);
   const q = new URLSearchParams(u.search);
-  q.set("taxon_id", String(taxonId));
+  q.delete("taxon_id");
+  q.delete("taxon_inc");
+  q.delete("taxon_exc");
+  const tid = Number(taxonId);
+  const lab = typeof label === "string" && label.trim() ? label.trim() : `Taxon ${tid}`;
+  if (Number.isFinite(tid) && tid > 0) {
+    q.set("taxon_inc", `${tid}|${encodeURIComponent(lab)}`);
+  }
   q.set("view", "observations");
   q.delete("mlat");
   q.delete("mlng");
@@ -2525,7 +2682,7 @@ async function showSpeciesDetail(taxon, obsCount) {
   const sciName = taxon.name || "";
   const imageUrl = mediumPhotoUrl(taxon.default_photo?.url || taxon.default_photo?.medium_url || "").replace("/medium.", "/large.");
   const inatAppUrl = inaturalistTaxonAppUrl(taxon.id);
-  const searchUrl = buildSearchUrlWithSpecies(taxon.id);
+  const searchUrl = buildSearchUrlWithSpecies(taxon.id, taxon.preferred_common_name || taxon.name);
 
   el.detailContent.innerHTML = `
     <div class="detail-hero">
