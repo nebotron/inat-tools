@@ -2786,6 +2786,15 @@ function buildCropEditor(file, state, manualNote, options) {
   let layoutDirty = false;
   /** While panning, use float crop origin for the transform (subpixel smoothness); committed `state` stays int until pointer-up. */
   let panLayoutFloat = null;
+  /** Coalesce high-frequency `pointermove` to one clamp + DOM write per frame (reduces main-thread work). */
+  let panMoveRaf = 0;
+  /** @type {{ clientX: number, clientY: number } | null} */
+  let pendingPanClient = null;
+  /** Skip redundant style writes when transform/size unchanged (fewer style recalcs during pan/zoom). */
+  let lastLayoutImgW = NaN;
+  let lastLayoutImgH = NaN;
+  let lastLayoutOx = NaN;
+  let lastLayoutOy = NaN;
 
   function commitPendingPanLayout() {
     if (!panLayoutFloat) return;
@@ -2823,14 +2832,22 @@ function buildCropEditor(file, state, manualNote, options) {
       const contentScale = vw / state.side;
       const imgW = state.w * contentScale;
       const imgH = state.h * contentScale;
-      img.style.width = `${imgW}px`;
-      img.style.height = `${imgH}px`;
+      if (imgW !== lastLayoutImgW || imgH !== lastLayoutImgH) {
+        lastLayoutImgW = imgW;
+        lastLayoutImgH = imgH;
+        img.style.width = `${imgW}px`;
+        img.style.height = `${imgH}px`;
+      }
       const oxSrc = panLayoutFloat ? panLayoutFloat.left : state.left;
       const oySrc = panLayoutFloat ? panLayoutFloat.top : state.top;
       const ox = -oxSrc * contentScale;
       const oy = -oySrc * contentScale;
-      /** translateZ(0) promotes the layer for smoother composited pans on mobile GPUs. */
-      imageLayer.style.transform = `translate3d(${ox}px, ${oy}px, 0)`;
+      if (ox !== lastLayoutOx || oy !== lastLayoutOy) {
+        lastLayoutOx = ox;
+        lastLayoutOy = oy;
+        /** translateZ(0) promotes the layer for smoother composited pans on mobile GPUs. */
+        imageLayer.style.transform = `translate3d(${ox}px, ${oy}px, 0)`;
+      }
       if (layoutDirty) {
         layoutDirty = false;
         syncFixedViewportLayout();
@@ -2848,11 +2865,20 @@ function buildCropEditor(file, state, manualNote, options) {
       { signal: cropUiSignal }
     );
   }
+  let resizeLayoutRaf = 0;
   const cropViewportResizeObserver = new ResizeObserver(() => {
-    syncFixedViewportLayout();
+    if (resizeLayoutRaf) return;
+    resizeLayoutRaf = requestAnimationFrame(() => {
+      resizeLayoutRaf = 0;
+      syncFixedViewportLayout();
+    });
   });
   cropViewportResizeObserver.observe(viewport);
   cropUiSignal.addEventListener("abort", () => {
+    if (resizeLayoutRaf) {
+      cancelAnimationFrame(resizeLayoutRaf);
+      resizeLayoutRaf = 0;
+    }
     try {
       cropViewportResizeObserver.disconnect();
     } catch {
@@ -2873,7 +2899,10 @@ function buildCropEditor(file, state, manualNote, options) {
   function onPointerDown(e) {
     e.preventDefault();
     activePtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (activePtrs.size > 1) commitPendingPanLayout();
+    if (activePtrs.size > 1) {
+      flushPendingPanMove();
+      commitPendingPanLayout();
+    }
     if (activePtrs.size === 1) {
       panAnchor = {
         x: e.clientX,
@@ -2907,20 +2936,46 @@ function buildCropEditor(file, state, manualNote, options) {
     syncFixedViewportLayout();
   }
 
+  function schedulePanMove(clientX, clientY) {
+    pendingPanClient = { clientX, clientY };
+    if (panMoveRaf) return;
+    panMoveRaf = requestAnimationFrame(() => {
+      panMoveRaf = 0;
+      const p = pendingPanClient;
+      pendingPanClient = null;
+      if (!p || !panAnchor) return;
+      applyPan(p.clientX, p.clientY);
+    });
+  }
+
+  function flushPendingPanMove() {
+    if (panMoveRaf) {
+      cancelAnimationFrame(panMoveRaf);
+      panMoveRaf = 0;
+    }
+    if (pendingPanClient && panAnchor) {
+      const p = pendingPanClient;
+      pendingPanClient = null;
+      applyPan(p.clientX, p.clientY);
+    }
+  }
+
   function onPointerMove(e) {
     if (!activePtrs.has(e.pointerId)) return;
     activePtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activePtrs.size === 1 && panAnchor) {
-      applyPan(e.clientX, e.clientY);
+      schedulePanMove(e.clientX, e.clientY);
     }
   }
 
   function onPointerUpOrCancel(e) {
     activePtrs.delete(e.pointerId);
     if (activePtrs.size === 0) {
+      flushPendingPanMove();
       commitPendingPanLayout();
       panAnchor = null;
     } else if (activePtrs.size === 1) {
+      flushPendingPanMove();
       commitPendingPanLayout();
       const rem = activePtrs.entries().next().value;
       if (rem) {
@@ -2931,7 +2986,7 @@ function buildCropEditor(file, state, manualNote, options) {
   }
 
   viewport.addEventListener("pointerdown", onPointerDown, { signal: cropUiSignal });
-  viewport.addEventListener("pointermove", onPointerMove, { signal: cropUiSignal });
+  viewport.addEventListener("pointermove", onPointerMove, { signal: cropUiSignal, passive: true });
   viewport.addEventListener("pointerup", onPointerUpOrCancel, { signal: cropUiSignal });
   viewport.addEventListener("pointercancel", onPointerUpOrCancel, { signal: cropUiSignal });
   /** Passive on document — we do not cancel move; reduces scroll jank if the browser treats the chain as scrollable. */
@@ -2941,6 +2996,11 @@ function buildCropEditor(file, state, manualNote, options) {
 
   cropUiSignal.addEventListener("abort", () => {
     layoutDirty = false;
+    pendingPanClient = null;
+    if (panMoveRaf) {
+      cancelAnimationFrame(panMoveRaf);
+      panMoveRaf = 0;
+    }
     if (layoutRaf) {
       cancelAnimationFrame(layoutRaf);
       layoutRaf = 0;
