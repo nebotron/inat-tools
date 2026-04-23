@@ -216,6 +216,7 @@ const el = {
   metaLocation: document.getElementById("meta-location"),
   metaNativeStatus: document.getElementById("meta-native-status"),
   metaGrade: document.getElementById("meta-grade"),
+  metaObsDate: document.getElementById("meta-obs-date"),
   metaSciName: document.getElementById("meta-sci-name"),
   monthsGrid: document.getElementById("months-grid"),
   btnReset: document.getElementById("btn-reset"),
@@ -849,11 +850,11 @@ function applyMediaFromQuery(q) {
 
 function parseCardMetaQuery(q) {
   if (!q.has("cardmeta")) {
-    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, sciName: false };
+    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, obsDate: false, sciName: false };
   }
   const raw = q.get("cardmeta") ?? "";
   if (!raw) {
-    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, sciName: false };
+    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, obsDate: false, sciName: false };
   }
   const set = new Set(
     raw
@@ -867,6 +868,7 @@ function parseCardMetaQuery(q) {
     location: set.has("loc"),
     nativeStatus: set.has("nat"),
     grade: set.has("grd"),
+    obsDate: set.has("obsd"),
     sciName: set.has("sci"),
   };
 }
@@ -878,6 +880,7 @@ function applyCardMetaFromQuery(q) {
   el.metaLocation.checked = o.location;
   el.metaNativeStatus.checked = o.nativeStatus;
   el.metaGrade.checked = o.grade;
+  if (el.metaObsDate) el.metaObsDate.checked = o.obsDate;
   el.metaSciName.checked = o.sciName;
 }
 
@@ -887,15 +890,17 @@ function formatCardMetaQuery() {
   const loc = el.metaLocation.checked;
   const nat = el.metaNativeStatus.checked;
   const grd = el.metaGrade.checked;
+  const obsd = el.metaObsDate && el.metaObsDate.checked;
   const sci = el.metaSciName.checked;
-  if (fav && spc && !loc && !nat && !grd && !sci) return null;
-  if (!fav && spc && !loc && !nat && !grd && !sci) return null;
+  if (fav && spc && !loc && !nat && !grd && !obsd && !sci) return null;
+  if (!fav && spc && !loc && !nat && !grd && !obsd && !sci) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
   if (loc) parts.push("loc");
   if (nat) parts.push("nat");
   if (grd) parts.push("grd");
+  if (obsd) parts.push("obsd");
   if (sci) parts.push("sci");
   return parts.join(",");
 }
@@ -1132,6 +1137,7 @@ function getCardMetaOptions() {
     location: el.metaLocation.checked,
     nativeStatus: el.metaNativeStatus.checked,
     grade: el.metaGrade.checked,
+    obsDate: el.metaObsDate && el.metaObsDate.checked,
     sciName: el.metaSciName.checked,
   };
 }
@@ -1263,6 +1269,22 @@ function observationLocationLine(obs) {
   return "";
 }
 
+/** Observed-on line for observation cards (date ± time when available). */
+function observationObservedOnLine(obs) {
+  if (!obs || typeof obs !== "object") return "";
+  const s = obs.observed_on_string;
+  if (typeof s === "string" && s.trim()) return s.trim();
+  const t = obs.time_observed_at;
+  if (typeof t === "string" && t.trim()) {
+    const d = new Date(t);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    return t.trim();
+  }
+  const on = obs.observed_on;
+  if (typeof on === "string" && on.trim()) return on.trim();
+  return "";
+}
+
 function observationMetaHtmlParts(obs, kcData) {
   const o = getCardMetaOptions();
   const parts = [];
@@ -1277,6 +1299,10 @@ function observationMetaHtmlParts(obs, kcData) {
   if (o.location) {
     const loc = observationLocationLine(obs);
     if (loc) parts.push(`<p class="card-meta-line">${escapeHtml(loc)}</p>`);
+  }
+  if (o.obsDate) {
+    const od = observationObservedOnLine(obs);
+    if (od) parts.push(`<p class="card-meta-line">${escapeHtml(od)}</p>`);
   }
   if (o.nativeStatus) {
     const segs = nativeStatusMetaSegments(obs, kcData);
@@ -2480,6 +2506,7 @@ function wireFilterExtras() {
   el.metaLocation.addEventListener("change", onMeta);
   el.metaNativeStatus.addEventListener("change", onMeta);
   el.metaGrade.addEventListener("change", onMeta);
+  if (el.metaObsDate) el.metaObsDate.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
 
   if (el.filterNativeStatus) {
@@ -2524,6 +2551,7 @@ function wireButtons() {
     el.metaLocation.checked = false;
     el.metaNativeStatus.checked = false;
     el.metaGrade.checked = false;
+    if (el.metaObsDate) el.metaObsDate.checked = false;
     el.metaSciName.checked = false;
     if (el.filterNativeStatus) el.filterNativeStatus.value = "any";
     if (el.filterEndemic) el.filterEndemic.checked = false;
