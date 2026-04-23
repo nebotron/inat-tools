@@ -337,6 +337,82 @@ main {
 .suggestions li[aria-selected="true"] { background: #e8f5e9; }
 .suggestions .sci { color: var(--muted); font-size: 0.8rem; }
 
+.suggestions--taxon .suggestions-taxon-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: default;
+}
+
+.suggestions--taxon .suggestions-taxon-row:hover,
+.suggestions--taxon .suggestions-taxon-row[aria-selected="true"] {
+  background: #e8f5e9;
+}
+
+.suggestions-taxon-text {
+  flex: 1;
+  min-width: 0;
+  cursor: default;
+}
+
+.suggestions-taxon-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.suggestions-taxon-btn {
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  background: #fff;
+  color: var(--text);
+}
+
+.suggestions-taxon-btn--plus {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.suggestions-taxon-btn--minus {
+  color: #9b2226;
+  border-color: #ffcdd2;
+}
+
+.suggestions-taxon-btn:hover {
+  filter: brightness(0.97);
+}
+
+.taxon-selected-stack {
+  margin: 0.45rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.taxon-pill--exclude {
+  background: #ffebee;
+}
+
+.taxon-pill-sign {
+  margin-right: 0.15rem;
+  font-weight: 700;
+}
+
+.taxon-pill-label {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .selected-pill {
   margin: 0.45rem 0 0;
   display: inline-flex;
