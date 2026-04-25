@@ -1286,8 +1286,56 @@ const CAMERA_NO_JSON_API_NOTE =
   "The iNaturalist JSON API does not include camera Make/Model on photos.";
 
 /**
+ * iNaturalist photo pages send `Cross-Origin-Resource-Policy: same-origin`, so `fetch` from another
+ * site (e.g. GitHub Pages) is blocked before a response is readable — Safari reports “Load failed”.
+ * Optional proxy: set `window.INAT_TOOLS_PHOTO_PAGE_FETCH_TEMPLATE` to a same-origin URL template
+ * where `{{url}}` is replaced with `encodeURIComponent("https://www.inaturalist.org/photos/ID")`.
+ * Your proxy must return the HTML body with CORS allowed for this app’s origin.
+ */
+function inatFirstPhotoPageUrl(pid) {
+  return `https://www.inaturalist.org/photos/${pid}`;
+}
+
+function firstInatPhotoPageUrlFromObs(obs) {
+  const photo = obs && obs.photos && obs.photos[0];
+  const pid = photo && photo.id != null ? Number(photo.id) : NaN;
+  if (!Number.isFinite(pid) || pid <= 0) return "";
+  return inatFirstPhotoPageUrl(pid);
+}
+
+function proxiedPhotoPageFetchUrl(inatPhotoPageUrl) {
+  const g = typeof globalThis !== "undefined" ? globalThis : {};
+  const tpl = g.INAT_TOOLS_PHOTO_PAGE_FETCH_TEMPLATE;
+  if (typeof tpl !== "string") return "";
+  const t = tpl.trim();
+  if (!t) return "";
+  if (t.includes("{{url}}")) return t.split("{{url}}").join(encodeURIComponent(inatPhotoPageUrl));
+  if (t.includes("{{URL}}")) return t.split("{{URL}}").join(encodeURIComponent(inatPhotoPageUrl));
+  return "";
+}
+
+function isLikelyCorpOrCorsBlockMessage(msg) {
+  const s = (msg || "").toLowerCase();
+  return (
+    s.includes("load failed")
+    || s.includes("failed to fetch")
+    || s.includes("networkerror")
+    || s.includes("network error")
+    || s.includes("access control")
+    || s.includes("cors")
+  );
+}
+
+function corpBlockHint(inatPhotoPageUrl) {
+  return `Browsers block reading that page from this site (iNaturalist uses Cross-Origin-Resource-Policy: same-origin). Open the photo page in a new tab, or host a small same-origin proxy and set window.INAT_TOOLS_PHOTO_PAGE_FETCH_TEMPLATE (see comment in app.js). Photo page: ${inatPhotoPageUrl}`;
+}
+
+/**
  * Fetch the first photo’s iNaturalist page HTML and parse Make / Model from the metadata table.
- * @returns {Promise<{ ok: true, make: string, model: string } | { ok: false, error: string }>}
+ * @returns {Promise<
+ *   | { ok: true, make: string, model: string }
+ *   | { ok: false, error: string, inatPhotoPageUrl?: string }
+ * >}
  * @see https://github.com/inaturalist/inaturalist/blob/main/app/helpers/photos_helper.rb
  */
 async function fetchCameraMakeModelFromFirstPhotoPage(obs) {
@@ -1300,39 +1348,57 @@ async function fetchCameraMakeModelFromFirstPhotoPage(obs) {
     });
   }
   if (cameraPhotoPageCache.has(pid)) return cameraPhotoPageCache.get(pid);
-  const url = `https://www.inaturalist.org/photos/${pid}`;
+  const inatUrl = inatFirstPhotoPageUrl(pid);
   const promise = (async () => {
-    try {
-      const res = await fetch(url, { mode: "cors", cache: "no-store" });
-      if (!res.ok) {
-        return {
+    const proxied = proxiedPhotoPageFetchUrl(inatUrl);
+    const urlsToTry = proxied && proxied !== inatUrl ? [inatUrl, proxied] : [inatUrl];
+    let lastFail = { ok: false, error: "No fetch attempts completed.", inatPhotoPageUrl: inatUrl };
+
+    for (let i = 0; i < urlsToTry.length; i += 1) {
+      const fetchUrl = urlsToTry[i];
+      const via = i === 0 ? "direct" : "proxy";
+      try {
+        const res = await fetch(fetchUrl, { mode: "cors", cache: "no-store" });
+        if (!res.ok) {
+          lastFail = {
+            ok: false,
+            error: `GET (${via}) ${fetchUrl} → HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
+            inatPhotoPageUrl: inatUrl,
+          };
+          continue;
+        }
+        const html = await res.text();
+        const sniff = html.slice(0, 2500);
+        if (/Just a moment|cf-mitigated|challenge-platform|cf-chl|__cf_chl/i.test(sniff)) {
+          lastFail = {
+            ok: false,
+            error: `GET (${via}) returned a Cloudflare / bot challenge page instead of the photo HTML.`,
+            inatPhotoPageUrl: inatUrl,
+          };
+          continue;
+        }
+        const parsed = parseCameraMakeModelFromPhotoPageHtml(html);
+        if (parsed && ((parsed.make || "").trim() || (parsed.model || "").trim())) {
+          return { ok: true, make: parsed.make || "", model: parsed.model || "" };
+        }
+        lastFail = {
           ok: false,
-          error: `GET ${url} → HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
+          error: `GET (${via}) succeeded but the HTML had no Make/Model metadata rows (empty EXIF on file, or metadata hidden).`,
+          inatPhotoPageUrl: inatUrl,
         };
+        break;
+      } catch (e) {
+        const msg = e && typeof e.message === "string" && e.message.trim() ? e.message.trim() : "Request failed";
+        let detail = `${msg} while fetching (${via}) ${fetchUrl}.`;
+        if (via === "direct" && isLikelyCorpOrCorsBlockMessage(msg)) {
+          detail = `${detail} ${corpBlockHint(inatUrl)}`;
+        } else if (via === "proxy") {
+          detail = `${detail} Check your proxy URL and CORS headers.`;
+        }
+        lastFail = { ok: false, error: detail, inatPhotoPageUrl: inatUrl };
       }
-      const html = await res.text();
-      const sniff = html.slice(0, 2500);
-      if (/Just a moment|cf-mitigated|challenge-platform|cf-chl|__cf_chl/i.test(sniff)) {
-        return {
-          ok: false,
-          error: `GET ${url} returned a Cloudflare / bot challenge page instead of the photo HTML.`,
-        };
-      }
-      const parsed = parseCameraMakeModelFromPhotoPageHtml(html);
-      if (parsed && ((parsed.make || "").trim() || (parsed.model || "").trim())) {
-        return { ok: true, make: parsed.make || "", model: parsed.model || "" };
-      }
-      return {
-        ok: false,
-        error: `GET ${url} succeeded but the HTML had no Make/Model metadata rows (empty EXIF on file, or metadata hidden).`,
-      };
-    } catch (e) {
-      const msg = e && typeof e.message === "string" && e.message.trim() ? e.message.trim() : "Request failed";
-      return {
-        ok: false,
-        error: `${msg} while fetching ${url} (often “Failed to fetch” means the browser blocked cross-origin access to www.inaturalist.org).`,
-      };
     }
+    return lastFail;
   })();
   cameraPhotoPageCache.set(pid, promise);
   if (cameraPhotoPageCache.size > CAMERA_PHOTO_PAGE_CACHE_MAX) {
@@ -1454,16 +1520,27 @@ function hydrateObservationCameraMetaLine(card, obs) {
       }
       const err = result.ok ? "Empty Make/Model after parse." : result.error;
       node.classList.add("card-meta-line--camera-error");
-      node.textContent = truncateCameraMetaText(`${CAMERA_NO_JSON_API_NOTE} ${err}`, 520);
-      node.title = `${CAMERA_NO_JSON_API_NOTE} ${err}`;
+      const photoPageUrl = (!result.ok && result.inatPhotoPageUrl) || firstInatPhotoPageUrlFromObs(obs);
+      const noteErr = `${CAMERA_NO_JSON_API_NOTE} ${err}`;
+      node.title = noteErr;
+      if (photoPageUrl) {
+        node.innerHTML = `${escapeHtml(truncateCameraMetaText(noteErr, 420))} <a class="card-meta-photo-page-link" href="${escapeHtml(photoPageUrl)}" target="_blank" rel="noopener noreferrer">Open photo page</a>`;
+      } else {
+        node.textContent = truncateCameraMetaText(noteErr, 520);
+      }
     } catch (e) {
       node.removeAttribute("data-camera-pending");
       node.removeAttribute("aria-busy");
       node.classList.add("card-meta-line--camera-error");
       const msg = e && typeof e.message === "string" ? e.message : String(e);
       const full = `${CAMERA_NO_JSON_API_NOTE} Unexpected: ${msg}`;
-      node.textContent = truncateCameraMetaText(full, 520);
       node.title = full;
+      const photoPageUrl = firstInatPhotoPageUrlFromObs(obs);
+      if (photoPageUrl) {
+        node.innerHTML = `${escapeHtml(truncateCameraMetaText(full, 420))} <a class="card-meta-photo-page-link" href="${escapeHtml(photoPageUrl)}" target="_blank" rel="noopener noreferrer">Open photo page</a>`;
+      } else {
+        node.textContent = truncateCameraMetaText(full, 520);
+      }
     }
   })();
 }

@@ -566,6 +566,18 @@ main {
   line-height: 1.2;
 }
 
+.card-meta-line .card-meta-photo-page-link {
+  pointer-events: auto;
+  color: #c8f5dc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.card-meta-line .card-meta-photo-page-link:hover {
+  color: #fff;
+}
+
 .card-title-overlay {
   margin: 0;
   padding: 0;
