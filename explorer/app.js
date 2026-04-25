@@ -1281,25 +1281,57 @@ function observationLocationLine(obs) {
 const cameraPhotoPageCache = new Map();
 const CAMERA_PHOTO_PAGE_CACHE_MAX = 80;
 
+/** iNat observation `photos[]` in JSON has no Make/Model; only the website photo page does. */
+const CAMERA_NO_JSON_API_NOTE =
+  "The iNaturalist JSON API does not include camera Make/Model on photos.";
+
 /**
  * Fetch the first photo’s iNaturalist page HTML and parse Make / Model from the metadata table.
+ * @returns {Promise<{ ok: true, make: string, model: string } | { ok: false, error: string }>}
  * @see https://github.com/inaturalist/inaturalist/blob/main/app/helpers/photos_helper.rb
  */
 async function fetchCameraMakeModelFromFirstPhotoPage(obs) {
   const photo = obs && obs.photos && obs.photos[0];
   const pid = photo && photo.id != null ? Number(photo.id) : NaN;
-  if (!Number.isFinite(pid) || pid <= 0) return null;
+  if (!Number.isFinite(pid) || pid <= 0) {
+    return Promise.resolve({
+      ok: false,
+      error: "No first photo id on this observation (nothing to request).",
+    });
+  }
   if (cameraPhotoPageCache.has(pid)) return cameraPhotoPageCache.get(pid);
   const url = `https://www.inaturalist.org/photos/${pid}`;
   const promise = (async () => {
     try {
       const res = await fetch(url, { mode: "cors", cache: "no-store" });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: `GET ${url} → HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
+        };
+      }
       const html = await res.text();
-      if (/Just a moment|cf-mitigated|challenge/i.test(html.slice(0, 1200))) return null;
-      return parseCameraMakeModelFromPhotoPageHtml(html);
-    } catch {
-      return null;
+      const sniff = html.slice(0, 2500);
+      if (/Just a moment|cf-mitigated|challenge-platform|cf-chl|__cf_chl/i.test(sniff)) {
+        return {
+          ok: false,
+          error: `GET ${url} returned a Cloudflare / bot challenge page instead of the photo HTML.`,
+        };
+      }
+      const parsed = parseCameraMakeModelFromPhotoPageHtml(html);
+      if (parsed && ((parsed.make || "").trim() || (parsed.model || "").trim())) {
+        return { ok: true, make: parsed.make || "", model: parsed.model || "" };
+      }
+      return {
+        ok: false,
+        error: `GET ${url} succeeded but the HTML had no Make/Model metadata rows (empty EXIF on file, or metadata hidden).`,
+      };
+    } catch (e) {
+      const msg = e && typeof e.message === "string" && e.message.trim() ? e.message.trim() : "Request failed";
+      return {
+        ok: false,
+        error: `${msg} while fetching ${url} (often “Failed to fetch” means the browser blocked cross-origin access to www.inaturalist.org).`,
+      };
     }
   })();
   cameraPhotoPageCache.set(pid, promise);
@@ -1316,6 +1348,12 @@ function formatCameraMakeModelLine(mm) {
   const mo = (mm.model || "").trim();
   if (mk && mo) return `${mk} · ${mo}`;
   return mk || mo || "";
+}
+
+function truncateCameraMetaText(s, maxLen) {
+  const t = (s || "").trim();
+  if (t.length <= maxLen) return t;
+  return `${t.slice(0, maxLen - 1)}…`;
 }
 
 /** Observed-on line for observation cards (date ± time when available). */
@@ -1403,17 +1441,27 @@ function hydrateObservationCameraMetaLine(card, obs) {
   if (!node || !obs) return;
   void (async () => {
     try {
-      const mm = await fetchCameraMakeModelFromFirstPhotoPage(obs);
-      const line = formatCameraMakeModelLine(mm);
-      if (line) {
-        node.textContent = line;
-        node.removeAttribute("data-camera-pending");
-        node.removeAttribute("aria-busy");
-      } else {
-        node.remove();
+      const result = await fetchCameraMakeModelFromFirstPhotoPage(obs);
+      node.removeAttribute("data-camera-pending");
+      node.removeAttribute("aria-busy");
+      if (result.ok) {
+        node.classList.remove("card-meta-line--camera-error");
+        const line = formatCameraMakeModelLine(result);
+        if (line) {
+          node.textContent = line;
+          return;
+        }
       }
-    } catch {
-      node.remove();
+      const err = result.ok ? "Empty Make/Model after parse." : result.error;
+      node.classList.add("card-meta-line--camera-error");
+      node.textContent = truncateCameraMetaText(`${CAMERA_NO_JSON_API_NOTE} ${err}`, 520);
+      node.title = `${CAMERA_NO_JSON_API_NOTE} ${err}`;
+    } catch (e) {
+      node.removeAttribute("data-camera-pending");
+      node.removeAttribute("aria-busy");
+      node.classList.add("card-meta-line--camera-error");
+      const msg = e && typeof e.message === "string" ? e.message : String(e);
+      node.textContent = truncateCameraMetaText(`${CAMERA_NO_JSON_API_NOTE} Unexpected: ${msg}`, 520);
     }
   })();
 }
