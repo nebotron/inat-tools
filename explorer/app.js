@@ -217,6 +217,7 @@ const el = {
   metaNativeStatus: document.getElementById("meta-native-status"),
   metaGrade: document.getElementById("meta-grade"),
   metaObsDate: document.getElementById("meta-obs-date"),
+  metaCamera: document.getElementById("meta-camera"),
   metaSciName: document.getElementById("meta-sci-name"),
   monthsGrid: document.getElementById("months-grid"),
   btnReset: document.getElementById("btn-reset"),
@@ -850,11 +851,11 @@ function applyMediaFromQuery(q) {
 
 function parseCardMetaQuery(q) {
   if (!q.has("cardmeta")) {
-    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, obsDate: false, sciName: false };
+    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, obsDate: false, camera: false, sciName: false };
   }
   const raw = q.get("cardmeta") ?? "";
   if (!raw) {
-    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, obsDate: false, sciName: false };
+    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, obsDate: false, camera: false, sciName: false };
   }
   const set = new Set(
     raw
@@ -869,6 +870,7 @@ function parseCardMetaQuery(q) {
     nativeStatus: set.has("nat"),
     grade: set.has("grd"),
     obsDate: set.has("obsd"),
+    camera: set.has("cam"),
     sciName: set.has("sci"),
   };
 }
@@ -881,6 +883,7 @@ function applyCardMetaFromQuery(q) {
   el.metaNativeStatus.checked = o.nativeStatus;
   el.metaGrade.checked = o.grade;
   if (el.metaObsDate) el.metaObsDate.checked = o.obsDate;
+  if (el.metaCamera) el.metaCamera.checked = o.camera;
   el.metaSciName.checked = o.sciName;
 }
 
@@ -891,9 +894,10 @@ function formatCardMetaQuery() {
   const nat = el.metaNativeStatus.checked;
   const grd = el.metaGrade.checked;
   const obsd = el.metaObsDate && el.metaObsDate.checked;
+  const cam = el.metaCamera && el.metaCamera.checked;
   const sci = el.metaSciName.checked;
-  if (fav && spc && !loc && !nat && !grd && !obsd && !sci) return null;
-  if (!fav && spc && !loc && !nat && !grd && !obsd && !sci) return null;
+  if (fav && spc && !loc && !nat && !grd && !obsd && !cam && !sci) return null;
+  if (!fav && spc && !loc && !nat && !grd && !obsd && !cam && !sci) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
@@ -901,6 +905,7 @@ function formatCardMetaQuery() {
   if (nat) parts.push("nat");
   if (grd) parts.push("grd");
   if (obsd) parts.push("obsd");
+  if (cam) parts.push("cam");
   if (sci) parts.push("sci");
   return parts.join(",");
 }
@@ -1138,6 +1143,7 @@ function getCardMetaOptions() {
     nativeStatus: el.metaNativeStatus.checked,
     grade: el.metaGrade.checked,
     obsDate: el.metaObsDate && el.metaObsDate.checked,
+    camera: el.metaCamera && el.metaCamera.checked,
     sciName: el.metaSciName.checked,
   };
 }
@@ -1269,6 +1275,106 @@ function observationLocationLine(obs) {
   return "";
 }
 
+/** In-memory cache for EXIF camera reads (key = original JPEG URL string). */
+const cameraExifFetchCache = new Map();
+const CAMERA_EXIF_CACHE_MAX = 120;
+
+function trimCameraExifValue(v) {
+  if (v == null) return "";
+  const s = typeof v === "string" ? v : String(v);
+  return s.replace(/\0/g, "").trim();
+}
+
+/**
+ * Read Make / Model from a JPEG via piexif (works when the image host sends CORS headers, e.g. open-data S3).
+ */
+async function cameraMakeModelFromJpegUrl(photoUrlField) {
+  const px = typeof window !== "undefined" ? window.piexif : null;
+  if (!px || !photoUrlField) return null;
+  const full = originalPhotoUrl(photoUrlField);
+  if (!full) return null;
+  if (cameraExifFetchCache.has(full)) return cameraExifFetchCache.get(full);
+  const promise = (async () => {
+    try {
+      const res = await fetch(full, { mode: "cors", cache: "no-store" });
+      if (!res.ok) return null;
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (!isJpegMagic(buf)) return null;
+      let bin = "";
+      for (let i = 0; i < buf.length; i += 1) bin += String.fromCharCode(buf[i]);
+      const exif = px.load(bin);
+      const zeroth = exif["0th"] || {};
+      const make = trimCameraExifValue(zeroth[px.ImageIFD.Make]);
+      const model = trimCameraExifValue(zeroth[px.ImageIFD.Model]);
+      if (!make && !model) return null;
+      return { make, model };
+    } catch {
+      return null;
+    }
+  })();
+  cameraExifFetchCache.set(full, promise);
+  if (cameraExifFetchCache.size > CAMERA_EXIF_CACHE_MAX) {
+    const firstKey = cameraExifFetchCache.keys().next().value;
+    cameraExifFetchCache.delete(firstKey);
+  }
+  return promise;
+}
+
+/**
+ * Fallback: fetch observation HTML and regex for common metadata patterns.
+ * Often blocked by bot protection; failures are ignored.
+ */
+async function cameraMakeModelFromObservationHtml(observationId) {
+  const id = observationId != null ? Number(observationId) : NaN;
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const url = `https://www.inaturalist.org/observations/${id}`;
+  try {
+    const res = await fetch(url, { mode: "cors", cache: "no-store" });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const stripTags = (s) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const tryPair = (label) => {
+      const re = new RegExp(`${label}</[^>]+>\\s*<[^>]+>([^<]{1,200})`, "i");
+      const m = html.match(re);
+      return m ? stripTags(m[1]) : "";
+    };
+    let make = tryPair("Make");
+    let model = tryPair("Model");
+    if (!make) {
+      const m = html.match(/"make"\s*:\s*"([^"]*)"/i);
+      if (m) make = m[1].trim();
+    }
+    if (!model) {
+      const m = html.match(/"model"\s*:\s*"([^"]*)"/i);
+      if (m) model = m[1].trim();
+    }
+    if (!make && !model) return null;
+    return { make, model };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCameraMakeModelForObservation(obs) {
+  const photo = obs && obs.photos && obs.photos[0];
+  if (!photo || !photo.url) {
+    if (obs && obs.id != null) return cameraMakeModelFromObservationHtml(obs.id);
+    return null;
+  }
+  const fromExif = await cameraMakeModelFromJpegUrl(photo.url);
+  if (fromExif && (fromExif.make || fromExif.model)) return fromExif;
+  if (obs && obs.id != null) return cameraMakeModelFromObservationHtml(obs.id);
+  return null;
+}
+
+function formatCameraMakeModelLine(mm) {
+  if (!mm) return "";
+  const mk = (mm.make || "").trim();
+  const mo = (mm.model || "").trim();
+  if (mk && mo) return `${mk} · ${mo}`;
+  return mk || mo || "";
+}
+
 /** Observed-on line for observation cards (date ± time when available). */
 function observationObservedOnLine(obs) {
   if (!obs || typeof obs !== "object") return "";
@@ -1313,6 +1419,11 @@ function observationMetaHtmlParts(obs, kcData) {
     const gl = formatQualityGradeLabel(obs.quality_grade);
     if (gl) parts.push(`<p class="card-meta-line">${escapeHtml(gl)}</p>`);
   }
+  if (o.camera) {
+    parts.push(
+      `<p class="card-meta-line card-meta-line--camera" data-camera-pending="1" aria-busy="true">${escapeHtml("Camera…")}</p>`
+    );
+  }
   if (o.sciName) {
     const sh = scientificNameMetaHtml(obs);
     if (sh) parts.push(sh);
@@ -1344,7 +1455,27 @@ function speciesMetaParts(row, obsTaxonById, kcData) {
   return parts;
 }
 
-function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation }) {
+function hydrateObservationCameraMetaLine(card, obs) {
+  const node = card.querySelector(".card-meta-line--camera[data-camera-pending]");
+  if (!node || !obs) return;
+  void (async () => {
+    try {
+      const mm = await fetchCameraMakeModelForObservation(obs);
+      const line = formatCameraMakeModelLine(mm);
+      if (line) {
+        node.textContent = line;
+        node.removeAttribute("data-camera-pending");
+        node.removeAttribute("aria-busy");
+      } else {
+        node.remove();
+      }
+    } catch {
+      node.remove();
+    }
+  })();
+}
+
+function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation, hydrateCameraMeta }) {
   const card = document.createElement("article");
   card.className = "card";
   const metaBlock = metaParts != null
@@ -1391,6 +1522,9 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
       e.stopPropagation();
       void saveObservationPhotoWithExif(saveObservation);
     });
+  }
+  if (hydrateCameraMeta && saveObservation) {
+    hydrateObservationCameraMetaLine(card, saveObservation);
   }
   return card;
 }
@@ -1465,6 +1599,7 @@ async function runObservationSearch(reset) {
         imageUrl,
         metaParts: observationMetaHtmlParts(obs, kcData),
         saveObservation: obs,
+        hydrateCameraMeta: metaOpts.camera,
       }));
       appended += 1;
     }
@@ -2507,6 +2642,7 @@ function wireFilterExtras() {
   el.metaNativeStatus.addEventListener("change", onMeta);
   el.metaGrade.addEventListener("change", onMeta);
   if (el.metaObsDate) el.metaObsDate.addEventListener("change", onMeta);
+  if (el.metaCamera) el.metaCamera.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
 
   if (el.filterNativeStatus) {
@@ -2552,6 +2688,7 @@ function wireButtons() {
     el.metaNativeStatus.checked = false;
     el.metaGrade.checked = false;
     if (el.metaObsDate) el.metaObsDate.checked = false;
+    if (el.metaCamera) el.metaCamera.checked = false;
     el.metaSciName.checked = false;
     if (el.filterNativeStatus) el.filterNativeStatus.value = "any";
     if (el.filterEndemic) el.filterEndemic.checked = false;
