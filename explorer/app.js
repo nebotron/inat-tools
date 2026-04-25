@@ -1461,7 +1461,9 @@ function hydrateObservationCameraMetaLine(card, obs) {
       node.removeAttribute("aria-busy");
       node.classList.add("card-meta-line--camera-error");
       const msg = e && typeof e.message === "string" ? e.message : String(e);
-      node.textContent = truncateCameraMetaText(`${CAMERA_NO_JSON_API_NOTE} Unexpected: ${msg}`, 520);
+      const full = `${CAMERA_NO_JSON_API_NOTE} Unexpected: ${msg}`;
+      node.textContent = truncateCameraMetaText(full, 520);
+      node.title = full;
     }
   })();
 }
