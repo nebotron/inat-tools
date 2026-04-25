@@ -1,3 +1,5 @@
+import { parseCameraMakeModelFromPhotoPageHtml } from "./camera-page-meta.js";
+
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
 
@@ -1275,96 +1277,37 @@ function observationLocationLine(obs) {
   return "";
 }
 
-/** In-memory cache for EXIF camera reads (key = original JPEG URL string). */
-const cameraExifFetchCache = new Map();
-const CAMERA_EXIF_CACHE_MAX = 120;
-
-function trimCameraExifValue(v) {
-  if (v == null) return "";
-  const s = typeof v === "string" ? v : String(v);
-  return s.replace(/\0/g, "").trim();
-}
+/** Cached fetches for iNat photo pages (key = photo id). */
+const cameraPhotoPageCache = new Map();
+const CAMERA_PHOTO_PAGE_CACHE_MAX = 80;
 
 /**
- * Read Make / Model from a JPEG via piexif (works when the image host sends CORS headers, e.g. open-data S3).
+ * Fetch the first photo’s iNaturalist page HTML and parse Make / Model from the metadata table.
+ * @see https://github.com/inaturalist/inaturalist/blob/main/app/helpers/photos_helper.rb
  */
-async function cameraMakeModelFromJpegUrl(photoUrlField) {
-  const px = typeof window !== "undefined" ? window.piexif : null;
-  if (!px || !photoUrlField) return null;
-  const full = originalPhotoUrl(photoUrlField);
-  if (!full) return null;
-  if (cameraExifFetchCache.has(full)) return cameraExifFetchCache.get(full);
+async function fetchCameraMakeModelFromFirstPhotoPage(obs) {
+  const photo = obs && obs.photos && obs.photos[0];
+  const pid = photo && photo.id != null ? Number(photo.id) : NaN;
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  if (cameraPhotoPageCache.has(pid)) return cameraPhotoPageCache.get(pid);
+  const url = `https://www.inaturalist.org/photos/${pid}`;
   const promise = (async () => {
     try {
-      const res = await fetch(full, { mode: "cors", cache: "no-store" });
+      const res = await fetch(url, { mode: "cors", cache: "no-store" });
       if (!res.ok) return null;
-      const buf = new Uint8Array(await res.arrayBuffer());
-      if (!isJpegMagic(buf)) return null;
-      let bin = "";
-      for (let i = 0; i < buf.length; i += 1) bin += String.fromCharCode(buf[i]);
-      const exif = px.load(bin);
-      const zeroth = exif["0th"] || {};
-      const make = trimCameraExifValue(zeroth[px.ImageIFD.Make]);
-      const model = trimCameraExifValue(zeroth[px.ImageIFD.Model]);
-      if (!make && !model) return null;
-      return { make, model };
+      const html = await res.text();
+      if (/Just a moment|cf-mitigated|challenge/i.test(html.slice(0, 1200))) return null;
+      return parseCameraMakeModelFromPhotoPageHtml(html);
     } catch {
       return null;
     }
   })();
-  cameraExifFetchCache.set(full, promise);
-  if (cameraExifFetchCache.size > CAMERA_EXIF_CACHE_MAX) {
-    const firstKey = cameraExifFetchCache.keys().next().value;
-    cameraExifFetchCache.delete(firstKey);
+  cameraPhotoPageCache.set(pid, promise);
+  if (cameraPhotoPageCache.size > CAMERA_PHOTO_PAGE_CACHE_MAX) {
+    const firstKey = cameraPhotoPageCache.keys().next().value;
+    cameraPhotoPageCache.delete(firstKey);
   }
   return promise;
-}
-
-/**
- * Fallback: fetch observation HTML and regex for common metadata patterns.
- * Often blocked by bot protection; failures are ignored.
- */
-async function cameraMakeModelFromObservationHtml(observationId) {
-  const id = observationId != null ? Number(observationId) : NaN;
-  if (!Number.isFinite(id) || id <= 0) return null;
-  const url = `https://www.inaturalist.org/observations/${id}`;
-  try {
-    const res = await fetch(url, { mode: "cors", cache: "no-store" });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const stripTags = (s) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    const tryPair = (label) => {
-      const re = new RegExp(`${label}</[^>]+>\\s*<[^>]+>([^<]{1,200})`, "i");
-      const m = html.match(re);
-      return m ? stripTags(m[1]) : "";
-    };
-    let make = tryPair("Make");
-    let model = tryPair("Model");
-    if (!make) {
-      const m = html.match(/"make"\s*:\s*"([^"]*)"/i);
-      if (m) make = m[1].trim();
-    }
-    if (!model) {
-      const m = html.match(/"model"\s*:\s*"([^"]*)"/i);
-      if (m) model = m[1].trim();
-    }
-    if (!make && !model) return null;
-    return { make, model };
-  } catch {
-    return null;
-  }
-}
-
-async function fetchCameraMakeModelForObservation(obs) {
-  const photo = obs && obs.photos && obs.photos[0];
-  if (!photo || !photo.url) {
-    if (obs && obs.id != null) return cameraMakeModelFromObservationHtml(obs.id);
-    return null;
-  }
-  const fromExif = await cameraMakeModelFromJpegUrl(photo.url);
-  if (fromExif && (fromExif.make || fromExif.model)) return fromExif;
-  if (obs && obs.id != null) return cameraMakeModelFromObservationHtml(obs.id);
-  return null;
 }
 
 function formatCameraMakeModelLine(mm) {
@@ -1460,7 +1403,7 @@ function hydrateObservationCameraMetaLine(card, obs) {
   if (!node || !obs) return;
   void (async () => {
     try {
-      const mm = await fetchCameraMakeModelForObservation(obs);
+      const mm = await fetchCameraMakeModelFromFirstPhotoPage(obs);
       const line = formatCameraMakeModelLine(mm);
       if (line) {
         node.textContent = line;
