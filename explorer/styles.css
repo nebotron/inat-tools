@@ -559,13 +559,6 @@ main {
   color: #fff;
 }
 
-.card-meta-line--camera-error {
-  color: rgba(255, 210, 200, 0.98);
-  font-size: 0.68rem;
-  font-weight: 500;
-  line-height: 1.2;
-}
-
 .card-meta-line .card-meta-photo-page-link {
   pointer-events: auto;
   color: #c8f5dc;

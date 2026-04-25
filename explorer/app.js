@@ -1,5 +1,3 @@
-import { parseCameraMakeModelFromPhotoPageHtml } from "./camera-page-meta.js";
-
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
 
@@ -219,7 +217,7 @@ const el = {
   metaNativeStatus: document.getElementById("meta-native-status"),
   metaGrade: document.getElementById("meta-grade"),
   metaObsDate: document.getElementById("meta-obs-date"),
-  metaCamera: document.getElementById("meta-camera"),
+  metaPhotoPage: document.getElementById("meta-photo-page"),
   metaSciName: document.getElementById("meta-sci-name"),
   monthsGrid: document.getElementById("months-grid"),
   btnReset: document.getElementById("btn-reset"),
@@ -853,11 +851,11 @@ function applyMediaFromQuery(q) {
 
 function parseCardMetaQuery(q) {
   if (!q.has("cardmeta")) {
-    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, obsDate: false, camera: false, sciName: false };
+    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, obsDate: false, photoPage: false, sciName: false };
   }
   const raw = q.get("cardmeta") ?? "";
   if (!raw) {
-    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, obsDate: false, camera: false, sciName: false };
+    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, obsDate: false, photoPage: false, sciName: false };
   }
   const set = new Set(
     raw
@@ -872,7 +870,8 @@ function parseCardMetaQuery(q) {
     nativeStatus: set.has("nat"),
     grade: set.has("grd"),
     obsDate: set.has("obsd"),
-    camera: set.has("cam"),
+    /** `pp` = photo page link; `cam` kept for older shared URLs (same feature now). */
+    photoPage: set.has("pp") || set.has("cam"),
     sciName: set.has("sci"),
   };
 }
@@ -885,7 +884,7 @@ function applyCardMetaFromQuery(q) {
   el.metaNativeStatus.checked = o.nativeStatus;
   el.metaGrade.checked = o.grade;
   if (el.metaObsDate) el.metaObsDate.checked = o.obsDate;
-  if (el.metaCamera) el.metaCamera.checked = o.camera;
+  if (el.metaPhotoPage) el.metaPhotoPage.checked = o.photoPage;
   el.metaSciName.checked = o.sciName;
 }
 
@@ -896,10 +895,10 @@ function formatCardMetaQuery() {
   const nat = el.metaNativeStatus.checked;
   const grd = el.metaGrade.checked;
   const obsd = el.metaObsDate && el.metaObsDate.checked;
-  const cam = el.metaCamera && el.metaCamera.checked;
+  const pp = el.metaPhotoPage && el.metaPhotoPage.checked;
   const sci = el.metaSciName.checked;
-  if (fav && spc && !loc && !nat && !grd && !obsd && !cam && !sci) return null;
-  if (!fav && spc && !loc && !nat && !grd && !obsd && !cam && !sci) return null;
+  if (fav && spc && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
+  if (!fav && spc && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
@@ -907,7 +906,7 @@ function formatCardMetaQuery() {
   if (nat) parts.push("nat");
   if (grd) parts.push("grd");
   if (obsd) parts.push("obsd");
-  if (cam) parts.push("cam");
+  if (pp) parts.push("pp");
   if (sci) parts.push("sci");
   return parts.join(",");
 }
@@ -1145,7 +1144,7 @@ function getCardMetaOptions() {
     nativeStatus: el.metaNativeStatus.checked,
     grade: el.metaGrade.checked,
     obsDate: el.metaObsDate && el.metaObsDate.checked,
-    camera: el.metaCamera && el.metaCamera.checked,
+    photoPage: el.metaPhotoPage && el.metaPhotoPage.checked,
     sciName: el.metaSciName.checked,
   };
 }
@@ -1277,149 +1276,11 @@ function observationLocationLine(obs) {
   return "";
 }
 
-/** Cached fetches for iNat photo pages (key = photo id). */
-const cameraPhotoPageCache = new Map();
-const CAMERA_PHOTO_PAGE_CACHE_MAX = 80;
-
-/** iNat observation `photos[]` in JSON has no Make/Model; only the website photo page does. */
-const CAMERA_NO_JSON_API_NOTE =
-  "The iNaturalist JSON API does not include camera Make/Model on photos.";
-
-/**
- * iNaturalist photo pages send `Cross-Origin-Resource-Policy: same-origin`, so `fetch` from another
- * site (e.g. GitHub Pages) is blocked before a response is readable — Safari reports “Load failed”.
- * Optional proxy: set `window.INAT_TOOLS_PHOTO_PAGE_FETCH_TEMPLATE` to a same-origin URL template
- * where `{{url}}` is replaced with `encodeURIComponent("https://www.inaturalist.org/photos/ID")`.
- * Your proxy must return the HTML body with CORS allowed for this app’s origin.
- */
-function inatFirstPhotoPageUrl(pid) {
-  return `https://www.inaturalist.org/photos/${pid}`;
-}
-
-function firstInatPhotoPageUrlFromObs(obs) {
+function inatFirstPhotoPageUrlFromObs(obs) {
   const photo = obs && obs.photos && obs.photos[0];
   const pid = photo && photo.id != null ? Number(photo.id) : NaN;
   if (!Number.isFinite(pid) || pid <= 0) return "";
-  return inatFirstPhotoPageUrl(pid);
-}
-
-function proxiedPhotoPageFetchUrl(inatPhotoPageUrl) {
-  const g = typeof globalThis !== "undefined" ? globalThis : {};
-  const tpl = g.INAT_TOOLS_PHOTO_PAGE_FETCH_TEMPLATE;
-  if (typeof tpl !== "string") return "";
-  const t = tpl.trim();
-  if (!t) return "";
-  if (t.includes("{{url}}")) return t.split("{{url}}").join(encodeURIComponent(inatPhotoPageUrl));
-  if (t.includes("{{URL}}")) return t.split("{{URL}}").join(encodeURIComponent(inatPhotoPageUrl));
-  return "";
-}
-
-function isLikelyCorpOrCorsBlockMessage(msg) {
-  const s = (msg || "").toLowerCase();
-  return (
-    s.includes("load failed")
-    || s.includes("failed to fetch")
-    || s.includes("networkerror")
-    || s.includes("network error")
-    || s.includes("access control")
-    || s.includes("cors")
-  );
-}
-
-function corpBlockHint(inatPhotoPageUrl) {
-  return `Browsers block reading that page from this site (iNaturalist uses Cross-Origin-Resource-Policy: same-origin). Open the photo page in a new tab, or host a small same-origin proxy and set window.INAT_TOOLS_PHOTO_PAGE_FETCH_TEMPLATE (see comment in app.js). Photo page: ${inatPhotoPageUrl}`;
-}
-
-/**
- * Fetch the first photo’s iNaturalist page HTML and parse Make / Model from the metadata table.
- * @returns {Promise<
- *   | { ok: true, make: string, model: string }
- *   | { ok: false, error: string, inatPhotoPageUrl?: string }
- * >}
- * @see https://github.com/inaturalist/inaturalist/blob/main/app/helpers/photos_helper.rb
- */
-async function fetchCameraMakeModelFromFirstPhotoPage(obs) {
-  const photo = obs && obs.photos && obs.photos[0];
-  const pid = photo && photo.id != null ? Number(photo.id) : NaN;
-  if (!Number.isFinite(pid) || pid <= 0) {
-    return Promise.resolve({
-      ok: false,
-      error: "No first photo id on this observation (nothing to request).",
-    });
-  }
-  if (cameraPhotoPageCache.has(pid)) return cameraPhotoPageCache.get(pid);
-  const inatUrl = inatFirstPhotoPageUrl(pid);
-  const promise = (async () => {
-    const proxied = proxiedPhotoPageFetchUrl(inatUrl);
-    const urlsToTry = proxied && proxied !== inatUrl ? [inatUrl, proxied] : [inatUrl];
-    let lastFail = { ok: false, error: "No fetch attempts completed.", inatPhotoPageUrl: inatUrl };
-
-    for (let i = 0; i < urlsToTry.length; i += 1) {
-      const fetchUrl = urlsToTry[i];
-      const via = i === 0 ? "direct" : "proxy";
-      try {
-        const res = await fetch(fetchUrl, { mode: "cors", cache: "no-store" });
-        if (!res.ok) {
-          lastFail = {
-            ok: false,
-            error: `GET (${via}) ${fetchUrl} → HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
-            inatPhotoPageUrl: inatUrl,
-          };
-          continue;
-        }
-        const html = await res.text();
-        const sniff = html.slice(0, 2500);
-        if (/Just a moment|cf-mitigated|challenge-platform|cf-chl|__cf_chl/i.test(sniff)) {
-          lastFail = {
-            ok: false,
-            error: `GET (${via}) returned a Cloudflare / bot challenge page instead of the photo HTML.`,
-            inatPhotoPageUrl: inatUrl,
-          };
-          continue;
-        }
-        const parsed = parseCameraMakeModelFromPhotoPageHtml(html);
-        if (parsed && ((parsed.make || "").trim() || (parsed.model || "").trim())) {
-          return { ok: true, make: parsed.make || "", model: parsed.model || "" };
-        }
-        lastFail = {
-          ok: false,
-          error: `GET (${via}) succeeded but the HTML had no Make/Model metadata rows (empty EXIF on file, or metadata hidden).`,
-          inatPhotoPageUrl: inatUrl,
-        };
-        break;
-      } catch (e) {
-        const msg = e && typeof e.message === "string" && e.message.trim() ? e.message.trim() : "Request failed";
-        let detail = `${msg} while fetching (${via}) ${fetchUrl}.`;
-        if (via === "direct" && isLikelyCorpOrCorsBlockMessage(msg)) {
-          detail = `${detail} ${corpBlockHint(inatUrl)}`;
-        } else if (via === "proxy") {
-          detail = `${detail} Check your proxy URL and CORS headers.`;
-        }
-        lastFail = { ok: false, error: detail, inatPhotoPageUrl: inatUrl };
-      }
-    }
-    return lastFail;
-  })();
-  cameraPhotoPageCache.set(pid, promise);
-  if (cameraPhotoPageCache.size > CAMERA_PHOTO_PAGE_CACHE_MAX) {
-    const firstKey = cameraPhotoPageCache.keys().next().value;
-    cameraPhotoPageCache.delete(firstKey);
-  }
-  return promise;
-}
-
-function formatCameraMakeModelLine(mm) {
-  if (!mm) return "";
-  const mk = (mm.make || "").trim();
-  const mo = (mm.model || "").trim();
-  if (mk && mo) return `${mk} · ${mo}`;
-  return mk || mo || "";
-}
-
-function truncateCameraMetaText(s, maxLen) {
-  const t = (s || "").trim();
-  if (t.length <= maxLen) return t;
-  return `${t.slice(0, maxLen - 1)}…`;
+  return `https://www.inaturalist.org/photos/${pid}`;
 }
 
 /** Observed-on line for observation cards (date ± time when available). */
@@ -1466,10 +1327,13 @@ function observationMetaHtmlParts(obs, kcData) {
     const gl = formatQualityGradeLabel(obs.quality_grade);
     if (gl) parts.push(`<p class="card-meta-line">${escapeHtml(gl)}</p>`);
   }
-  if (o.camera) {
-    parts.push(
-      `<p class="card-meta-line card-meta-line--camera" data-camera-pending="1" aria-busy="true">${escapeHtml("Camera…")}</p>`
-    );
+  if (o.photoPage) {
+    const u = inatFirstPhotoPageUrlFromObs(obs);
+    if (u) {
+      parts.push(
+        `<p class="card-meta-line"><a class="card-meta-photo-page-link" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">Photo page</a></p>`
+      );
+    }
   }
   if (o.sciName) {
     const sh = scientificNameMetaHtml(obs);
@@ -1502,50 +1366,7 @@ function speciesMetaParts(row, obsTaxonById, kcData) {
   return parts;
 }
 
-function hydrateObservationCameraMetaLine(card, obs) {
-  const node = card.querySelector(".card-meta-line--camera[data-camera-pending]");
-  if (!node || !obs) return;
-  void (async () => {
-    try {
-      const result = await fetchCameraMakeModelFromFirstPhotoPage(obs);
-      node.removeAttribute("data-camera-pending");
-      node.removeAttribute("aria-busy");
-      if (result.ok) {
-        node.classList.remove("card-meta-line--camera-error");
-        const line = formatCameraMakeModelLine(result);
-        if (line) {
-          node.textContent = line;
-          return;
-        }
-      }
-      const err = result.ok ? "Empty Make/Model after parse." : result.error;
-      node.classList.add("card-meta-line--camera-error");
-      const photoPageUrl = (!result.ok && result.inatPhotoPageUrl) || firstInatPhotoPageUrlFromObs(obs);
-      const noteErr = `${CAMERA_NO_JSON_API_NOTE} ${err}`;
-      node.title = noteErr;
-      if (photoPageUrl) {
-        node.innerHTML = `${escapeHtml(truncateCameraMetaText(noteErr, 420))} <a class="card-meta-photo-page-link" href="${escapeHtml(photoPageUrl)}" target="_blank" rel="noopener noreferrer">Open photo page</a>`;
-      } else {
-        node.textContent = truncateCameraMetaText(noteErr, 520);
-      }
-    } catch (e) {
-      node.removeAttribute("data-camera-pending");
-      node.removeAttribute("aria-busy");
-      node.classList.add("card-meta-line--camera-error");
-      const msg = e && typeof e.message === "string" ? e.message : String(e);
-      const full = `${CAMERA_NO_JSON_API_NOTE} Unexpected: ${msg}`;
-      node.title = full;
-      const photoPageUrl = firstInatPhotoPageUrlFromObs(obs);
-      if (photoPageUrl) {
-        node.innerHTML = `${escapeHtml(truncateCameraMetaText(full, 420))} <a class="card-meta-photo-page-link" href="${escapeHtml(photoPageUrl)}" target="_blank" rel="noopener noreferrer">Open photo page</a>`;
-      } else {
-        node.textContent = truncateCameraMetaText(full, 520);
-      }
-    }
-  })();
-}
-
-function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation, hydrateCameraMeta }) {
+function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation }) {
   const card = document.createElement("article");
   card.className = "card";
   const metaBlock = metaParts != null
@@ -1592,9 +1413,6 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
       e.stopPropagation();
       void saveObservationPhotoWithExif(saveObservation);
     });
-  }
-  if (hydrateCameraMeta && saveObservation) {
-    hydrateObservationCameraMetaLine(card, saveObservation);
   }
   return card;
 }
@@ -1669,7 +1487,6 @@ async function runObservationSearch(reset) {
         imageUrl,
         metaParts: observationMetaHtmlParts(obs, kcData),
         saveObservation: obs,
-        hydrateCameraMeta: metaOpts.camera,
       }));
       appended += 1;
     }
@@ -2712,7 +2529,7 @@ function wireFilterExtras() {
   el.metaNativeStatus.addEventListener("change", onMeta);
   el.metaGrade.addEventListener("change", onMeta);
   if (el.metaObsDate) el.metaObsDate.addEventListener("change", onMeta);
-  if (el.metaCamera) el.metaCamera.addEventListener("change", onMeta);
+  if (el.metaPhotoPage) el.metaPhotoPage.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
 
   if (el.filterNativeStatus) {
@@ -2758,7 +2575,7 @@ function wireButtons() {
     el.metaNativeStatus.checked = false;
     el.metaGrade.checked = false;
     if (el.metaObsDate) el.metaObsDate.checked = false;
-    if (el.metaCamera) el.metaCamera.checked = false;
+    if (el.metaPhotoPage) el.metaPhotoPage.checked = false;
     el.metaSciName.checked = false;
     if (el.filterNativeStatus) el.filterNativeStatus.value = "any";
     if (el.filterEndemic) el.filterEndemic.checked = false;
