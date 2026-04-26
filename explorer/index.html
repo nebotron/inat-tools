@@ -91,6 +91,17 @@
               </div>
 
               <div class="field">
+                <label for="filter-evidence-presence">Type of evidence</label>
+                <select id="filter-evidence-presence">
+                  <option value="any" selected>Any</option>
+                  <option value="organism">Animal present</option>
+                  <option value="egg">Egg</option>
+                  <option value="nest">Nest</option>
+                  <option value="feather">Feather</option>
+                </select>
+              </div>
+
+              <div class="field">
                 <label for="sort-mode">Sort</label>
                 <select id="sort-mode">
                   <option value="recent" selected>Most recently uploaded</option>
@@ -190,6 +201,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=photo-page-link1" type="module"></script>
+    <script src="app.js?v=evidence-presence1" type="module"></script>
   </body>
 </html>

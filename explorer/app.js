@@ -1,6 +1,16 @@
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
 
+/** iNaturalist controlled term "Evidence of Presence" (`GET /controlled_terms`). */
+const EVIDENCE_OF_PRESENCE_TERM_ID = 22;
+/** `term_value_id` for each filter option (Organism = animal present; Construction = nests, burrows, etc.). */
+const EVIDENCE_OF_PRESENCE_TERM_VALUE = {
+  organism: 24,
+  egg: 30,
+  nest: 35,
+  feather: 23,
+};
+
 /**
  * Fetch from api.inaturalist.org with `cache: "no-store"` and a unique query param so browsers and
  * intermediaries do not return stale JSON or tiles after Refresh or bfcache restore.
@@ -206,6 +216,7 @@ const el = {
   filterNativeStatus: document.getElementById("filter-native-status"),
   filterEndemic: document.getElementById("filter-endemic"),
   qualityGrade: document.getElementById("quality-grade"),
+  filterEvidencePresence: document.getElementById("filter-evidence-presence"),
   sortMode: document.getElementById("sort-mode"),
   mediaPhotos: document.getElementById("media-photos"),
   mediaSounds: document.getElementById("media-sounds"),
@@ -918,6 +929,27 @@ function getEstablishmentFilter() {
   return "any";
 }
 
+/** @returns {"any"|"organism"|"egg"|"nest"|"feather"} */
+function getEvidencePresenceFilter() {
+  const sel = el.filterEvidencePresence;
+  const v = sel && sel.value ? sel.value : "any";
+  if (v === "organism" || v === "egg" || v === "nest" || v === "feather") return v;
+  return "any";
+}
+
+/**
+ * Restrict observations to one Evidence of Presence value (iNat annotation API).
+ * @param {URLSearchParams} p
+ */
+function applyEvidencePresenceToParams(p) {
+  const kind = getEvidencePresenceFilter();
+  if (kind === "any") return;
+  const termVal = EVIDENCE_OF_PRESENCE_TERM_VALUE[kind];
+  if (termVal == null) return;
+  p.set("term_id", String(EVIDENCE_OF_PRESENCE_TERM_ID));
+  p.set("term_value_id", String(termVal));
+}
+
 /**
  * @param {object} [options]
  * @param {"list"|"species_counts"} [options.establishmentMode]
@@ -1011,6 +1043,8 @@ function commonParams(options = {}) {
   if (el.popularOnly.checked) p.set("popular", "true");
 
   if (el.filterEndemic && el.filterEndemic.checked) p.set("endemic", "true");
+
+  applyEvidencePresenceToParams(p);
 
   return p;
 }
@@ -2047,6 +2081,10 @@ function syncUrl() {
   if (el.filterEndemic && el.filterEndemic.checked) q.set("endemic", "1");
   else q.delete("endemic");
 
+  const evidence = getEvidencePresenceFilter();
+  if (evidence !== "any") q.set("evidence", evidence);
+  else q.delete("evidence");
+
   if (currentView != "filters") {
     q.set("view", currentView);
   } else {
@@ -2133,6 +2171,12 @@ function readUrl() {
   }
   if (el.filterEndemic) {
     el.filterEndemic.checked = q.get("endemic") === "1" || q.get("endemic") === "true";
+  }
+
+  if (el.filterEvidencePresence) {
+    const ev = (q.get("evidence") || "").toLowerCase();
+    el.filterEvidencePresence.value =
+      ev === "organism" || ev === "egg" || ev === "nest" || ev === "feather" ? ev : "any";
   }
 
   const dtid = q.get("detail_taxon");
@@ -2504,6 +2548,12 @@ function wireFilterExtras() {
     syncUrl();
   });
   el.qualityGrade.addEventListener("change", onChange);
+  if (el.filterEvidencePresence) {
+    el.filterEvidencePresence.addEventListener("change", () => {
+      lastMapFilterKey = null;
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
   el.sortMode.addEventListener("change", () => {
     onChange();
     lastMapFilterKey = null;
@@ -2579,6 +2629,7 @@ function wireButtons() {
     el.metaSciName.checked = false;
     if (el.filterNativeStatus) el.filterNativeStatus.value = "any";
     if (el.filterEndemic) el.filterEndemic.checked = false;
+    if (el.filterEvidencePresence) el.filterEvidencePresence.value = "any";
     el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
       x.checked = false;
     });
