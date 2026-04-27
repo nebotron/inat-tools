@@ -614,6 +614,55 @@ img.leaflet-tile.map-heat-tiles {
   to { transform: rotate(360deg); }
 }
 
+/* Stats tab: cumulative distinct species over time */
+#panel-stats.view-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+#panel-stats .search-summary-bar {
+  flex-shrink: 0;
+}
+
+.stats-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.75rem 1rem 1.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.stats-section {
+  max-width: 52rem;
+}
+
+.stats-heading {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.stats-note {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.stats-loading,
+.stats-empty {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+#panel-stats .bar-chart {
+  min-height: 160px;
+}
+
 .site-footer {
   text-align: center;
   padding: 1.2rem 1rem 1.6rem;

@@ -159,6 +159,7 @@ let obsHasMore = false;
 let speciesHasMore = false;
 let obsLoading = false;
 let speciesLoading = false;
+let statsLoading = false;
 let mapSearchSeq = 0;
 let mapActiveRequests = 0;
 let totalObs = 0;
@@ -236,11 +237,13 @@ const el = {
   btnRefreshObservations: document.getElementById("btn-refresh-observations"),
   btnRefreshSpecies: document.getElementById("btn-refresh-species"),
   btnRefreshMap: document.getElementById("btn-refresh-map"),
+  btnRefreshStats: document.getElementById("btn-refresh-stats"),
   btnRefreshDetail: document.getElementById("btn-refresh-detail"),
   tabs: document.querySelectorAll(".tab"),
   panelFilters: document.getElementById("panel-filters"),
   panelObs: document.getElementById("panel-observations"),
   panelSpecies: document.getElementById("panel-species"),
+  panelStats: document.getElementById("panel-stats"),
   panelMap: document.getElementById("panel-map"),
   resultsGrid: document.getElementById("results-grid"),
   speciesGrid: document.getElementById("species-grid"),
@@ -249,6 +252,9 @@ const el = {
   searchSummaryObs: document.getElementById("search-summary-obs"),
   searchSummarySpecies: document.getElementById("search-summary-species"),
   mapError: document.getElementById("error-banner-map"),
+  statsError: document.getElementById("error-banner-stats"),
+  searchSummaryStats: document.getElementById("search-summary-stats"),
+  statsContent: document.getElementById("stats-content"),
   obsSentinel: document.getElementById("obs-sentinel"),
   speciesSentinel: document.getElementById("species-sentinel"),
   mapContainer: document.getElementById("map-container"),
@@ -456,11 +462,15 @@ function updateSearchSummaryElements() {
 function setSearchSummaryVisibility() {
   const obsOn = currentView === "observations";
   const speciesOn = currentView === "species";
+  const statsOn = currentView === "stats";
   if (el.searchSummaryObs) {
     el.searchSummaryObs.hidden = !obsOn || !el.searchSummaryObs.textContent.trim();
   }
   if (el.searchSummarySpecies) {
     el.searchSummarySpecies.hidden = !speciesOn || !el.searchSummarySpecies.textContent.trim();
+  }
+  if (el.searchSummaryStats) {
+    el.searchSummaryStats.hidden = !statsOn || !el.searchSummaryStats.textContent.trim();
   }
 }
 
@@ -800,7 +810,15 @@ async function saveObservationPhotoWithExif(obs) {
 }
 
 function showError(panel, msg) {
-  const node = panel === "species" ? el.speciesError : panel === "map" ? el.mapError : el.obsError;
+  const node =
+    panel === "species"
+      ? el.speciesError
+      : panel === "map"
+        ? el.mapError
+        : panel === "stats"
+          ? el.statsError
+          : el.obsError;
+  if (!node) return;
   node.textContent = msg;
   node.hidden = !msg;
 }
@@ -809,6 +827,7 @@ function clearErrors() {
   showError("obs", "");
   showError("species", "");
   showError("map", "");
+  showError("stats", "");
 }
 
 function initMonths() {
@@ -1168,6 +1187,132 @@ async function monthOfYearHistogramParams(taxonId) {
   p.set("date_field", "observed");
   p.set("interval", "month_of_year");
   return p;
+}
+
+/**
+ * Params for `GET /observations/histogram` (year bucket) matching current filters but without month scoping,
+ * so the Stats tab reflects the full date range, not only selected months.
+ */
+async function yearHistogramParamsForStats() {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  p.delete("month");
+  p.set("date_field", "observed");
+  p.set("interval", "year");
+  return p;
+}
+
+/**
+ * Params for `GET /observations/species_counts` with `per_page=1` — `total_results` is distinct leaf taxa count.
+ * @param {string} observedEndDate `YYYY-MM-DD` inclusive end of observed date range (API `d2`).
+ */
+async function speciesCountTotalParamsForEndDate(observedEndDate) {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  p.delete("month");
+  p.set("d2", observedEndDate);
+  p.set("per_page", "1");
+  p.set("page", "1");
+  return p;
+}
+
+/** @returns {Promise<{ years: number[], counts: number[] }>} */
+async function cumulativeDistinctSpeciesByYear() {
+  const histParams = await yearHistogramParamsForStats();
+  const histRes = await inatFetch(`observations/histogram?${histParams}`);
+  if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
+  const histJson = await histRes.json();
+  const yearObj = histJson.results?.year;
+  if (!yearObj || typeof yearObj !== "object") {
+    return { years: [], counts: [] };
+  }
+
+  const pairs = [];
+  for (const k of Object.keys(yearObj)) {
+    const y = parseInt(String(k).slice(0, 4), 10);
+    const c = Number(yearObj[k]) || 0;
+    if (!Number.isFinite(y)) continue;
+    pairs.push({ y, c });
+  }
+  pairs.sort((a, b) => a.y - b.y);
+  const active = pairs.filter((x) => x.c > 0);
+  if (!active.length) {
+    return { years: [], counts: [] };
+  }
+
+  const minY = active[0].y;
+  const maxY = active[active.length - 1].y;
+  const years = [];
+  for (let y = minY; y <= maxY; y += 1) years.push(y);
+
+  const BATCH = 4;
+  const counts = [];
+  for (let i = 0; i < years.length; i += BATCH) {
+    const slice = years.slice(i, i + BATCH);
+    const results = await Promise.all(
+      slice.map(async (y) => {
+        const p = await speciesCountTotalParamsForEndDate(`${y}-12-31`);
+        const r = await inatFetch(`observations/species_counts?${p}`);
+        if (!r.ok) throw new Error(`Species count failed (${r.status})`);
+        const j = await r.json();
+        return Number(j.total_results) || 0;
+      })
+    );
+    counts.push(...results);
+  }
+  return { years, counts };
+}
+
+async function runStatsSearch() {
+  if (statsLoading) return;
+  statsLoading = true;
+  showError("stats", "");
+  if (el.searchSummaryStats) el.searchSummaryStats.textContent = "Loading…";
+  if (el.statsContent) {
+    el.statsContent.innerHTML = `<p class="stats-loading">Loading cumulative species by year…</p>`;
+  }
+  try {
+    const { years, counts } = await cumulativeDistinctSpeciesByYear();
+    if (!years.length) {
+      if (el.searchSummaryStats) el.searchSummaryStats.textContent = "No observations in range for this filter.";
+      if (el.statsContent) {
+        el.statsContent.innerHTML =
+          `<p class="stats-empty">No year buckets with observations matched these filters. Try a broader place or taxon.</p>`;
+      }
+      setSearchSummaryVisibility();
+      return;
+    }
+    const latest = counts[counts.length - 1] || 0;
+    if (el.searchSummaryStats) {
+      el.searchSummaryStats.textContent = `${latest.toLocaleString()} distinct species through ${years[years.length - 1]} (cumulative by observation date)`;
+    }
+    if (el.statsContent) {
+      el.statsContent.innerHTML = "";
+      const section = document.createElement("div");
+      section.className = "stats-section";
+      const h = document.createElement("h2");
+      h.className = "stats-heading";
+      h.textContent = "Cumulative distinct species by year";
+      const note = document.createElement("p");
+      note.className = "stats-note";
+      note.textContent =
+        "Each bar is the number of distinct species (leaf taxa) observed on or before December 31 of that year, with your current filters. The series grows as new species are first recorded.";
+      section.appendChild(h);
+      section.appendChild(note);
+      const labels = years.map((y) => String(y));
+      section.appendChild(renderBarChart(counts, labels, { labelStep: years.length > 24 ? 2 : 1 }));
+      el.statsContent.appendChild(section);
+    }
+    setSearchSummaryVisibility();
+    syncUrl();
+  } catch (err) {
+    showError("stats", err.message || "Could not load stats.");
+    if (el.searchSummaryStats) el.searchSummaryStats.textContent = "";
+    if (el.statsContent) el.statsContent.innerHTML = "";
+  } finally {
+    statsLoading = false;
+    setSearchSummaryVisibility();
+  }
 }
 
 function getCardMetaOptions() {
@@ -1939,18 +2084,21 @@ function setActiveTabUI() {
   const filtersOn = currentView === "filters";
   const obsOn = currentView === "observations";
   const speciesOn = currentView === "species";
+  const statsOn = currentView === "stats";
   const mapOn = currentView === "map";
   const detailOn = currentView === "detail";
 
   el.panelFilters.hidden = !filtersOn;
   el.panelObs.hidden = !obsOn;
   el.panelSpecies.hidden = !speciesOn;
+  if (el.panelStats) el.panelStats.hidden = !statsOn;
   el.panelMap.hidden = !mapOn;
   el.panelDetail.hidden = !detailOn;
 
   el.panelFilters.classList.toggle("hidden", !filtersOn);
   el.panelObs.classList.toggle("hidden", !obsOn);
   el.panelSpecies.classList.toggle("hidden", !speciesOn);
+  if (el.panelStats) el.panelStats.classList.toggle("hidden", !statsOn);
   el.panelMap.classList.toggle("hidden", !mapOn);
   el.panelDetail.classList.toggle("hidden", !detailOn);
 
@@ -1960,6 +2108,7 @@ function setActiveTabUI() {
 function setRefreshButtonsDisabled(disabled) {
   if (el.btnRefreshObservations) el.btnRefreshObservations.disabled = disabled;
   if (el.btnRefreshSpecies) el.btnRefreshSpecies.disabled = disabled;
+  if (el.btnRefreshStats) el.btnRefreshStats.disabled = disabled;
   if (el.btnRefreshMap) el.btnRefreshMap.disabled = disabled;
   if (el.btnRefreshDetail) el.btnRefreshDetail.disabled = disabled;
 }
@@ -1971,6 +2120,8 @@ async function refreshActiveView() {
       await runObservationSearch(true);
     } else if (currentView === "species") {
       await runSpeciesSearch(true);
+    } else if (currentView === "stats") {
+      await runStatsSearch();
     } else if (currentView === "map") {
       lastMapFilterKey = null;
       await runMapSearch(true);
@@ -1991,6 +2142,8 @@ async function switchView(view) {
     await runObservationSearch(true);
   } else if (view === "species") {
     await runSpeciesSearch(true);
+  } else if (view === "stats") {
+    await runStatsSearch();
   } else if (view === "map") {
     ensureMap();
     await new Promise((r) => requestAnimationFrame(r));
@@ -2110,7 +2263,7 @@ function syncUrl() {
 function readUrl() {
   const q = new URLSearchParams(window.location.search);
   const v = q.get("view");
-  if (["filters", "observations", "species", "map", "detail"].includes(v)) currentView = v;
+  if (["filters", "observations", "species", "stats", "map", "detail"].includes(v)) currentView = v;
 
   const incRaw = q.get("taxon_inc");
   const excRaw = q.get("taxon_exc");
@@ -2522,6 +2675,7 @@ function scheduleUrlSync() {
 function refreshResultPanelsIfMetaChanged() {
   if (currentView === "observations") void runObservationSearch(true);
   else if (currentView === "species") void runSpeciesSearch(true);
+  else if (currentView === "stats") void runStatsSearch();
   else if (currentView === "map") {
     lastMapFilterKey = null;
     void runMapSearch(true);
@@ -2872,6 +3026,11 @@ async function boot() {
   }
   if (el.btnRefreshMap) {
     el.btnRefreshMap.addEventListener("click", () => {
+      void refreshActiveView();
+    });
+  }
+  if (el.btnRefreshStats) {
+    el.btnRefreshStats.addEventListener("click", () => {
       void refreshActiveView();
     });
   }

@@ -10,7 +10,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"/>
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=photo-page-link1" />
+    <link rel="stylesheet" href="styles.css?v=stats-tab1" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -23,6 +23,7 @@
           <button type="button" class="tab" role="tab" data-view="observations" aria-selected="false" aria-controls="panel-observations">Observations</button>
           <button type="button" class="tab" role="tab" data-view="species" aria-selected="false" aria-controls="panel-species">Species</button>
           <button type="button" class="tab" role="tab" data-view="map" aria-selected="false" aria-controls="panel-map">Map</button>
+          <button type="button" class="tab" role="tab" data-view="stats" aria-selected="false" aria-controls="panel-stats">Stats</button>
         </div>
 
         <section id="panel-filters" class="view-panel" role="tabpanel" hidden>
@@ -172,6 +173,17 @@
           <div id="species-sentinel" class="scroll-sentinel" aria-hidden="true"></div>
         </section>
 
+        <section id="panel-stats" class="view-panel hidden" role="tabpanel" hidden>
+          <p id="error-banner-stats" class="error-banner" role="alert" hidden></p>
+          <div class="search-summary-bar" role="region" aria-label="Stats summary">
+            <p id="search-summary-stats" class="search-summary-text" aria-live="polite"></p>
+            <button type="button" id="btn-refresh-stats" class="btn-icon-refresh" aria-label="Refresh stats" title="Refresh">
+              <svg class="btn-icon-refresh__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            </button>
+          </div>
+          <div id="stats-content" class="stats-content"></div>
+        </section>
+
         <section id="panel-map" class="view-panel hidden" role="tabpanel" hidden>
           <p id="error-banner-map" class="error-banner" role="alert" hidden></p>
           <div class="search-summary-bar search-summary-bar--map" role="region" aria-label="Map actions">
@@ -201,6 +213,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=evidence-presence1" type="module"></script>
+    <script src="app.js?v=stats-tab1" type="module"></script>
   </body>
 </html>
