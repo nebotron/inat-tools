@@ -1807,9 +1807,11 @@ function stopMapUserLocationWatch() {
 }
 
 function bringMapUserLocationToFront() {
-  if (mapUserLocationLayer && map && map.hasLayer(mapUserLocationLayer)) {
-    mapUserLocationLayer.bringToFront();
-  }
+  if (!mapUserLocationLayer || !map || !map.hasLayer(mapUserLocationLayer)) return;
+  /* `L.layerGroup` has no `bringToFront` in Leaflet 1.9; bring child layers up instead. */
+  mapUserLocationLayer.eachLayer((layer) => {
+    if (typeof layer.bringToFront === "function") layer.bringToFront();
+  });
 }
 
 function showUserLocationOnMap(lat, lng) {
@@ -3143,4 +3145,5 @@ window.addEventListener("pageshow", (e) => {
   void resyncAppFromCurrentUrlAfterBfcache();
 });
 
-boot();
+/** Resolved when initial `readUrl` + wiring + first `switchView` complete; used by Playwright e2e. */
+window.__EXPLORER_BOOT__ = boot();
