@@ -27,11 +27,11 @@ test.describe("explorer", () => {
     await expect(page).not.toHaveURL(/evidence=/);
   });
 
-  test("Stats tab shows cumulative species chart", async ({ page }) => {
+  test("Stats tab shows cumulative species line chart", async ({ page }) => {
     await page.getByRole("tab", { name: "Stats" }).click();
     await expect(page.locator("#panel-stats")).toBeVisible();
     await expect(page.locator(".stats-heading")).toContainText(/distinct species/i, { timeout: 90_000 });
-    await expect(page.locator("#stats-content .bar-chart")).toBeVisible({ timeout: 90_000 });
+    await expect(page.locator("#stats-content .stats-line-chart")).toBeVisible({ timeout: 90_000 });
   });
 
   test("Map tab shows user location marker when geolocation is granted", async ({ page, context }) => {

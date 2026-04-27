@@ -72,8 +72,8 @@ main {
   background: #eef4ee;
   color: var(--muted);
   font-weight: 650;
-  font-size: 0.94rem;
-  padding: 0.7rem 1rem;
+  font-size: 0.78rem;
+  padding: 0.55rem 0.75rem;
   cursor: pointer;
 }
 
@@ -659,8 +659,49 @@ img.leaflet-tile.map-heat-tiles {
   color: var(--muted);
 }
 
-#panel-stats .bar-chart {
-  min-height: 160px;
+.stats-line-chart {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.25rem 0 0;
+}
+
+.stats-line-chart__axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.stats-line-chart__tick {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: inherit;
+}
+
+.stats-line-chart__grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.85;
+}
+
+.stats-line-chart__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.stats-line-chart__dot {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.stats-line-chart__area {
+  fill: var(--accent);
+  opacity: 0.08;
 }
 
 .site-footer {

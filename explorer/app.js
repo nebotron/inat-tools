@@ -1194,15 +1194,14 @@ async function monthOfYearHistogramParams(taxonId) {
 }
 
 /**
- * Params for `GET /observations/histogram` (year bucket) matching current filters but without month scoping,
- * so the Stats tab reflects the full date range, not only selected months.
+ * Params for `GET /observations/histogram` (month bucket) matching current filters but without month scoping.
  */
-async function yearHistogramParamsForStats() {
+async function monthHistogramParamsForStats() {
   const kc = await ensureKingCountyNoxiousData();
   const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("month");
   p.set("date_field", "observed");
-  p.set("interval", "year");
+  p.set("interval", "month");
   return p;
 }
 
@@ -1220,51 +1219,175 @@ async function speciesCountTotalParamsForEndDate(observedEndDate) {
   return p;
 }
 
-/** @returns {Promise<{ years: number[], counts: number[] }>} */
-async function cumulativeDistinctSpeciesByYear() {
-  const histParams = await yearHistogramParamsForStats();
+/** Last calendar day of month `m` (1–12) in `y`, as `YYYY-MM-DD` UTC. */
+function endOfCalendarMonthStr(y, m) {
+  const d = new Date(Date.UTC(y, m, 0));
+  return d.toISOString().slice(0, 10);
+}
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatStatsPointLabel(y, m, stepMonths) {
+  if (stepMonths >= 12) return String(y);
+  if (stepMonths >= 3) {
+    const q = Math.floor((m - 1) / 3) + 1;
+    return `Q${q} ${y}`;
+  }
+  return `${MONTH_SHORT[m - 1]} ${String(y).slice(-2)}`;
+}
+
+/**
+ * Pick ~1–72 sample points from the observed-month range (finer than yearly when the span is short).
+ * @param {{ y: number, m: number, obs: number }[]} activeMonths sorted ascending, first month of bucket only
+ */
+function buildStatsSampleMonths(activeMonths, maxPoints = 72) {
+  if (!activeMonths.length) return { samples: [], stepMonths: 1 };
+  const first = activeMonths[0];
+  const last = activeMonths[activeMonths.length - 1];
+  const span =
+    (last.y - first.y) * 12 + (last.m - first.m) + 1;
+  let rawStep = Math.max(1, Math.ceil(span / maxPoints));
+  const nice = [1, 2, 3, 4, 6, 12, 24, 36, 60, 120];
+  const stepMonths = nice.find((x) => x >= rawStep) ?? rawStep;
+
+  const samples = [];
+  let cy = first.y;
+  let cm = first.m;
+  const endKey = last.y * 12 + last.m;
+  while (cy * 12 + cm <= endKey) {
+    samples.push({ y: cy, m: cm });
+    cm += stepMonths;
+    while (cm > 12) {
+      cm -= 12;
+      cy += 1;
+    }
+  }
+  const lastPt = samples[samples.length - 1];
+  if (!lastPt || lastPt.y !== last.y || lastPt.m !== last.m) {
+    samples.push({ y: last.y, m: last.m });
+  }
+  return { samples, stepMonths };
+}
+
+/**
+ * Cumulative distinct species at month ends (adaptive step: monthly, quarterly, or coarser).
+ * @returns {Promise<{ labels: string[], counts: number[], stepMonths: number, endLabels: string[] }>}
+ */
+async function cumulativeDistinctSpeciesOverTime() {
+  const histParams = await monthHistogramParamsForStats();
   const histRes = await inatFetch(`observations/histogram?${histParams}`);
   if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
   const histJson = await histRes.json();
-  const yearObj = histJson.results?.year;
-  if (!yearObj || typeof yearObj !== "object") {
-    return { years: [], counts: [] };
+  const monthObj = histJson.results?.month;
+  if (!monthObj || typeof monthObj !== "object") {
+    return { labels: [], counts: [], stepMonths: 1, endLabels: [] };
   }
 
-  const pairs = [];
-  for (const k of Object.keys(yearObj)) {
+  const activeMonths = [];
+  for (const k of Object.keys(monthObj)) {
+    const c = Number(monthObj[k]) || 0;
+    if (c <= 0) continue;
     const y = parseInt(String(k).slice(0, 4), 10);
-    const c = Number(yearObj[k]) || 0;
-    if (!Number.isFinite(y)) continue;
-    pairs.push({ y, c });
+    const m = parseInt(String(k).slice(5, 7), 10);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) continue;
+    activeMonths.push({ y, m, obs: c });
   }
-  pairs.sort((a, b) => a.y - b.y);
-  const active = pairs.filter((x) => x.c > 0);
-  if (!active.length) {
-    return { years: [], counts: [] };
+  activeMonths.sort((a, b) => (a.y !== b.y ? a.y - b.y : a.m - b.m));
+  if (!activeMonths.length) {
+    return { labels: [], counts: [], stepMonths: 1, endLabels: [] };
   }
 
-  const minY = active[0].y;
-  const maxY = active[active.length - 1].y;
-  const years = [];
-  for (let y = minY; y <= maxY; y += 1) years.push(y);
-
+  const { samples, stepMonths } = buildStatsSampleMonths(activeMonths, 72);
   const BATCH = 4;
   const counts = [];
-  for (let i = 0; i < years.length; i += BATCH) {
-    const slice = years.slice(i, i + BATCH);
+  const labels = [];
+  const endLabels = [];
+  for (let i = 0; i < samples.length; i += BATCH) {
+    const slice = samples.slice(i, i + BATCH);
     const results = await Promise.all(
-      slice.map(async (y) => {
-        const p = await speciesCountTotalParamsForEndDate(`${y}-12-31`);
+      slice.map(async ({ y, m }) => {
+        const d2 = endOfCalendarMonthStr(y, m);
+        const p = await speciesCountTotalParamsForEndDate(d2);
         const r = await inatFetch(`observations/species_counts?${p}`);
         if (!r.ok) throw new Error(`Species count failed (${r.status})`);
         const j = await r.json();
         return Number(j.total_results) || 0;
       })
     );
-    counts.push(...results);
+    for (let j = 0; j < slice.length; j += 1) {
+      const { y, m } = slice[j];
+      labels.push(formatStatsPointLabel(y, m, stepMonths));
+      endLabels.push(endOfCalendarMonthStr(y, m));
+      counts.push(results[j]);
+    }
   }
-  return { years, counts };
+  return { labels, counts, stepMonths, endLabels };
+}
+
+/**
+ * SVG line chart for stats (cumulative series).
+ * @param {number[]} values
+ * @param {string[]} labels
+ */
+function renderStatsLineChart(values, labels) {
+  const n = values.length;
+  const wrap = document.createElement("div");
+  wrap.className = "stats-line-chart-wrap";
+  if (n === 0) return wrap;
+
+  const W = 720;
+  const H = 260;
+  const padL = 52;
+  const padR = 16;
+  const padT = 14;
+  const padB = 46;
+  const iw = W - padL - padR;
+  const ih = H - padT - padB;
+  const vmax = Math.max(...values, 1) * 1.06;
+  const xAt = (i) => padL + (n === 1 ? iw / 2 : (iw * i) / (n - 1));
+  const yAt = (v) => padT + ih * (1 - v / vmax);
+
+  const pts = values.map((v, i) => `${xAt(i).toFixed(2)},${yAt(v).toFixed(2)}`).join(" ");
+  const areaD = `M ${xAt(0).toFixed(2)} ${padT + ih} L ${pts} L ${xAt(n - 1).toFixed(2)} ${padT + ih} Z`;
+
+  const tickStep = Math.max(1, Math.ceil(n / 7));
+  const ticks = [];
+  for (let i = 0; i < n; i += tickStep) ticks.push(i);
+  if (ticks[ticks.length - 1] !== n - 1) ticks.push(n - 1);
+
+  const yTicks = 4;
+  const yTickVals = [];
+  for (let t = 0; t <= yTicks; t += 1) {
+    yTickVals.push((vmax * t) / yTicks);
+  }
+
+  const esc = (s) => escapeHtml(String(s));
+
+  const parts = [
+    `<svg class="stats-line-chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Cumulative distinct species over time">`,
+    `<path class="stats-line-chart__area" d="${areaD}" />`,
+  ];
+  for (const gv of yTickVals) {
+    const yy = yAt(gv);
+    parts.push(`<line class="stats-line-chart__grid" x1="${padL}" y1="${yy.toFixed(2)}" x2="${padL + iw}" y2="${yy.toFixed(2)}" />`);
+    parts.push(`<text class="stats-line-chart__tick" x="${padL - 6}" y="${yy + 4}" text-anchor="end">${esc(Math.round(gv).toLocaleString())}</text>`);
+  }
+  parts.push(`<line class="stats-line-chart__axis" x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + ih}" />`);
+  parts.push(`<line class="stats-line-chart__axis" x1="${padL}" y1="${padT + ih}" x2="${padL + iw}" y2="${padT + ih}" />`);
+  parts.push(`<polyline class="stats-line-chart__line" points="${pts}" />`);
+  for (let i = 0; i < n; i += 1) {
+    parts.push(
+      `<circle class="stats-line-chart__dot" cx="${xAt(i).toFixed(2)}" cy="${yAt(values[i]).toFixed(2)}" r="${n > 48 ? 2.5 : 3.5}" />`
+    );
+  }
+  for (const i of ticks) {
+    const lx = xAt(i);
+    const lab = labels[i] || "";
+    parts.push(`<text class="stats-line-chart__tick" x="${lx.toFixed(2)}" y="${H - 10}" text-anchor="middle">${esc(lab)}</text>`);
+  }
+  parts.push("</svg>");
+  wrap.innerHTML = parts.join("");
+  return wrap;
 }
 
 async function runStatsSearch() {
@@ -1273,22 +1396,23 @@ async function runStatsSearch() {
   showError("stats", "");
   if (el.searchSummaryStats) el.searchSummaryStats.textContent = "Loading…";
   if (el.statsContent) {
-    el.statsContent.innerHTML = `<p class="stats-loading">Loading cumulative species by year…</p>`;
+    el.statsContent.innerHTML = `<p class="stats-loading">Loading cumulative species over time…</p>`;
   }
   try {
-    const { years, counts } = await cumulativeDistinctSpeciesByYear();
-    if (!years.length) {
+    const { labels, counts, stepMonths, endLabels } = await cumulativeDistinctSpeciesOverTime();
+    if (!labels.length) {
       if (el.searchSummaryStats) el.searchSummaryStats.textContent = "No observations in range for this filter.";
       if (el.statsContent) {
         el.statsContent.innerHTML =
-          `<p class="stats-empty">No year buckets with observations matched these filters. Try a broader place or taxon.</p>`;
+          `<p class="stats-empty">No months with observations matched these filters. Try a broader place or taxon.</p>`;
       }
       setSearchSummaryVisibility();
       return;
     }
     const latest = counts[counts.length - 1] || 0;
+    const lastEnd = endLabels[endLabels.length - 1] || "";
     if (el.searchSummaryStats) {
-      el.searchSummaryStats.textContent = `${latest.toLocaleString()} distinct species through ${years[years.length - 1]} (cumulative by observation date)`;
+      el.searchSummaryStats.textContent = `${latest.toLocaleString()} distinct species through ${lastEnd} (cumulative by observation date)`;
     }
     if (el.statsContent) {
       el.statsContent.innerHTML = "";
@@ -1296,15 +1420,21 @@ async function runStatsSearch() {
       section.className = "stats-section";
       const h = document.createElement("h2");
       h.className = "stats-heading";
-      h.textContent = "Cumulative distinct species by year";
+      h.textContent = "Cumulative distinct species over time";
       const note = document.createElement("p");
       note.className = "stats-note";
-      note.textContent =
-        "Each bar is the number of distinct species (leaf taxa) observed on or before December 31 of that year, with your current filters. The series grows as new species are first recorded.";
+      const stepDesc =
+        stepMonths >= 12
+          ? "yearly"
+          : stepMonths >= 3
+            ? "quarterly (or coarser)"
+            : stepMonths === 2
+              ? "every two months"
+              : "monthly";
+      note.textContent = `Each point is distinct species (leaf taxa) observed on or before that month’s last day, with your current filters. Sampling is ${stepDesc} when the date span is long so the chart stays responsive.`;
       section.appendChild(h);
       section.appendChild(note);
-      const labels = years.map((y) => String(y));
-      section.appendChild(renderBarChart(counts, labels, { labelStep: years.length > 24 ? 2 : 1 }));
+      section.appendChild(renderStatsLineChart(counts, labels));
       el.statsContent.appendChild(section);
     }
     setSearchSummaryVisibility();
