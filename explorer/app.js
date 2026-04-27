@@ -176,6 +176,10 @@ const obsSeenIds = new Set();
 
 let map = null;
 let pinsLayer = null;
+/** Observation pins sit below this layer so the user location dot stays visible on top. */
+let mapUserLocationLayer = null;
+/** `navigator.geolocation.watchPosition` id while Map tab is active; cleared when leaving Map. */
+let mapGeolocationWatchId = null;
 let heatGridLayer = null;
 let pendingHeatLayer = null;
 let mapMoveTimer = null;
@@ -1785,6 +1789,73 @@ function readInitialMapViewFromUrl() {
   return { lat, lng, zoom };
 }
 
+function ensureMapUserLocationLayer() {
+  if (!map || mapUserLocationLayer) return;
+  mapUserLocationLayer = L.layerGroup().addTo(map);
+}
+
+function clearMapUserLocationMarker() {
+  if (mapUserLocationLayer) mapUserLocationLayer.clearLayers();
+}
+
+function stopMapUserLocationWatch() {
+  if (mapGeolocationWatchId != null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(mapGeolocationWatchId);
+    mapGeolocationWatchId = null;
+  }
+  clearMapUserLocationMarker();
+}
+
+function bringMapUserLocationToFront() {
+  if (mapUserLocationLayer && map && map.hasLayer(mapUserLocationLayer)) {
+    mapUserLocationLayer.bringToFront();
+  }
+}
+
+function showUserLocationOnMap(lat, lng) {
+  if (!map || !window.L) return;
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln) || la < -90 || la > 90 || ln < -180 || ln > 180) return;
+  ensureMapUserLocationLayer();
+  if (!mapUserLocationLayer) return;
+  mapUserLocationLayer.clearLayers();
+  const r = Math.max(mapPinMarkerRadius() + 2, 9);
+  const marker = L.circleMarker([la, ln], {
+    radius: r,
+    color: "#0d47a1",
+    fillColor: "#2196f3",
+    fillOpacity: 0.92,
+    weight: 2,
+    className: "map-user-location-marker",
+  });
+  marker.bindPopup("Your location");
+  marker.off("click");
+  marker.on("click", function (e) {
+    L.DomEvent.stopPropagation(e);
+    this.openPopup(this.getLatLng());
+  });
+  marker.addTo(mapUserLocationLayer);
+  bringMapUserLocationToFront();
+}
+
+function startMapUserLocationWatch() {
+  stopMapUserLocationWatch();
+  if (!map || !navigator.geolocation) return;
+  ensureMapUserLocationLayer();
+  mapGeolocationWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      if (currentView !== "map" || !map) return;
+      const { latitude, longitude } = pos.coords;
+      showUserLocationOnMap(latitude, longitude);
+    },
+    () => {
+      /* No permission or unavailable — leave dot hidden */
+    },
+    { enableHighAccuracy: true, maximumAge: 20000, timeout: 20000 }
+  );
+}
+
 function ensureMap() {
   if (map || !window.L) return;
   map = L.map(el.mapContainer);
@@ -1797,6 +1868,7 @@ function ensureMap() {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
   pinsLayer = L.layerGroup().addTo(map);
+  ensureMapUserLocationLayer();
   map.on("moveend zoomend", () => {
     if (currentView !== "map") return;
     syncUrl();
@@ -2056,6 +2128,7 @@ async function runMapSearch(forceRecheck) {
         marker.addTo(newPins);
       });
       swapPinsLayer(newPins);
+      bringMapUserLocationToFront();
     } else {
       if (seq !== mapSearchSeq) return;
       mapMode = "heat";
@@ -2063,9 +2136,13 @@ async function runMapSearch(forceRecheck) {
       const heatParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcHeat) });
       heatParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
       const url = `${API}/grid/{z}/{x}/{y}.png?${heatParams}`; /* density grid tiles (not colored_heatmap) */
-      installHeatGridLayer(url, () => clearMapPins());
+      installHeatGridLayer(url, () => {
+        clearMapPins();
+        bringMapUserLocationToFront();
+      });
     }
 
+    bringMapUserLocationToFront();
     syncUrl();
   } catch (err) {
     if (seq === mapSearchSeq) {
@@ -2134,7 +2211,11 @@ async function refreshActiveView() {
 }
 
 async function switchView(view) {
+  const prevView = currentView;
   currentView = view;
+  if (prevView === "map" && view !== "map") {
+    stopMapUserLocationWatch();
+  }
   setActiveTabUI();
   syncUrl();
 
@@ -2151,6 +2232,7 @@ async function switchView(view) {
     /* Do not fit to place/circle when restoring from URL — that overwrote mlat/mlng/zoom on refresh. */
     if (!urlHasValidMapPosition()) await fitMapToFilterLocation();
     await runMapSearch(true);
+    startMapUserLocationWatch();
   } else if (view === "detail" && detailTaxonId) {
     await loadDetailFromTaxonId(detailTaxonId);
   }
@@ -2794,6 +2876,7 @@ function wireButtons() {
     obsListCursorId = null;
     obsListCursorAscId = null;
     obsSeenIds.clear();
+    stopMapUserLocationWatch();
     clearMapOverlays();
     currentHeatUrl = null;
     mapMode = null;
