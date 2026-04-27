@@ -1194,15 +1194,24 @@ async function monthOfYearHistogramParams(taxonId) {
 }
 
 /**
- * Params for `GET /observations/histogram` (month bucket) matching current filters but without month scoping.
+ * Params for `GET /observations/histogram` matching current filters but without month scoping.
+ * @param {"month"|"year"} interval
  */
-async function monthHistogramParamsForStats() {
+async function observedHistogramParamsForStats(interval) {
   const kc = await ensureKingCountyNoxiousData();
   const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("month");
   p.set("date_field", "observed");
-  p.set("interval", "month");
+  p.set("interval", interval);
   return p;
+}
+
+async function monthHistogramParamsForStats() {
+  return observedHistogramParamsForStats("month");
+}
+
+async function yearHistogramParamsForStats() {
+  return observedHistogramParamsForStats("year");
 }
 
 /**
@@ -1273,9 +1282,13 @@ function buildStatsSampleMonths(activeMonths, maxPoints = 48) {
 }
 
 /**
- * Cumulative distinct species at month ends (adaptive step: monthly, quarterly, or coarser).
- * @returns {Promise<{ labels: string[], counts: number[], stepMonths: number, endLabels: string[] }>}
+ * When matching observation count is at most this value, Stats loads every observation once
+ * (paginated) and aggregates cumulative distinct taxa locally — no per-month `species_counts`.
+ * Above this, Stats uses year-end `species_counts` only (few server calls).
  */
+const STATS_LOCAL_MAX_TOTAL = 6_000;
+const STATS_FETCH_PER_PAGE = 200;
+
 /** Retry transient iNaturalist failures (rate limits, gateway errors). */
 async function inatFetchWithRetry(pathAndQuery, opts = {}) {
   const retries = opts.retries ?? 4;
@@ -1293,17 +1306,88 @@ async function inatFetchWithRetry(pathAndQuery, opts = {}) {
   return res;
 }
 
-async function cumulativeDistinctSpeciesOverTime() {
-  const histParams = await monthHistogramParamsForStats();
-  const histRes = await inatFetchWithRetry(`observations/histogram?${histParams}`);
-  if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
-  const histJson = await histRes.json();
-  const monthObj = histJson.results?.month;
-  if (!monthObj || typeof monthObj !== "object") {
-    return { labels: [], counts: [], stepMonths: 1, endLabels: [] };
-  }
+/** Params for listing observations in observed-on order (Stats local aggregation). */
+async function statsObservationListParams() {
+  const kc = await ensureKingCountyNoxiousData();
+  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  p.delete("month");
+  p.set("order_by", "observed_on");
+  p.set("order", "asc");
+  return p;
+}
 
+function statsObservedMonthOrdinal(obs) {
+  const w = observationWallClockParts(obs);
+  if (!w || !Number.isFinite(w.y) || !Number.isFinite(w.mo)) return null;
+  return w.y * 12 + w.mo;
+}
+
+function statsDistinctTaxonId(obs) {
+  const t = obs && obs.taxon;
+  const id = t && t.id != null ? Number(t.id) : NaN;
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/**
+ * Fetch every observation matching current filters (ascending observed_on), paginated.
+ * Caller must only invoke when the total count is known to be modest.
+ * @returns {Promise<object[]>}
+ */
+async function fetchAllObservationsForStatsAggregation() {
+  const base = await statsObservationListParams();
+  base.set("per_page", String(STATS_FETCH_PER_PAGE));
+  const out = [];
+  let page = 1;
+  const maxPages = Math.ceil(STATS_LOCAL_MAX_TOTAL / STATS_FETCH_PER_PAGE) + 5;
+  while (page <= maxPages) {
+    const p = new URLSearchParams(base);
+    p.set("page", String(page));
+    const res = await inatFetchWithRetry(`observations?${p}`);
+    if (!res.ok) throw new Error(`Observations request failed (${res.status})`);
+    const j = await res.json();
+    const rows = j.results || [];
+    if (!rows.length) break;
+    for (const obs of rows) out.push(obs);
+    if (rows.length < STATS_FETCH_PER_PAGE) break;
+    page += 1;
+  }
+  return out;
+}
+
+/**
+ * Cumulative distinct taxon ids at each sample month-end (local, matches client-side rollup of listed obs).
+ * @param {object[]} observations
+ * @param {{ y: number, m: number }[]} samples
+ */
+function aggregateStatsFromObservations(observations, samples) {
+  const rows = [];
+  for (const obs of observations) {
+    const ord = statsObservedMonthOrdinal(obs);
+    const tid = statsDistinctTaxonId(obs);
+    if (ord == null || tid == null) continue;
+    const oid = obs.id != null ? Number(obs.id) : 0;
+    rows.push({ ord, tid, oid });
+  }
+  rows.sort((a, b) => (a.ord !== b.ord ? a.ord - b.ord : a.oid - b.oid));
+
+  const endOrds = samples.map(({ y, m }) => y * 12 + m);
+  const set = new Set();
+  let oi = 0;
+  const counts = [];
+  for (let si = 0; si < endOrds.length; si += 1) {
+    const cap = endOrds[si];
+    while (oi < rows.length && rows[oi].ord <= cap) {
+      set.add(rows[oi].tid);
+      oi += 1;
+    }
+    counts.push(set.size);
+  }
+  return counts;
+}
+
+function parseHistogramMonthBuckets(monthObj) {
   const activeMonths = [];
+  if (!monthObj || typeof monthObj !== "object") return activeMonths;
   for (const k of Object.keys(monthObj)) {
     const c = Number(monthObj[k]) || 0;
     if (c <= 0) continue;
@@ -1315,20 +1399,77 @@ async function cumulativeDistinctSpeciesOverTime() {
     activeMonths.push({ y, m, obs: c });
   }
   activeMonths.sort((a, b) => (a.y !== b.y ? a.y - b.y : a.m - b.m));
-  if (!activeMonths.length) {
-    return { labels: [], counts: [], stepMonths: 1, endLabels: [] };
+  return activeMonths;
+}
+
+function parseHistogramYearBuckets(yearObj) {
+  const years = [];
+  if (!yearObj || typeof yearObj !== "object") return years;
+  for (const k of Object.keys(yearObj)) {
+    const c = Number(yearObj[k]) || 0;
+    if (c <= 0) continue;
+    const y = parseInt(String(k).slice(0, 4), 10);
+    if (!Number.isFinite(y)) continue;
+    years.push({ y, obs: c });
+  }
+  years.sort((a, b) => a.y - b.y);
+  return years;
+}
+
+/**
+ * Cumulative distinct taxa over time: local aggregation from observation pages when the
+ * filtered set is small; otherwise one `species_counts` per year-end (few server round-trips).
+ * @returns {Promise<{ labels: string[], counts: number[], stepMonths: number, endLabels: string[], mode: string }>}
+ */
+async function cumulativeDistinctSpeciesOverTime() {
+  const countP = await observationCountParams();
+  const countRes = await inatFetchWithRetry(`observations?${countP}`);
+  if (!countRes.ok) throw new Error(`Observation count failed (${countRes.status})`);
+  const countJson = await countRes.json();
+  const totalObs = Number(countJson.total_results) || 0;
+  if (totalObs <= 0) {
+    return { labels: [], counts: [], stepMonths: 1, endLabels: [], mode: "none" };
   }
 
-  const { samples, stepMonths } = buildStatsSampleMonths(activeMonths, 48);
+  if (totalObs <= STATS_LOCAL_MAX_TOTAL) {
+    const histParams = await monthHistogramParamsForStats();
+    const histRes = await inatFetchWithRetry(`observations/histogram?${histParams}`);
+    if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
+    const histJson = await histRes.json();
+    const activeMonths = parseHistogramMonthBuckets(histJson.results?.month);
+    if (!activeMonths.length) {
+      return { labels: [], counts: [], stepMonths: 1, endLabels: [], mode: "local" };
+    }
+    const { samples, stepMonths } = buildStatsSampleMonths(activeMonths, 48);
+    const observations = await fetchAllObservationsForStatsAggregation();
+    const counts = aggregateStatsFromObservations(observations, samples);
+    const labels = samples.map(({ y, m }) => formatStatsPointLabel(y, m, stepMonths));
+    const endLabels = samples.map(({ y, m }) => endOfCalendarMonthStr(y, m));
+    return { labels, counts, stepMonths, endLabels, mode: "local" };
+  }
+
+  const histParams = await yearHistogramParamsForStats();
+  const histRes = await inatFetchWithRetry(`observations/histogram?${histParams}`);
+  if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
+  const histJson = await histRes.json();
+  const activeYears = parseHistogramYearBuckets(histJson.results?.year);
+  if (!activeYears.length) {
+    return { labels: [], counts: [], stepMonths: 12, endLabels: [], mode: "server-year" };
+  }
+  const minY = activeYears[0].y;
+  const maxY = activeYears[activeYears.length - 1].y;
+  const years = [];
+  for (let y = minY; y <= maxY; y += 1) years.push(y);
+
   const BATCH = 8;
   const counts = [];
   const labels = [];
   const endLabels = [];
-  for (let i = 0; i < samples.length; i += BATCH) {
-    const slice = samples.slice(i, i + BATCH);
+  for (let i = 0; i < years.length; i += BATCH) {
+    const slice = years.slice(i, i + BATCH);
     const results = await Promise.all(
-      slice.map(async ({ y, m }) => {
-        const d2 = endOfCalendarMonthStr(y, m);
+      slice.map(async (y) => {
+        const d2 = endOfCalendarMonthStr(y, 12);
         const p = await speciesCountTotalParamsForEndDate(d2);
         const r = await inatFetchWithRetry(`observations/species_counts?${p}`);
         if (!r.ok) throw new Error(`Species count failed (${r.status})`);
@@ -1337,16 +1478,16 @@ async function cumulativeDistinctSpeciesOverTime() {
       })
     );
     for (let j = 0; j < slice.length; j += 1) {
-      const { y, m } = slice[j];
-      labels.push(formatStatsPointLabel(y, m, stepMonths));
-      endLabels.push(endOfCalendarMonthStr(y, m));
+      const y = slice[j];
+      labels.push(String(y));
+      endLabels.push(endOfCalendarMonthStr(y, 12));
       counts.push(results[j]);
     }
-    if (i + BATCH < samples.length) {
+    if (i + BATCH < years.length) {
       await new Promise((r) => setTimeout(r, 120));
     }
   }
-  return { labels, counts, stepMonths, endLabels };
+  return { labels, counts, stepMonths: 12, endLabels, mode: "server-year" };
 }
 
 /**
@@ -1425,7 +1566,7 @@ async function runStatsSearch() {
     el.statsContent.innerHTML = `<p class="stats-loading">Loading cumulative species over time…</p>`;
   }
   try {
-    const { labels, counts, stepMonths, endLabels } = await cumulativeDistinctSpeciesOverTime();
+    const { labels, counts, stepMonths, endLabels, mode } = await cumulativeDistinctSpeciesOverTime();
     if (!labels.length) {
       if (el.searchSummaryStats) el.searchSummaryStats.textContent = "No observations in range for this filter.";
       if (el.statsContent) {
@@ -1457,7 +1598,11 @@ async function runStatsSearch() {
             : stepMonths === 2
               ? "every two months"
               : "monthly";
-      note.textContent = `Each point is distinct species (leaf taxa) observed on or before that month’s last day, with your current filters. Sampling is ${stepDesc} when the date span is long so the chart stays responsive.`;
+      if (mode === "local") {
+        note.textContent = `Each point counts distinct species (leaf taxa) from your matching observations with observed date on or before that month’s end — computed in the browser from the full result set (no per-point server species count). X-axis sampling is ${stepDesc} when the span is long.`;
+      } else {
+        note.textContent = `Large result sets use one server count per year-end (through December 31) for speed. Smaller sets (${STATS_LOCAL_MAX_TOTAL.toLocaleString()} or fewer matching observations) use finer monthly sampling computed locally.`;
+      }
       section.appendChild(h);
       section.appendChild(note);
       section.appendChild(renderStatsLineChart(counts, labels));
