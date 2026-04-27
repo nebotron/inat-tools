@@ -1219,10 +1219,13 @@ async function speciesCountTotalParamsForEndDate(observedEndDate) {
   return p;
 }
 
-/** Last calendar day of month `m` (1–12) in `y`, as `YYYY-MM-DD` UTC. */
+/** Last calendar day of month `m` (1–12) in year `y`, as `YYYY-MM-DD` (local calendar, no UTC shift). */
 function endOfCalendarMonthStr(y, m) {
-  const d = new Date(Date.UTC(y, m, 0));
-  return d.toISOString().slice(0, 10);
+  const last = new Date(y, m, 0);
+  const yy = last.getFullYear();
+  const mm = String(last.getMonth() + 1).padStart(2, "0");
+  const dd = String(last.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -1237,10 +1240,10 @@ function formatStatsPointLabel(y, m, stepMonths) {
 }
 
 /**
- * Pick ~1–72 sample points from the observed-month range (finer than yearly when the span is short).
+ * Pick ~1–48 sample points from the observed-month range (finer than yearly when the span is short).
  * @param {{ y: number, m: number, obs: number }[]} activeMonths sorted ascending, first month of bucket only
  */
-function buildStatsSampleMonths(activeMonths, maxPoints = 72) {
+function buildStatsSampleMonths(activeMonths, maxPoints = 48) {
   if (!activeMonths.length) return { samples: [], stepMonths: 1 };
   const first = activeMonths[0];
   const last = activeMonths[activeMonths.length - 1];
@@ -1273,9 +1276,26 @@ function buildStatsSampleMonths(activeMonths, maxPoints = 72) {
  * Cumulative distinct species at month ends (adaptive step: monthly, quarterly, or coarser).
  * @returns {Promise<{ labels: string[], counts: number[], stepMonths: number, endLabels: string[] }>}
  */
+/** Retry transient iNaturalist failures (rate limits, gateway errors). */
+async function inatFetchWithRetry(pathAndQuery, opts = {}) {
+  const retries = opts.retries ?? 4;
+  let res = null;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    res = await inatFetch(pathAndQuery);
+    if (res.ok) return res;
+    const retry = res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504;
+    if (retry && attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+      continue;
+    }
+    return res;
+  }
+  return res;
+}
+
 async function cumulativeDistinctSpeciesOverTime() {
   const histParams = await monthHistogramParamsForStats();
-  const histRes = await inatFetch(`observations/histogram?${histParams}`);
+  const histRes = await inatFetchWithRetry(`observations/histogram?${histParams}`);
   if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
   const histJson = await histRes.json();
   const monthObj = histJson.results?.month;
@@ -1287,8 +1307,10 @@ async function cumulativeDistinctSpeciesOverTime() {
   for (const k of Object.keys(monthObj)) {
     const c = Number(monthObj[k]) || 0;
     if (c <= 0) continue;
-    const y = parseInt(String(k).slice(0, 4), 10);
-    const m = parseInt(String(k).slice(5, 7), 10);
+    const mk = String(k).match(/^(\d{4})-(\d{1,2})-/);
+    if (!mk) continue;
+    const y = parseInt(mk[1], 10);
+    const m = parseInt(mk[2], 10);
     if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) continue;
     activeMonths.push({ y, m, obs: c });
   }
@@ -1297,8 +1319,8 @@ async function cumulativeDistinctSpeciesOverTime() {
     return { labels: [], counts: [], stepMonths: 1, endLabels: [] };
   }
 
-  const { samples, stepMonths } = buildStatsSampleMonths(activeMonths, 72);
-  const BATCH = 4;
+  const { samples, stepMonths } = buildStatsSampleMonths(activeMonths, 48);
+  const BATCH = 8;
   const counts = [];
   const labels = [];
   const endLabels = [];
@@ -1308,7 +1330,7 @@ async function cumulativeDistinctSpeciesOverTime() {
       slice.map(async ({ y, m }) => {
         const d2 = endOfCalendarMonthStr(y, m);
         const p = await speciesCountTotalParamsForEndDate(d2);
-        const r = await inatFetch(`observations/species_counts?${p}`);
+        const r = await inatFetchWithRetry(`observations/species_counts?${p}`);
         if (!r.ok) throw new Error(`Species count failed (${r.status})`);
         const j = await r.json();
         return Number(j.total_results) || 0;
@@ -1320,6 +1342,9 @@ async function cumulativeDistinctSpeciesOverTime() {
       endLabels.push(endOfCalendarMonthStr(y, m));
       counts.push(results[j]);
     }
+    if (i + BATCH < samples.length) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
   }
   return { labels, counts, stepMonths, endLabels };
 }
@@ -1330,7 +1355,8 @@ async function cumulativeDistinctSpeciesOverTime() {
  * @param {string[]} labels
  */
 function renderStatsLineChart(values, labels) {
-  const n = values.length;
+  const vals = values.map((v) => (Number.isFinite(Number(v)) ? Number(v) : 0));
+  const n = vals.length;
   const wrap = document.createElement("div");
   wrap.className = "stats-line-chart-wrap";
   if (n === 0) return wrap;
@@ -1343,11 +1369,11 @@ function renderStatsLineChart(values, labels) {
   const padB = 46;
   const iw = W - padL - padR;
   const ih = H - padT - padB;
-  const vmax = Math.max(...values, 1) * 1.06;
+  const vmax = Math.max(...vals, 1) * 1.06;
   const xAt = (i) => padL + (n === 1 ? iw / 2 : (iw * i) / (n - 1));
   const yAt = (v) => padT + ih * (1 - v / vmax);
 
-  const pts = values.map((v, i) => `${xAt(i).toFixed(2)},${yAt(v).toFixed(2)}`).join(" ");
+  const pts = vals.map((v, i) => `${xAt(i).toFixed(2)},${yAt(v).toFixed(2)}`).join(" ");
   const areaD = `M ${xAt(0).toFixed(2)} ${padT + ih} L ${pts} L ${xAt(n - 1).toFixed(2)} ${padT + ih} Z`;
 
   const tickStep = Math.max(1, Math.ceil(n / 7));
@@ -1377,7 +1403,7 @@ function renderStatsLineChart(values, labels) {
   parts.push(`<polyline class="stats-line-chart__line" points="${pts}" />`);
   for (let i = 0; i < n; i += 1) {
     parts.push(
-      `<circle class="stats-line-chart__dot" cx="${xAt(i).toFixed(2)}" cy="${yAt(values[i]).toFixed(2)}" r="${n > 48 ? 2.5 : 3.5}" />`
+      `<circle class="stats-line-chart__dot" cx="${xAt(i).toFixed(2)}" cy="${yAt(vals[i]).toFixed(2)}" r="${n > 48 ? 2.5 : 3.5}" />`
     );
   }
   for (const i of ticks) {
