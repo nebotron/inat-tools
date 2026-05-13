@@ -133,12 +133,27 @@ body.taxon-tree-page .site-header {
   min-height: 1.25em;
 }
 
+.tree-selected-box {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfb;
+  padding: 0.45rem 0.5rem;
+  /* ~4 chip rows (padding + font) plus gaps; scroll when more wrap vertically */
+  max-height: calc(4 * (0.25rem * 2 + 1.05rem) + 3 * 0.4rem);
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 2.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
 .tree-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-top: 0.75rem;
-  min-height: 2rem;
+  align-content: flex-start;
+  margin-top: 0;
+  min-height: 0;
 }
 
 .tree-chip {
