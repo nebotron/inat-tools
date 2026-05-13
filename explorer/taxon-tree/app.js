@@ -16,7 +16,7 @@ const NODE_BREADTH = 34;
 /** Vertical spacing between parent and child rows (d3 tree “depth”). */
 const NODE_DEPTH = 62;
 /** Horizontal gap from node dot outer edge to start of label text (px). */
-const LABEL_GAP_FROM_DOT = 9;
+const LABEL_GAP_FROM_DOT = 4;
 /** Extra vertical slack for collision boxes vs measured text. */
 const LABEL_VPAD = 3;
 
@@ -32,7 +32,7 @@ function nodeDotRadius(d) {
  * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} d
  */
 function labelPadX(d) {
-  return nodeDotRadius(d) + 1.5 + LABEL_GAP_FROM_DOT;
+  return nodeDotRadius(d) + 1.2 + LABEL_GAP_FROM_DOT;
 }
 /** Approximate average character width (px) for label width estimates at 11px. */
 const LABEL_CHAR_PX = 6.15;
@@ -58,14 +58,15 @@ let d3MountGeneration = 0;
  * @returns {Promise<object>}
  */
 async function fetchJsonCorsAny(url) {
+  const fetchOpts = { mode: "cors", cache: "no-store" };
   try {
-    const res = await fetch(url, { mode: "cors", cache: "no-store" });
+    const res = await fetch(url, fetchOpts);
     if (res.ok) return await res.json();
   } catch {
     /* fall through to relay */
   }
   const proxied = `${ALL_ORIGINS_RAW}${encodeURIComponent(url)}`;
-  const res2 = await fetch(proxied, { cache: "no-store" });
+  const res2 = await fetch(proxied, fetchOpts);
   if (!res2.ok) throw new Error(`Relay fetch failed (${res2.status})`);
   return await res2.json();
 }
@@ -208,7 +209,7 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
   }
   if (mountGen !== d3MountGeneration) return;
 
-  /** @type {{ link: import("d3").HierarchyPointLink<{ taxonId: number }>, n1: number, n2: number, key: string }[]} */
+  /** @type {{ link: import("d3").HierarchyPointLink<{ taxonId: number }>, n1: number, n2: number }[]} */
   const tasks = [];
   for (const link of hRoot.links()) {
     const source = link.source;
@@ -220,15 +221,11 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
     const n1 = ncbiForSubtreeLeaves(target, taxonById, nameToNcbi);
     const n2 = ncbiForSubtreeLeaves(siblings[0], taxonById, nameToNcbi);
     if (!n1 || !n2 || n1 === n2) continue;
-    const key = `${Math.min(n1, n2)}|${Math.max(n1, n2)}`;
-    tasks.push({ link, n1, n2, key });
+    tasks.push({ link, n1, n2 });
   }
   if (!tasks.length) return;
 
   const layer = d3.select(inner).append("g").attr("class", "tree-divergence-layer");
-
-  /** @type {Map<string, { age: number, low: number, high: number }>} */
-  const pairCache = new Map();
 
   for (const task of tasks) {
     if (mountGen !== d3MountGeneration) return;
@@ -252,19 +249,15 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
       .attr("fill", "#4a3f6a")
       .text("…");
 
-    let parsed = pairCache.get(task.key);
-    if (!parsed) {
-      try {
-        const url = timetreeMrcaUrl(task.n1, task.n2);
-        const j = await fetchJsonCorsAny(url);
-        parsed = parseTimeTreeMrca(j);
-        pairCache.set(task.key, parsed);
-      } catch {
-        parsed = { age: NaN, low: NaN, high: NaN };
-        pairCache.set(task.key, parsed);
-      }
-      await new Promise((r) => setTimeout(r, TIMETREE_REQUEST_GAP_MS));
+    let parsed;
+    try {
+      const url = timetreeMrcaUrl(task.n1, task.n2);
+      const j = await fetchJsonCorsAny(url);
+      parsed = parseTimeTreeMrca(j);
+    } catch {
+      parsed = { age: NaN, low: NaN, high: NaN };
     }
+    await new Promise((r) => setTimeout(r, TIMETREE_REQUEST_GAP_MS));
     if (mountGen !== d3MountGeneration) return;
 
     const label = formatDivergenceMa(parsed.age, parsed.low, parsed.high);
@@ -322,15 +315,6 @@ function estimateLabelHeightPx(d) {
 }
 
 /**
- * Tight bounding box around another node's dot for label–node collision tests.
- * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} d
- */
-function nodeDotObstacleRect(d) {
-  const rr = nodeDotRadius(d) + 3;
-  return { x0: d.px - rr, x1: d.px + rr, y0: d.py - rr, y1: d.py + rr };
-}
-
-/**
  * @param {{ x0: number, x1: number, y0: number, y1: number }} a
  * @param {{ x0: number, x1: number, y0: number, y1: number }} b
  */
@@ -339,7 +323,7 @@ function rectsOverlap2d(a, b) {
 }
 
 /**
- * Assign `d.labelDx` on each hierarchy node so label boxes avoid each other and nearby node dots.
+ * Assign `d.labelDx` on each hierarchy node so label boxes avoid overlapping each other.
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} hRoot
  */
 function assignLabelOffsets(hRoot) {
@@ -361,8 +345,8 @@ function assignLabelOffsets(hRoot) {
       if (placed[i].y1 < it.y0 - 3) placed.splice(i, 1);
     }
     let dx = 0;
-    const step = 14;
-    const maxDx = 480;
+    const step = 12;
+    const maxDx = 280;
     while (dx <= maxDx) {
       const x0 = it.baseX + dx;
       const x1 = x0 + it.w;
@@ -372,15 +356,6 @@ function assignLabelOffsets(hRoot) {
         if (rectsOverlap2d(cand, o)) {
           clash = true;
           break;
-        }
-      }
-      if (!clash) {
-        for (const other of allNodes) {
-          if (other === it.d) continue;
-          if (rectsOverlap2d(cand, nodeDotObstacleRect(other))) {
-            clash = true;
-            break;
-          }
         }
       }
       if (!clash) break;
