@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+    <title>Taxonomic tree — iNaturalist</title>
+    <link rel="stylesheet" href="../styles.css?v=tree1" />
+    <link rel="stylesheet" href="styles.css?v=tree1" />
+    <link rel="preconnect" href="https://api.inaturalist.org" />
+    <link rel="icon" href="../../favicon.png?v=inat300" type="image/png" sizes="300x300" />
+  </head>
+  <body>
+    <header class="site-header">
+      <h1>Taxonomic tree</h1>
+      <p class="tagline">
+        Build a cladogram from iNaturalist taxa. Branch labels use rough, rank-based age guesses (not precise molecular dates).
+        <a href="../">← Observation browser</a>
+      </p>
+    </header>
+
+    <main class="tree-main">
+      <section class="tree-panel" aria-labelledby="tree-add-heading">
+        <h2 id="tree-add-heading" class="tree-h2">Species on the tree</h2>
+
+        <div class="tree-field">
+          <label for="tree-taxon-search">Search iNaturalist</label>
+          <input
+            id="tree-taxon-search"
+            type="search"
+            autocomplete="off"
+            placeholder="Type a scientific or common name…"
+            aria-autocomplete="list"
+            aria-controls="tree-taxon-suggestions"
+            aria-expanded="false"
+          />
+          <ul id="tree-taxon-suggestions" class="tree-suggestions" role="listbox" hidden></ul>
+        </div>
+
+        <div class="tree-field">
+          <label for="tree-user-login">Observer username (for bulk import)</label>
+          <input
+            id="tree-user-login"
+            type="text"
+            autocapitalize="none"
+            autocomplete="username"
+            spellcheck="false"
+            placeholder="iNaturalist login"
+          />
+        </div>
+
+        <div class="tree-actions">
+          <button type="button" id="btn-add-my-species" class="btn">Add my observed species</button>
+          <button type="button" id="btn-clear-tree" class="btn secondary">Clear list</button>
+        </div>
+        <p id="tree-bulk-status" class="tree-status" role="status" aria-live="polite"></p>
+
+        <div id="tree-selected-chips" class="tree-chips" aria-label="Selected taxa"></div>
+      </section>
+
+      <section class="tree-panel tree-panel--viz" aria-labelledby="tree-viz-heading">
+        <h2 id="tree-viz-heading" class="tree-h2">Tree</h2>
+        <p id="tree-error" class="error-banner" role="alert" hidden></p>
+        <div id="tree-viz-root" class="tree-viz-root"></div>
+        <p class="tree-footnote">
+          Divergence ages are heuristic: each fork is labeled from the taxon’s iNaturalist rank (very approximate; real ages vary
+          widely). Data from
+          <a href="https://www.inaturalist.org/">iNaturalist</a>.
+        </p>
+      </section>
+    </main>
+
+    <script src="app.js?v=tree1" type="module"></script>
+  </body>
+</html>

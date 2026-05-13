@@ -1,0 +1,271 @@
+.tree-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem 1rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .tree-main {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .tree-main > .tree-panel:first-child {
+    flex: 0 0 320px;
+    position: sticky;
+    top: 0.5rem;
+  }
+
+  .tree-main > .tree-panel--viz {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.tree-h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.tree-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.tree-field {
+  margin-bottom: 0.85rem;
+}
+
+.tree-field label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.tree-field input[type="search"],
+.tree-field input[type="text"] {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background: #fff;
+  color: var(--text);
+}
+
+.tree-suggestions {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  max-height: 220px;
+  overflow: auto;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.tree-suggestions[hidden] {
+  display: none !important;
+}
+
+.tree-suggestions li {
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+  border-bottom: 1px solid #eef4ee;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.tree-suggestions li:last-child {
+  border-bottom: 0;
+}
+
+.tree-suggestions li:hover,
+.tree-suggestions li[aria-selected="true"] {
+  background: #eef8f1;
+}
+
+.tree-suggestions .sug-name {
+  font-weight: 650;
+  color: var(--text);
+}
+
+.tree-suggestions .sug-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.tree-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.tree-status {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-height: 1.25em;
+}
+
+.tree-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  min-height: 2rem;
+}
+
+.tree-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: #e8f2eb;
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  max-width: 100%;
+}
+
+.tree-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.tree-chip button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.1rem;
+}
+
+.tree-chip button:hover {
+  color: var(--danger);
+}
+
+.tree-viz-root {
+  min-height: 120px;
+  overflow-x: auto;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.tree-empty {
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.clade {
+  margin: 0;
+  padding: 0 0 0 0.85rem;
+  border-left: 2px solid #b7d4c2;
+}
+
+.clade--root {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.clade-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.6rem;
+  margin: 0.35rem 0 0.15rem;
+  font-size: 0.92rem;
+}
+
+.clade-head a {
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.clade-head a:hover {
+  text-decoration: underline;
+}
+
+.clade-rank {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.clade-age {
+  font-size: 0.78rem;
+  color: #1b4332;
+  background: #d8f3dc;
+  padding: 0.12rem 0.45rem;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.clade-age[title] {
+  cursor: help;
+}
+
+.clade-kids {
+  margin: 0.15rem 0 0.25rem;
+}
+
+.error-banner {
+  margin: 0 0 0.75rem;
+}
+
+.tree-footnote {
+  margin: 1rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.btn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 650;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn.secondary {
+  background: #fff;
+  color: var(--accent);
+}
+
+.btn.secondary:hover {
+  background: #f0f7f2;
+}
