@@ -1,38 +1,47 @@
 /* Full-width layout; page zoom is limited via viewport + wheel/gesture guards in app.js */
 body.taxon-tree-page {
   touch-action: manipulation;
+  width: 100%;
+  max-width: none;
+  overflow-x: clip;
 }
 
 body.taxon-tree-page .site-header {
+  box-sizing: border-box;
+  width: 100%;
   padding-left: max(1rem, env(safe-area-inset-left, 0px));
   padding-right: max(1rem, env(safe-area-inset-right, 0px));
 }
 
 .tree-main {
+  box-sizing: border-box;
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 1rem max(0.75rem, env(safe-area-inset-left, 0px)) 2.5rem max(0.75rem, env(safe-area-inset-right, 0px));
+  padding: 1rem max(0px, env(safe-area-inset-left, 0px)) 2.5rem max(0px, env(safe-area-inset-right, 0px));
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
 }
 
 @media (min-width: 900px) {
   .tree-main {
     flex-direction: row;
-    align-items: flex-start;
+    align-items: stretch;
   }
 
   .tree-main > .tree-panel:first-child {
-    flex: 0 0 min(360px, 28vw);
+    flex: 0 0 min(300px, 22vw);
+    max-width: min(360px, 32vw);
     position: sticky;
     top: 0.5rem;
+    align-self: flex-start;
   }
 
   .tree-main > .tree-panel--viz {
     flex: 1 1 0;
     min-width: 0;
+    width: 100%;
   }
 }
 
@@ -191,6 +200,8 @@ body.taxon-tree-page .site-header {
 
 .tree-viz-root {
   min-height: 120px;
+  width: 100%;
+  min-width: 0;
   padding: 0.25rem 0 0.5rem;
 }
 
@@ -212,6 +223,8 @@ body.taxon-tree-page .site-header {
   background: linear-gradient(180deg, #fbfcfb 0%, #f0f6f2 100%);
   overflow: hidden;
   touch-action: none;
+  width: 100%;
+  min-width: 0;
 }
 
 .tree-viz-svg {
