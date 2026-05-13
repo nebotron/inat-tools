@@ -12,14 +12,33 @@ const TIMETREE_REQUEST_GAP_MS = 110;
 
 const M = { top: 36, right: 40, bottom: 36, left: 36 };
 /** Horizontal spacing between sibling columns (d3 tree “breadth”). */
-const NODE_BREADTH = 30;
+const NODE_BREADTH = 34;
 /** Vertical spacing between parent and child rows (d3 tree “depth”). */
 const NODE_DEPTH = 62;
-/** Minimum horizontal padding beyond the deepest node before label collision pass expands width. */
-const LABEL_SLOT_MIN = 240;
+/** Horizontal gap from node dot outer edge to start of label text (px). */
+const LABEL_GAP_FROM_DOT = 9;
+/** Extra vertical slack for collision boxes vs measured text. */
+const LABEL_VPAD = 3;
+
+/**
+ * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} d
+ */
+function nodeDotRadius(d) {
+  return d.children || d._children ? 5 : 4;
+}
+
+/**
+ * Distance from node center (0,0) to where label text begins (px, before labelDx).
+ * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} d
+ */
+function labelPadX(d) {
+  return nodeDotRadius(d) + 1.5 + LABEL_GAP_FROM_DOT;
+}
 /** Approximate average character width (px) for label width estimates at 11px. */
 const LABEL_CHAR_PX = 6.15;
-const LABEL_LINE_H = 13;
+const LABEL_LINE_H = 14;
+/** Minimum horizontal padding beyond the deepest node before label collision pass expands width. */
+const LABEL_SLOT_MIN = 240;
 
 /**
  * @param {string} pathAndQuery
@@ -289,56 +308,86 @@ function estimateLabelWidthPx(d) {
   const main = labelDisplayMain(d);
   const rank = labelDisplayRank(d);
   const wChars = Math.max(main.length, rank ? rank.length : 0);
-  return Math.min(wChars * LABEL_CHAR_PX + 10, 260);
+  return Math.min(wChars * LABEL_CHAR_PX + 14, 280);
 }
 
 /**
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
  */
 function estimateLabelHeightPx(d) {
-  return labelDisplayRank(d) ? LABEL_LINE_H * 2 + 6 : LABEL_LINE_H + 4;
+  if (labelDisplayRank(d)) {
+    return LABEL_LINE_H * 2 + LABEL_VPAD * 2;
+  }
+  return LABEL_LINE_H + LABEL_VPAD * 2;
 }
 
 /**
- * Assign `d.labelDx` on each hierarchy node so right-anchored label boxes rarely overlap.
+ * Tight bounding box around another node's dot for label–node collision tests.
+ * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} d
+ */
+function nodeDotObstacleRect(d) {
+  const rr = nodeDotRadius(d) + 3;
+  return { x0: d.px - rr, x1: d.px + rr, y0: d.py - rr, y1: d.py + rr };
+}
+
+/**
+ * @param {{ x0: number, x1: number, y0: number, y1: number }} a
+ * @param {{ x0: number, x1: number, y0: number, y1: number }} b
+ */
+function rectsOverlap2d(a, b) {
+  return !(a.y1 < b.y0 - 0.5 || a.y0 > b.y1 + 0.5 || a.x1 < b.x0 - 0.5 || a.x0 > b.x1 + 0.5);
+}
+
+/**
+ * Assign `d.labelDx` on each hierarchy node so label boxes avoid each other and nearby node dots.
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} hRoot
  */
 function assignLabelOffsets(hRoot) {
+  const allNodes = hRoot.descendants();
   /** @type {{ y0: number, y1: number, x0: number, x1: number }[]} */
   const placed = [];
-  const items = hRoot.descendants().map((d) => {
+  const items = allNodes.map((d) => {
     const h = estimateLabelHeightPx(d);
     const w = estimateLabelWidthPx(d);
     const y0 = d.py - h / 2;
     const y1 = d.py + h / 2;
-    const baseX = d.px + 12;
+    const baseX = d.px + labelPadX(d);
     return { d, y0, y1, baseX, w };
   });
   items.sort((a, b) => a.y0 - b.y0 || a.baseX - b.baseX);
 
   for (const it of items) {
     for (let i = placed.length - 1; i >= 0; i -= 1) {
-      if (placed[i].y1 < it.y0 - 2) placed.splice(i, 1);
+      if (placed[i].y1 < it.y0 - 3) placed.splice(i, 1);
     }
     let dx = 0;
-    const step = 12;
-    const maxDx = 420;
+    const step = 14;
+    const maxDx = 480;
     while (dx <= maxDx) {
       const x0 = it.baseX + dx;
       const x1 = x0 + it.w;
+      const cand = { x0, x1, y0: it.y0, y1: it.y1 };
       let clash = false;
       for (const o of placed) {
-        if (it.y1 < o.y0 - 1 || it.y0 > o.y1 + 1) continue;
-        if (x1 < o.x0 - 0.5 || x0 > o.x1 + 0.5) continue;
-        clash = true;
-        break;
+        if (rectsOverlap2d(cand, o)) {
+          clash = true;
+          break;
+        }
+      }
+      if (!clash) {
+        for (const other of allNodes) {
+          if (other === it.d) continue;
+          if (rectsOverlap2d(cand, nodeDotObstacleRect(other))) {
+            clash = true;
+            break;
+          }
+        }
       }
       if (!clash) break;
       dx += step;
     }
     it.d.labelDx = dx;
-    const x0 = it.baseX + dx;
-    placed.push({ y0: it.y0, y1: it.y1, x0, x1: x0 + it.w });
+    placed.push({ y0: it.y0, y1: it.y1, x0: it.baseX + dx, x1: it.baseX + dx + it.w });
   }
 }
 
@@ -617,8 +666,9 @@ function zoomToFitSubtree(svgEl, zoom, d) {
     const halfH = estimateLabelHeightPx(dd) / 2 + 4;
     const lw = estimateLabelWidthPx(dd);
     const dx = dd.labelDx || 0;
+    const lpad = labelPadX(dd);
     x0 = Math.min(x0, dd.px - padX);
-    x1 = Math.max(x1, dd.px + 12 + dx + lw + 12);
+    x1 = Math.max(x1, dd.px + lpad + dx + lw + 10);
     y0 = Math.min(y0, dd.py - halfH);
     y1 = Math.max(y1, dd.py + halfH);
   });
@@ -684,7 +734,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     maxPx = Math.max(maxPx, d.px);
     maxPy = Math.max(maxPy, d.py);
     const w = estimateLabelWidthPx(d);
-    labelRight = Math.max(labelRight, d.px + 12 + (d.labelDx || 0) + w);
+    labelRight = Math.max(labelRight, d.px + labelPadX(d) + (d.labelDx || 0) + w);
   });
 
   const contentW = Math.max(maxPx + LABEL_SLOT_MIN, labelRight) + M.right;
@@ -781,7 +831,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     g.append("title").text(fullLine);
     const main = labelDisplayMain(d);
     const rank = labelDisplayRank(d);
-    const pad = 12 + (d.labelDx || 0);
+    const pad = labelPadX(d) + (d.labelDx || 0);
 
     const linkParent = hasHref
       ? g
@@ -794,15 +844,23 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     const labelG = linkParent.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${pad},0)`);
 
     if (rank) {
-      const te = labelG
+      labelG
         .append("text")
         .attr("class", "tree-node-label")
         .attr("fill", "#1a2e1a")
         .attr("x", 0)
-        .attr("y", 0)
-        .attr("text-anchor", "start");
-      te.append("tspan").attr("x", 0).attr("dy", "-0.5em").text(main);
-      te.append("tspan").attr("class", "tree-node-rank").attr("x", 0).attr("dy", "1em").text(rank);
+        .attr("y", -5.5)
+        .attr("text-anchor", "start")
+        .attr("dominant-baseline", "middle")
+        .text(main);
+      labelG
+        .append("text")
+        .attr("class", "tree-node-rank")
+        .attr("x", 0)
+        .attr("y", 6.5)
+        .attr("text-anchor", "start")
+        .attr("dominant-baseline", "middle")
+        .text(rank);
     } else {
       labelG
         .append("text")

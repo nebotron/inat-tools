@@ -269,6 +269,7 @@ body.taxon-tree-page .site-header {
   font-size: 9.5px;
   font-weight: 600;
   fill: #5a6f5a;
+  pointer-events: none;
 }
 
 .tree-node a .tree-node-label,
