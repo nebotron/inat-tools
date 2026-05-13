@@ -1,7 +1,18 @@
+/* Full-width layout; page zoom is limited via viewport + wheel/gesture guards in app.js */
+body.taxon-tree-page {
+  touch-action: manipulation;
+}
+
+body.taxon-tree-page .site-header {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
 .tree-main {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 1rem 1rem 2.5rem;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 1rem max(0.75rem, env(safe-area-inset-left, 0px)) 2.5rem max(0.75rem, env(safe-area-inset-right, 0px));
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -14,13 +25,13 @@
   }
 
   .tree-main > .tree-panel:first-child {
-    flex: 0 0 320px;
+    flex: 0 0 min(360px, 28vw);
     position: sticky;
     top: 0.5rem;
   }
 
   .tree-main > .tree-panel--viz {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 0;
   }
 }

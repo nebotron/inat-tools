@@ -698,3 +698,25 @@ void loadInitialFromUrl().then(() => {
     el.viz.innerHTML = `<p class="tree-empty">Add one or more species to see a merged taxonomic tree.</p>`;
   }
 });
+
+/** Block browser page zoom (Ctrl+wheel / trackpad pinch); d3.zoom on the SVG still receives the wheel event. */
+(() => {
+  window.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.ctrlKey) e.preventDefault();
+    },
+    { passive: false, capture: true }
+  );
+  const diagramHas = (/** @type {EventTarget | null} */ tgt) => {
+    const w = document.querySelector(".tree-svg-wrap");
+    return !!(w && tgt instanceof Node && w.contains(tgt));
+  };
+  document.addEventListener(
+    "gesturestart",
+    (e) => {
+      if (!diagramHas(e.target)) e.preventDefault();
+    },
+    { passive: false }
+  );
+})();
