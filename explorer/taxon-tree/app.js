@@ -113,22 +113,22 @@ function assignLabelOffsets(hRoot) {
 }
 
 /**
- * Fold large subtrees on first render: collapse internal nodes with more than `maxDesc` descendants
- * (nodes below, not counting the node itself).
+ * Fold large subtrees on first render: collapse internal nodes that contain more than `maxSpecies`
+ * **selected species** (descendant leaves), not counting internal taxa.
  * @param {import("d3").HierarchyNode<unknown>} root
- * @param {number} maxDesc
+ * @param {number} maxSpecies
  */
-function collapseWideSubtreesByDefault(root, maxDesc) {
+function collapseWideSubtreesByDefault(root, maxSpecies) {
   /** @type {Map<import("d3").HierarchyNode<unknown>, number>} */
   const counts = new Map();
   root.each((d) => {
-    counts.set(d, d.descendants().length - 1);
+    counts.set(d, d.leaves().length);
   });
   root.eachAfter((d) => {
     if (d === root) return;
     if (!d.children || !d.children.length) return;
     const n = counts.get(d) ?? 0;
-    if (n > maxDesc) {
+    if (n > maxSpecies) {
       d._children = d.children;
       d.children = null;
     }
@@ -446,9 +446,8 @@ function mountD3Tree(host, hRoot) {
   hRoot.each((d) => {
     maxPx = Math.max(maxPx, d.px);
     maxPy = Math.max(maxPy, d.py);
-    const dx = d.labelDx || 0;
     const w = estimateLabelWidthPx(d);
-    labelRight = Math.max(labelRight, d.px + 12 + dx + w);
+    labelRight = Math.max(labelRight, d.px + 12 + (d.labelDx || 0) + w);
   });
 
   const contentW = Math.max(maxPx + LABEL_SLOT_MIN, labelRight) + M.right;
@@ -535,8 +534,9 @@ function mountD3Tree(host, hRoot) {
     g.append("title").text(fullLine);
     const main = labelDisplayMain(d);
     const rank = labelDisplayRank(d);
+    const pad = 12 + (d.labelDx || 0);
 
-    const parent = hasHref
+    const linkParent = hasHref
       ? g
           .append("a")
           .attr("href", d.data.href)
@@ -544,24 +544,28 @@ function mountD3Tree(host, hRoot) {
           .attr("rel", "noopener noreferrer")
       : g;
 
-    const te = parent
-      .append("text")
-      .attr("class", "tree-node-label")
-      .attr("fill", "#1a2e1a")
-      .attr("transform", () => `translate(${d.labelDx || 0},0)`)
-      .attr("x", 12)
-      .attr("y", 0)
-      .attr("dominant-baseline", "middle");
-    te.append("tspan")
-      .attr("x", 12)
-      .attr("dy", rank ? "-0.52em" : "0")
-      .text(main);
+    const labelG = linkParent.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${pad},0)`);
+
     if (rank) {
-      te.append("tspan")
-        .attr("class", "tree-node-rank")
-        .attr("x", 12)
-        .attr("dy", "1.08em")
-        .text(rank);
+      const te = labelG
+        .append("text")
+        .attr("class", "tree-node-label")
+        .attr("fill", "#1a2e1a")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("text-anchor", "start");
+      te.append("tspan").attr("x", 0).attr("dy", "-0.5em").text(main);
+      te.append("tspan").attr("class", "tree-node-rank").attr("x", 0).attr("dy", "1em").text(rank);
+    } else {
+      labelG
+        .append("text")
+        .attr("class", "tree-node-label")
+        .attr("fill", "#1a2e1a")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("text-anchor", "start")
+        .attr("dominant-baseline", "middle")
+        .text(main);
     }
   });
 
