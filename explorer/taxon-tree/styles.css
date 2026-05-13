@@ -203,13 +203,24 @@
 }
 
 .tree-node-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   pointer-events: none;
 }
 
-.tree-node a .tree-node-label {
+.tree-node-rank {
+  font-size: 9.5px;
+  font-weight: 600;
+  fill: #5a6f5a;
+}
+
+.tree-node a .tree-node-label,
+.tree-node a .tree-node-rank {
   pointer-events: auto;
+  cursor: pointer;
+}
+
+.tree-node a .tree-node-label {
   text-decoration: underline;
   text-decoration-color: rgba(45, 106, 79, 0.35);
 }

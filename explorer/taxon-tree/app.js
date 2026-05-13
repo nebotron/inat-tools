@@ -3,9 +3,13 @@ import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm";
 const API = "https://api.inaturalist.org/v1";
 const TAXA_FETCH_CHUNK = 40;
 
-const M = { top: 28, right: 32, bottom: 28, left: 32 };
-const NODE_DY = 26;
-const NODE_DX = 168;
+const M = { top: 36, right: 40, bottom: 36, left: 36 };
+/** Horizontal spacing between sibling columns (d3 tree “breadth”). */
+const NODE_BREADTH = 26;
+/** Vertical spacing between parent and child rows (d3 tree “depth”). */
+const NODE_DEPTH = 58;
+/** Horizontal space reserved to the right of the rightmost node for labels. */
+const LABEL_SLOT = 268;
 
 /**
  * @param {string} pathAndQuery
@@ -23,6 +27,12 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function truncateLabel(s, max) {
+  const t = String(s).trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, Math.max(0, max - 1))}…`;
 }
 
 /** @param {object} taxon */
@@ -273,10 +283,10 @@ function zoomToFitSubtree(svgEl, zoom, d) {
   let y1 = -Infinity;
   d.each((dd) => {
     if (dd.px == null || dd.py == null) return;
-    const padX = dd.children || dd._children ? 8 : 4;
-    const padY = 14;
+    const padX = 14;
+    const padY = dd.data?.rank ? 26 : 16;
     x0 = Math.min(x0, dd.px - padX);
-    x1 = Math.max(x1, dd.px + NODE_DX + 220);
+    x1 = Math.max(x1, dd.px + LABEL_SLOT);
     y0 = Math.min(y0, dd.py - padY);
     y1 = Math.max(y1, dd.py + padY);
   });
@@ -308,28 +318,40 @@ function mountD3Tree(host, hRoot) {
   const wrap = document.createElement("div");
   wrap.className = "tree-svg-wrap";
 
-  const tree = d3.tree().nodeSize([NODE_DY, NODE_DX]);
-  tree.separation(() => 1);
+  const tree = d3
+    .tree()
+    .nodeSize([NODE_BREADTH, NODE_DEPTH])
+    .separation((a, b) => (a.parent === b.parent ? 1.15 : 1.35));
   tree(hRoot);
 
-  const leaves = hRoot.leaves();
-  const innerH = Math.max((leaves.length - 1) * NODE_DY + NODE_DY, 220);
-  const innerW = hRoot.height * NODE_DX + NODE_DX + 280;
-
+  let xMin = Infinity;
+  let yMin = Infinity;
   hRoot.each((d) => {
-    d.px = M.left + d.y;
-    d.py = M.top + d.x;
+    xMin = Math.min(xMin, d.x);
+    yMin = Math.min(yMin, d.y);
   });
 
-  const contentW = innerW + M.left + M.right;
-  const contentH = innerH + M.top + M.bottom;
+  hRoot.each((d) => {
+    d.px = M.left + (d.x - xMin);
+    d.py = M.top + (d.y - yMin);
+  });
+
+  let maxPx = 0;
+  let maxPy = 0;
+  hRoot.each((d) => {
+    maxPx = Math.max(maxPx, d.px);
+    maxPy = Math.max(maxPy, d.py);
+  });
+
+  const contentW = maxPx + LABEL_SLOT + M.right;
+  const contentH = maxPy + M.bottom + 20;
 
   const svg = d3
     .create("svg")
     .attr("class", "tree-viz-svg")
     .attr("viewBox", `0 0 ${contentW} ${contentH}`)
     .attr("width", "100%")
-    .attr("height", Math.min(640, Math.max(360, contentH)))
+    .attr("height", Math.min(780, Math.max(380, contentH)))
     .attr("role", "img")
     .attr("aria-label", "Taxonomic tree diagram");
 
@@ -352,8 +374,8 @@ function mountD3Tree(host, hRoot) {
     const sy = s.py;
     const tx = t.px;
     const ty = t.py;
-    const mid = (sx + tx) / 2;
-    return `M${sx},${sy}C${mid},${sy} ${mid},${ty} ${tx},${ty}`;
+    const mid = (sy + ty) / 2;
+    return `M${sx},${sy}C${sx},${mid} ${tx},${mid} ${tx},${ty}`;
   };
 
   innerG
@@ -401,27 +423,36 @@ function mountD3Tree(host, hRoot) {
   nodes.each(function (d) {
     const g = d3.select(this);
     const hasHref = d.data.href && String(d.data.href).length > 1;
-    const text = d.data.rank
-      ? `${d.data.label} · ${d.data.rank}`
-      : d.data.label;
-    if (hasHref) {
-      g.append("a")
-        .attr("href", d.data.href)
-        .attr("target", "_blank")
-        .attr("rel", "noopener noreferrer")
-        .append("text")
-        .attr("class", "tree-node-label")
-        .attr("x", 10)
-        .attr("y", 4)
-        .attr("fill", "#1a2e1a")
-        .text(text);
-    } else {
-      g.append("text")
-        .attr("class", "tree-node-label")
-        .attr("x", 10)
-        .attr("y", 4)
-        .attr("fill", "#1a2e1a")
-        .text(text);
+    const fullLine = d.data.rank ? `${d.data.label} · ${d.data.rank}` : d.data.label;
+    g.append("title").text(fullLine);
+    const main = truncateLabel(d.data.label, 34);
+    const rank = d.data.rank ? truncateLabel(String(d.data.rank), 22) : "";
+
+    const parent = hasHref
+      ? g
+          .append("a")
+          .attr("href", d.data.href)
+          .attr("target", "_blank")
+          .attr("rel", "noopener noreferrer")
+      : g;
+
+    const te = parent
+      .append("text")
+      .attr("class", "tree-node-label")
+      .attr("fill", "#1a2e1a")
+      .attr("x", 12)
+      .attr("y", 0)
+      .attr("dominant-baseline", "middle");
+    te.append("tspan")
+      .attr("x", 12)
+      .attr("dy", rank ? "-0.52em" : "0")
+      .text(main);
+    if (rank) {
+      te.append("tspan")
+        .attr("class", "tree-node-rank")
+        .attr("x", 12)
+        .attr("dy", "1.08em")
+        .text(rank);
     }
   });
 

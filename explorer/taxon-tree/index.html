@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
     <title>Taxonomic tree — iNaturalist</title>
-    <link rel="stylesheet" href="../styles.css?v=tree3" />
-    <link rel="stylesheet" href="styles.css?v=tree3" />
+    <link rel="stylesheet" href="../styles.css?v=tree4" />
+    <link rel="stylesheet" href="styles.css?v=tree4" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../../favicon.png?v=inat300" type="image/png" sizes="300x300" />
   </head>
@@ -14,8 +14,8 @@
     <header class="site-header">
       <h1>Taxonomic tree</h1>
       <p class="tagline">
-        Interactive cladogram from iNaturalist taxonomy: pan and zoom the diagram, click a node’s ring to collapse or expand, and
-        double-click an internal node to zoom that subtree.
+        Interactive cladogram from iNaturalist taxonomy: root at the top, lineages downward. Pan and zoom, click a node’s ring to
+        fold or unfold, and double-click an internal node to zoom that subtree.
         <a href="../">← Observation browser</a>
       </p>
     </header>
@@ -65,7 +65,7 @@
         <div id="tree-viz-root" class="tree-viz-root"></div>
         <p class="tree-hint">
           Scroll or pinch to zoom; drag the canvas to pan. Click the transparent ring on a node to fold or unfold; double-click an
-          internal node to zoom its subtree.
+          internal node to zoom its subtree. Hover a label for the full name.
         </p>
         <p class="tree-footnote">
           Branch lengths are not scaled to evolutionary time. Data from
@@ -74,6 +74,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=tree3" type="module"></script>
+    <script src="app.js?v=tree4" type="module"></script>
   </body>
 </html>
