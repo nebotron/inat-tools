@@ -639,9 +639,14 @@ function zoomToFitSubtree(svgEl, zoom, d) {
  * @param {HTMLElement} host
  * @param {import("d3").HierarchyNode<{ taxonId: number; label: string; rank: string; href: string }>} hRoot
  * @param {Map<number, object>} taxonById
+ * @param {{ preserveZoom?: boolean }} [opts]
  */
-function mountD3Tree(host, hRoot, taxonById) {
+function mountD3Tree(host, hRoot, taxonById, opts) {
   const mountGen = ++d3MountGeneration;
+  const preserveZoom = Boolean(opts?.preserveZoom);
+  const oldSvg = preserveZoom ? host.querySelector("svg.tree-viz-svg") : null;
+  const prevZoom = oldSvg ? d3.zoomTransform(/** @type {SVGSVGElement} */ (oldSvg)) : null;
+
   host.innerHTML = "";
 
   const toolbar = document.createElement("div");
@@ -706,6 +711,16 @@ function mountD3Tree(host, hRoot, taxonById) {
   svg.call(zoom);
   svg.on("dblclick.zoom", null);
 
+  const svgEl = /** @type {SVGSVGElement} */ (svg.node());
+  if (
+    preserveZoom &&
+    prevZoom &&
+    (prevZoom.k !== 1 || Math.abs(prevZoom.x) > 0.5 || Math.abs(prevZoom.y) > 0.5)
+  ) {
+    innerG.attr("transform", String(prevZoom));
+    d3.select(svgEl).call(zoom.transform, prevZoom);
+  }
+
   const linkPath = (/** @type {import("d3").HierarchyPointLink<{ taxonId: number }>} */ l) => {
     const s = l.source;
     const t = l.target;
@@ -747,7 +762,7 @@ function mountD3Tree(host, hRoot, taxonById) {
       ev.stopPropagation();
       if (!d.children && !d._children) return;
       toggleCollapse(d);
-      mountD3Tree(host, hRoot, taxonById);
+      mountD3Tree(host, hRoot, taxonById, { preserveZoom: true });
     });
 
   nodes
@@ -812,7 +827,6 @@ function mountD3Tree(host, hRoot, taxonById) {
   host.appendChild(toolbar);
   host.appendChild(wrap);
 
-  const svgEl = /** @type {SVGSVGElement} */ (svg.node());
   toolbar.querySelector("#btn-zoom-reset")?.addEventListener("click", () => {
     d3.select(svgEl).transition().duration(280).call(zoom.transform, d3.zoomIdentity);
   });
