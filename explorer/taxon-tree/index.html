@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
     <title>Taxonomic tree — iNaturalist</title>
-    <link rel="stylesheet" href="../styles.css?v=tree1" />
-    <link rel="stylesheet" href="styles.css?v=tree1" />
+    <link rel="stylesheet" href="../styles.css?v=tree3" />
+    <link rel="stylesheet" href="styles.css?v=tree3" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../../favicon.png?v=inat300" type="image/png" sizes="300x300" />
   </head>
@@ -14,7 +14,8 @@
     <header class="site-header">
       <h1>Taxonomic tree</h1>
       <p class="tagline">
-        Build a cladogram from iNaturalist taxa. Branch labels use rough, rank-based age guesses (not precise molecular dates).
+        Interactive cladogram from iNaturalist taxonomy: pan and zoom the diagram, click a node’s ring to collapse or expand, and
+        double-click an internal node to zoom that subtree.
         <a href="../">← Observation browser</a>
       </p>
     </header>
@@ -62,14 +63,17 @@
         <h2 id="tree-viz-heading" class="tree-h2">Tree</h2>
         <p id="tree-error" class="error-banner" role="alert" hidden></p>
         <div id="tree-viz-root" class="tree-viz-root"></div>
+        <p class="tree-hint">
+          Scroll or pinch to zoom; drag the canvas to pan. Click the transparent ring on a node to fold or unfold; double-click an
+          internal node to zoom its subtree.
+        </p>
         <p class="tree-footnote">
-          Divergence ages are heuristic: each fork is labeled from the taxon’s iNaturalist rank (very approximate; real ages vary
-          widely). Data from
+          Branch lengths are not scaled to evolutionary time. Data from
           <a href="https://www.inaturalist.org/">iNaturalist</a>.
         </p>
       </section>
     </main>
 
-    <script src="app.js?v=tree1" type="module"></script>
+    <script src="app.js?v=tree3" type="module"></script>
   </body>
 </html>

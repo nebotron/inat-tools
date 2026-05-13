@@ -1,7 +1,11 @@
+import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm";
+
 const API = "https://api.inaturalist.org/v1";
-/** Cap bulk import so the tree and API stay responsive. */
-const MAX_BULK_SPECIES = 100;
 const TAXA_FETCH_CHUNK = 40;
+
+const M = { top: 28, right: 32, bottom: 28, left: 32 };
+const NODE_DY = 26;
+const NODE_DX = 168;
 
 /**
  * @param {string} pathAndQuery
@@ -21,48 +25,6 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Very rough "crown age" guess from iNaturalist rank_level (higher = broader taxon).
- * Real ages vary enormously; this is only for casual visualization.
- * @param {number | null | undefined} rankLevel
- * @returns {number | null} millions of years ago, or null
- */
-function approximateAgeMaFromRankLevel(rankLevel) {
-  const rl = Number(rankLevel);
-  if (!Number.isFinite(rl)) return null;
-  if (rl >= 100) return null;
-  if (rl >= 70) return 1200;
-  if (rl >= 65) return 800;
-  if (rl >= 60) return 550;
-  if (rl >= 55) return 480;
-  if (rl >= 50) return 400;
-  if (rl >= 45) return 220;
-  if (rl >= 40) return 120;
-  if (rl >= 37) return 90;
-  if (rl >= 35) return 70;
-  if (rl >= 33) return 55;
-  if (rl >= 30) return 45;
-  if (rl >= 27) return 32;
-  if (rl >= 23) return 22;
-  if (rl >= 20) return 12;
-  if (rl >= 17) return 6;
-  if (rl >= 13) return 2.5;
-  if (rl >= 10) return 0.8;
-  return null;
-}
-
-/**
- * @param {number | null} ma
- */
-function formatApproxMa(ma) {
-  if (ma == null) return "";
-  if (ma >= 1000) return `~${(ma / 1000).toFixed(1)} Ga`;
-  if (ma >= 100) return `~${Math.round(ma)} Ma`;
-  if (ma >= 1) return `~${Math.round(ma)} Ma`;
-  if (ma >= 0.1) return `~${ma.toFixed(1)} Ma`;
-  return "<1 Ma";
-}
-
 /** @param {object} taxon */
 function taxonDisplayName(taxon) {
   if (!taxon || typeof taxon !== "object") return "";
@@ -72,9 +34,10 @@ function taxonDisplayName(taxon) {
   return cn || nm || `Taxon ${taxon.id ?? ""}`;
 }
 
-/** @param {object} taxon */
+/** @param {object | null} taxon */
 function taxonHref(taxon) {
-  const id = taxon && taxon.id != null ? String(taxon.id).trim() : "";
+  if (!taxon || taxon.id == null) return "https://www.inaturalist.org/";
+  const id = String(taxon.id).trim();
   if (!id) return "https://www.inaturalist.org/";
   return `https://www.inaturalist.org/taxa/${id}`;
 }
@@ -145,46 +108,52 @@ function collectMissingIds(taxonById, tipIds) {
 }
 
 /**
- * @param {{ taxonId: number, children: Map<number, { taxonId: number, children: Map<number, unknown> }> }} node
  * @param {Map<number, object>} taxonById
- * @param {boolean} isRoot
+ * @param {{ taxonId: number, children: Map<number, unknown> }} a
+ * @param {{ taxonId: number, children: Map<number, unknown> }} b
  */
-function renderCladeHtml(node, taxonById, isRoot) {
-  const taxon = taxonById.get(node.taxonId);
-  const name = taxon ? taxonDisplayName(taxon) : `Taxon ${node.taxonId}`;
-  const rank = taxon && taxon.rank ? String(taxon.rank) : "";
-  const rl = taxon && taxon.rank_level != null ? Number(taxon.rank_level) : NaN;
-  const ageMa = taxon ? approximateAgeMaFromRankLevel(rl) : null;
-  const ageLabel = ageMa != null ? formatApproxMa(ageMa) : "";
-  const href = taxon ? taxonHref(taxon) : `https://www.inaturalist.org/taxa/${node.taxonId}`;
-  const kids = [...node.children.values()].sort((a, b) => {
-    const ta = taxonById.get(a.taxonId);
-    const tb = taxonById.get(b.taxonId);
-    const ra = ta && ta.rank_level != null ? Number(ta.rank_level) : 0;
-    const rb = tb && tb.rank_level != null ? Number(tb.rank_level) : 0;
-    if (ra !== rb) return ra - rb;
-    const na = ta ? taxonDisplayName(ta) : "";
-    const nb = tb ? taxonDisplayName(tb) : "";
-    return na.localeCompare(nb);
-  });
+function compareTrieChildren(taxonById, a, b) {
+  const ta = taxonById.get(a.taxonId);
+  const tb = taxonById.get(b.taxonId);
+  const ra = ta && ta.rank_level != null ? Number(ta.rank_level) : 0;
+  const rb = tb && tb.rank_level != null ? Number(tb.rank_level) : 0;
+  if (ra !== rb) return ra - rb;
+  const na = ta ? taxonDisplayName(ta) : "";
+  const nb = tb ? taxonDisplayName(tb) : "";
+  return na.localeCompare(nb);
+}
 
-  const wrapCls = isRoot ? "clade clade--root" : "clade";
-  const ageHtml =
-    ageLabel && kids.length > 0
-      ? `<span class="clade-age" title="Rough rank-based guess for this clade; not a calibrated date.">${escapeHtml(ageLabel)}</span>`
-      : "";
+/**
+ * @param {{ taxonId: number, children: Map<number, unknown> }} node
+ * @param {Map<number, object>} taxonById
+ */
+function trieNodeToData(node, taxonById) {
+  const tid = node.taxonId;
+  const t = tid >= 0 ? taxonById.get(tid) : null;
+  const kids = [...node.children.values()].sort((a, b) => compareTrieChildren(taxonById, a, b));
+  const label =
+    tid < 0 ? "Shared ancestry" : t ? taxonDisplayName(t) : `Taxon ${tid}`;
+  const rank = tid < 0 ? "" : t && t.rank ? String(t.rank) : "";
+  const href = tid < 0 ? "" : t ? taxonHref(t) : `https://www.inaturalist.org/taxa/${tid}`;
+  return {
+    taxonId: tid,
+    label,
+    rank,
+    href,
+    children: kids.length ? kids.map((k) => trieNodeToData(k, taxonById)) : undefined,
+  };
+}
 
-  const head = `<div class="clade-head">
-    <a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>
-    ${rank ? `<span class="clade-rank">${escapeHtml(rank)}</span>` : ""}
-    ${ageHtml}
-  </div>`;
-
-  if (!kids.length) {
-    return `<div class="${wrapCls}">${head}</div>`;
+/**
+ * @param {{ taxonId: number, children: Map<number, unknown> }} trieRoot
+ * @param {Map<number, object>} taxonById
+ */
+function compressVirtualRoot(trieRoot) {
+  let r = trieRoot;
+  while (r.taxonId === -1 && r.children.size === 1) {
+    r = r.children.values().next().value;
   }
-  const inner = kids.map((ch) => renderCladeHtml(ch, taxonById, false)).join("");
-  return `<div class="${wrapCls}">${head}<div class="clade-kids">${inner}</div></div>`;
+  return r;
 }
 
 function parseTaxaQuery(q) {
@@ -267,6 +236,216 @@ function renderChips() {
   }
 }
 
+/**
+ * Expand every collapsed node under `d` (d3 hierarchy node).
+ * @param {import("d3").HierarchyNode<{ taxonId: number }>} d
+ */
+function expandAllUnder(d) {
+  if (d._children) {
+    d.children = d._children;
+    d._children = null;
+  }
+  if (d.children) for (const c of d.children) expandAllUnder(c);
+}
+
+/**
+ * @param {import("d3").HierarchyNode<{ taxonId: number }>} d
+ */
+function toggleCollapse(d) {
+  if (d.children && d.children.length) {
+    d._children = d.children;
+    d.children = null;
+  } else if (d._children && d._children.length) {
+    d.children = d._children;
+    d._children = null;
+  }
+}
+
+/**
+ * @param {SVGSVGElement} svgEl
+ * @param {d3.ZoomBehavior<SVGSVGElement, unknown>} zoom
+ * @param {import("d3").HierarchyNode<{ taxonId: number }>} d
+ */
+function zoomToFitSubtree(svgEl, zoom, d) {
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  d.each((dd) => {
+    if (dd.px == null || dd.py == null) return;
+    const padX = dd.children || dd._children ? 8 : 4;
+    const padY = 14;
+    x0 = Math.min(x0, dd.px - padX);
+    x1 = Math.max(x1, dd.px + NODE_DX + 220);
+    y0 = Math.min(y0, dd.py - padY);
+    y1 = Math.max(y1, dd.py + padY);
+  });
+  if (!Number.isFinite(x0)) return;
+  const fullW = x1 - x0;
+  const fullH = y1 - y0;
+  const rect = svgEl.getBoundingClientRect();
+  const vw = rect.width || 600;
+  const vh = rect.height || 480;
+  const scale = Math.min(vw / fullW, vh / fullH, 3.2) * 0.92;
+  const tx = vw / 2 - scale * ((x0 + x1) / 2);
+  const ty = vh / 2 - scale * ((y0 + y1) / 2);
+  const t = d3.zoomIdentity.translate(tx, ty).scale(scale);
+  d3.select(svgEl).transition().duration(380).call(zoom.transform, t);
+}
+
+/**
+ * @param {HTMLElement} host
+ * @param {import("d3").HierarchyNode<{ taxonId: number; label: string; rank: string; href: string }>} hRoot
+ */
+function mountD3Tree(host, hRoot) {
+  host.innerHTML = "";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "tree-viz-toolbar";
+  toolbar.innerHTML = `<button type="button" class="btn secondary btn--sm" id="btn-zoom-reset">Reset zoom</button>
+    <button type="button" class="btn secondary btn--sm" id="btn-expand-all">Expand all</button>`;
+
+  const wrap = document.createElement("div");
+  wrap.className = "tree-svg-wrap";
+
+  const tree = d3.tree().nodeSize([NODE_DY, NODE_DX]);
+  tree.separation(() => 1);
+  tree(hRoot);
+
+  const leaves = hRoot.leaves();
+  const innerH = Math.max((leaves.length - 1) * NODE_DY + NODE_DY, 220);
+  const innerW = hRoot.height * NODE_DX + NODE_DX + 280;
+
+  hRoot.each((d) => {
+    d.px = M.left + d.y;
+    d.py = M.top + d.x;
+  });
+
+  const contentW = innerW + M.left + M.right;
+  const contentH = innerH + M.top + M.bottom;
+
+  const svg = d3
+    .create("svg")
+    .attr("class", "tree-viz-svg")
+    .attr("viewBox", `0 0 ${contentW} ${contentH}`)
+    .attr("width", "100%")
+    .attr("height", Math.min(640, Math.max(360, contentH)))
+    .attr("role", "img")
+    .attr("aria-label", "Taxonomic tree diagram");
+
+  const innerG = svg.append("g").attr("class", "tree-zoom-inner");
+
+  const zoom = d3
+    .zoom()
+    .scaleExtent([0.08, 14])
+    .on("zoom", (ev) => {
+      innerG.attr("transform", ev.transform);
+    });
+
+  svg.call(zoom);
+  svg.on("dblclick.zoom", null);
+
+  const linkPath = (/** @type {import("d3").HierarchyPointLink<{ taxonId: number }>} */ l) => {
+    const s = l.source;
+    const t = l.target;
+    const sx = s.px;
+    const sy = s.py;
+    const tx = t.px;
+    const ty = t.py;
+    const mid = (sx + tx) / 2;
+    return `M${sx},${sy}C${mid},${sy} ${mid},${ty} ${tx},${ty}`;
+  };
+
+  innerG
+    .append("g")
+    .attr("class", "tree-links")
+    .attr("fill", "none")
+    .selectAll("path")
+    .data(hRoot.links())
+    .join("path")
+    .attr("class", "tree-link")
+    .attr("d", linkPath);
+
+  const nodeG = innerG.append("g").attr("class", "tree-nodes");
+
+  const nodes = nodeG
+    .selectAll("g")
+    .data(hRoot.descendants(), (/** @type {import("d3").HierarchyPointNode<{ taxonId: number }>} */ d) => String(d.data.taxonId))
+    .join("g")
+    .attr("class", "tree-node")
+    .attr("transform", (d) => `translate(${d.px},${d.py})`);
+
+  nodes
+    .append("circle")
+    .attr("class", "tree-node-hit")
+    .attr("r", 11)
+    .attr("fill", "transparent")
+    .attr("pointer-events", "all")
+    .style("cursor", (d) => (d.children || d._children ? "pointer" : "default"))
+    .on("click", (ev, d) => {
+      ev.stopPropagation();
+      if (!d.children && !d._children) return;
+      toggleCollapse(d);
+      mountD3Tree(host, hRoot);
+    });
+
+  nodes
+    .append("circle")
+    .attr("class", "tree-node-dot")
+    .attr("r", (d) => (d.children || d._children ? 5 : 4))
+    .attr("fill", (d) => ((d.children || d._children) ? "#2d6a4f" : "#40916c"))
+    .attr("stroke", "#fff")
+    .attr("stroke-width", 1.2)
+    .style("pointer-events", "none");
+
+  nodes.each(function (d) {
+    const g = d3.select(this);
+    const hasHref = d.data.href && String(d.data.href).length > 1;
+    const text = d.data.rank
+      ? `${d.data.label} · ${d.data.rank}`
+      : d.data.label;
+    if (hasHref) {
+      g.append("a")
+        .attr("href", d.data.href)
+        .attr("target", "_blank")
+        .attr("rel", "noopener noreferrer")
+        .append("text")
+        .attr("class", "tree-node-label")
+        .attr("x", 10)
+        .attr("y", 4)
+        .attr("fill", "#1a2e1a")
+        .text(text);
+    } else {
+      g.append("text")
+        .attr("class", "tree-node-label")
+        .attr("x", 10)
+        .attr("y", 4)
+        .attr("fill", "#1a2e1a")
+        .text(text);
+    }
+  });
+
+  nodes.on("dblclick", (ev, d) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!(d.children || d._children)) return;
+    zoomToFitSubtree(svg.node(), zoom, d);
+  });
+
+  wrap.append(svg.node());
+  host.appendChild(toolbar);
+  host.appendChild(wrap);
+
+  const svgEl = /** @type {SVGSVGElement} */ (svg.node());
+  toolbar.querySelector("#btn-zoom-reset")?.addEventListener("click", () => {
+    d3.select(svgEl).transition().duration(280).call(zoom.transform, d3.zoomIdentity);
+  });
+  toolbar.querySelector("#btn-expand-all")?.addEventListener("click", () => {
+    expandAllUnder(hRoot);
+    mountD3Tree(host, hRoot);
+  });
+}
+
 async function refreshTree() {
   showError("");
   if (!el.viz) return;
@@ -287,25 +466,19 @@ async function refreshTree() {
     const missing2 = collectMissingIds(taxonById, tipIds);
     await fetchTaxaByIds(taxonById, missing2);
 
-    const root = { taxonId: -1, children: new Map() };
+    const trieRoot = { taxonId: -1, children: new Map() };
     for (const tid of tipIds) {
       const t = taxonById.get(tid);
       if (!t) continue;
       const path = pathIdsForTaxon(t);
-      if (path.length) insertPath(root, path);
+      if (path.length) insertPath(trieRoot, path);
     }
 
-    const topLevel = [...root.children.values()];
-    if (!topLevel.length) {
-      el.viz.innerHTML = `<p class="tree-empty">No paths to display.</p>`;
-      return;
-    }
-    if (topLevel.length === 1) {
-      el.viz.innerHTML = renderCladeHtml(topLevel[0], taxonById, true);
-    } else {
-      const inner = topLevel.map((n) => renderCladeHtml(n, taxonById, false)).join("");
-      el.viz.innerHTML = `<div class="clade clade--root"><div class="clade-kids">${inner}</div></div>`;
-    }
+    const compressed = compressVirtualRoot(trieRoot);
+    const data = trieNodeToData(compressed, taxonById);
+    const hRoot = d3.hierarchy(data, (d) => d.children);
+
+    mountD3Tree(el.viz, hRoot);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Something went wrong.";
     showError(msg);
@@ -389,7 +562,7 @@ async function onBulkAddObserved() {
     let page = 1;
     /** @type {object[]} */
     const collected = [];
-    while (collected.length < MAX_BULK_SPECIES) {
+    while (true) {
       const p = new URLSearchParams();
       p.set("user_login", login);
       p.set("verifiable", "true");
@@ -408,11 +581,10 @@ async function onBulkAddObserved() {
         const rk = typeof taxon.rank === "string" ? taxon.rank.toLowerCase() : "";
         if (rk !== "species" && rk !== "hybrid") continue;
         collected.push(taxon);
-        if (collected.length >= MAX_BULK_SPECIES) break;
       }
       if (rows.length < 200) break;
       page += 1;
-      if (page > 5) break;
+      if (el.bulkStatus) el.bulkStatus.textContent = `Loaded ${collected.length} species (page ${page})…`;
     }
     if (!collected.length) {
       if (el.bulkStatus) el.bulkStatus.textContent = "No species-level counts returned for that user.";
@@ -425,8 +597,7 @@ async function onBulkAddObserved() {
     renderChips();
     await refreshTree();
     syncUrlSoon();
-    const totalNote = collected.length >= MAX_BULK_SPECIES ? ` (capped at ${MAX_BULK_SPECIES} for performance)` : "";
-    if (el.bulkStatus) el.bulkStatus.textContent = `Added ${collected.length} species${totalNote}.`;
+    if (el.bulkStatus) el.bulkStatus.textContent = `Added ${collected.length} species.`;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Bulk import failed.";
     showError(msg);

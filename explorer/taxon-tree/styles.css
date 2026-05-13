@@ -165,68 +165,66 @@
 
 .tree-viz-root {
   min-height: 120px;
-  overflow-x: auto;
   padding: 0.25rem 0 0.5rem;
+}
+
+.tree-viz-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.btn--sm {
+  font-size: 0.78rem;
+  padding: 0.32rem 0.55rem;
+}
+
+.tree-svg-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fbfcfb 0%, #f0f6f2 100%);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.tree-viz-svg {
+  display: block;
+  cursor: grab;
+}
+
+.tree-viz-svg:active {
+  cursor: grabbing;
+}
+
+.tree-link {
+  stroke: #7eb89a;
+  stroke-width: 1.75px;
+}
+
+.tree-node-label {
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.tree-node a .tree-node-label {
+  pointer-events: auto;
+  text-decoration: underline;
+  text-decoration-color: rgba(45, 106, 79, 0.35);
+}
+
+.tree-hint {
+  margin: 0.65rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .tree-empty {
   color: var(--muted);
   font-size: 0.92rem;
   margin: 0;
-}
-
-.clade {
-  margin: 0;
-  padding: 0 0 0 0.85rem;
-  border-left: 2px solid #b7d4c2;
-}
-
-.clade--root {
-  border-left: 0;
-  padding-left: 0;
-}
-
-.clade-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.6rem;
-  margin: 0.35rem 0 0.15rem;
-  font-size: 0.92rem;
-}
-
-.clade-head a {
-  font-weight: 650;
-  text-decoration: none;
-}
-
-.clade-head a:hover {
-  text-decoration: underline;
-}
-
-.clade-rank {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.clade-age {
-  font-size: 0.78rem;
-  color: #1b4332;
-  background: #d8f3dc;
-  padding: 0.12rem 0.45rem;
-  border-radius: 4px;
-  font-variant-numeric: tabular-nums;
-}
-
-.clade-age[title] {
-  cursor: help;
-}
-
-.clade-kids {
-  margin: 0.15rem 0 0.25rem;
 }
 
 .error-banner {

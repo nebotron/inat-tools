@@ -8,8 +8,8 @@ test.describe("taxonomic tree page", () => {
   test("loads merged tree from URL taxa parameter", async ({ page }) => {
     await page.goto(`/taxon-tree/?${TREE_SEED}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: "Taxonomic tree" })).toBeVisible();
-    await expect(page.locator("#tree-viz-root .clade-head a").first()).toBeVisible({ timeout: 90_000 });
-    await expect(page.locator("#tree-viz-root")).toContainText(/Insecta|Life|Animalia/i, { timeout: 30_000 });
-    await expect(page.locator(".clade-age").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("svg.tree-viz-svg")).toBeVisible({ timeout: 90_000 });
+    await expect(page.locator("svg.tree-viz-svg")).toContainText(/Insecta|Life|Animalia/i, { timeout: 30_000 });
+    await expect(page.locator("svg .tree-link")).not.toHaveCount(0);
   });
 });
