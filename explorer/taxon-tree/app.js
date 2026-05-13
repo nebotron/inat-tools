@@ -5,11 +5,14 @@ const TAXA_FETCH_CHUNK = 40;
 
 const M = { top: 36, right: 40, bottom: 36, left: 36 };
 /** Horizontal spacing between sibling columns (d3 tree “breadth”). */
-const NODE_BREADTH = 26;
+const NODE_BREADTH = 30;
 /** Vertical spacing between parent and child rows (d3 tree “depth”). */
-const NODE_DEPTH = 58;
-/** Horizontal space reserved to the right of the rightmost node for labels. */
-const LABEL_SLOT = 268;
+const NODE_DEPTH = 62;
+/** Minimum horizontal padding beyond the deepest node before label collision pass expands width. */
+const LABEL_SLOT_MIN = 240;
+/** Approximate average character width (px) for label width estimates at 11px. */
+const LABEL_CHAR_PX = 6.15;
+const LABEL_LINE_H = 13;
 
 /**
  * @param {string} pathAndQuery
@@ -33,6 +36,80 @@ function truncateLabel(s, max) {
   const t = String(s).trim();
   if (t.length <= max) return t;
   return `${t.slice(0, Math.max(0, max - 1))}…`;
+}
+
+/**
+ * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ */
+function labelDisplayMain(d) {
+  return truncateLabel(d.data.label, 34);
+}
+
+/**
+ * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ */
+function labelDisplayRank(d) {
+  return d.data.rank ? truncateLabel(String(d.data.rank), 22) : "";
+}
+
+/**
+ * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ */
+function estimateLabelWidthPx(d) {
+  const main = labelDisplayMain(d);
+  const rank = labelDisplayRank(d);
+  const wChars = Math.max(main.length, rank ? rank.length : 0);
+  return Math.min(wChars * LABEL_CHAR_PX + 10, 260);
+}
+
+/**
+ * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ */
+function estimateLabelHeightPx(d) {
+  return labelDisplayRank(d) ? LABEL_LINE_H * 2 + 6 : LABEL_LINE_H + 4;
+}
+
+/**
+ * Assign `d.labelDx` on each hierarchy node so right-anchored label boxes rarely overlap.
+ * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} hRoot
+ */
+function assignLabelOffsets(hRoot) {
+  /** @type {{ y0: number, y1: number, x0: number, x1: number }[]} */
+  const placed = [];
+  const items = hRoot.descendants().map((d) => {
+    const h = estimateLabelHeightPx(d);
+    const w = estimateLabelWidthPx(d);
+    const y0 = d.py - h / 2;
+    const y1 = d.py + h / 2;
+    const baseX = d.px + 12;
+    return { d, y0, y1, baseX, w };
+  });
+  items.sort((a, b) => a.y0 - b.y0 || a.baseX - b.baseX);
+
+  for (const it of items) {
+    for (let i = placed.length - 1; i >= 0; i -= 1) {
+      if (placed[i].y1 < it.y0 - 2) placed.splice(i, 1);
+    }
+    let dx = 0;
+    const step = 12;
+    const maxDx = 420;
+    while (dx <= maxDx) {
+      const x0 = it.baseX + dx;
+      const x1 = x0 + it.w;
+      let clash = false;
+      for (const o of placed) {
+        if (it.y1 < o.y0 - 1 || it.y0 > o.y1 + 1) continue;
+        if (x1 < o.x0 - 0.5 || x0 > o.x1 + 0.5) continue;
+        clash = true;
+        break;
+      }
+      if (!clash) break;
+      dx += step;
+    }
+    it.d.labelDx = dx;
+    const x0 = it.baseX + dx;
+    placed.push({ y0: it.y0, y1: it.y1, x0, x1: x0 + it.w });
+  }
 }
 
 /** @param {object} taxon */
@@ -284,11 +361,13 @@ function zoomToFitSubtree(svgEl, zoom, d) {
   d.each((dd) => {
     if (dd.px == null || dd.py == null) return;
     const padX = 14;
-    const padY = dd.data?.rank ? 26 : 16;
+    const halfH = estimateLabelHeightPx(dd) / 2 + 4;
+    const lw = estimateLabelWidthPx(dd);
+    const dx = dd.labelDx || 0;
     x0 = Math.min(x0, dd.px - padX);
-    x1 = Math.max(x1, dd.px + LABEL_SLOT);
-    y0 = Math.min(y0, dd.py - padY);
-    y1 = Math.max(y1, dd.py + padY);
+    x1 = Math.max(x1, dd.px + 12 + dx + lw + 12);
+    y0 = Math.min(y0, dd.py - halfH);
+    y1 = Math.max(y1, dd.py + halfH);
   });
   if (!Number.isFinite(x0)) return;
   const fullW = x1 - x0;
@@ -321,7 +400,7 @@ function mountD3Tree(host, hRoot) {
   const tree = d3
     .tree()
     .nodeSize([NODE_BREADTH, NODE_DEPTH])
-    .separation((a, b) => (a.parent === b.parent ? 1.15 : 1.35));
+    .separation((a, b) => (a.parent === b.parent ? 1.22 : 1.42));
   tree(hRoot);
 
   let xMin = Infinity;
@@ -336,14 +415,20 @@ function mountD3Tree(host, hRoot) {
     d.py = M.top + (d.y - yMin);
   });
 
+  assignLabelOffsets(hRoot);
+
   let maxPx = 0;
   let maxPy = 0;
+  let labelRight = 0;
   hRoot.each((d) => {
     maxPx = Math.max(maxPx, d.px);
     maxPy = Math.max(maxPy, d.py);
+    const dx = d.labelDx || 0;
+    const w = estimateLabelWidthPx(d);
+    labelRight = Math.max(labelRight, d.px + 12 + dx + w);
   });
 
-  const contentW = maxPx + LABEL_SLOT + M.right;
+  const contentW = Math.max(maxPx + LABEL_SLOT_MIN, labelRight) + M.right;
   const contentH = maxPy + M.bottom + 20;
 
   const svg = d3
@@ -425,8 +510,8 @@ function mountD3Tree(host, hRoot) {
     const hasHref = d.data.href && String(d.data.href).length > 1;
     const fullLine = d.data.rank ? `${d.data.label} · ${d.data.rank}` : d.data.label;
     g.append("title").text(fullLine);
-    const main = truncateLabel(d.data.label, 34);
-    const rank = d.data.rank ? truncateLabel(String(d.data.rank), 22) : "";
+    const main = labelDisplayMain(d);
+    const rank = labelDisplayRank(d);
 
     const parent = hasHref
       ? g
@@ -440,6 +525,7 @@ function mountD3Tree(host, hRoot) {
       .append("text")
       .attr("class", "tree-node-label")
       .attr("fill", "#1a2e1a")
+      .attr("transform", () => `translate(${d.labelDx || 0},0)`)
       .attr("x", 12)
       .attr("y", 0)
       .attr("dominant-baseline", "middle");
