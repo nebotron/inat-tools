@@ -112,6 +112,29 @@ function assignLabelOffsets(hRoot) {
   }
 }
 
+/**
+ * Fold large subtrees on first render: collapse internal nodes with more than `maxDesc` descendants
+ * (nodes below, not counting the node itself).
+ * @param {import("d3").HierarchyNode<unknown>} root
+ * @param {number} maxDesc
+ */
+function collapseWideSubtreesByDefault(root, maxDesc) {
+  /** @type {Map<import("d3").HierarchyNode<unknown>, number>} */
+  const counts = new Map();
+  root.each((d) => {
+    counts.set(d, d.descendants().length - 1);
+  });
+  root.eachAfter((d) => {
+    if (d === root) return;
+    if (!d.children || !d.children.length) return;
+    const n = counts.get(d) ?? 0;
+    if (n > maxDesc) {
+      d._children = d.children;
+      d.children = null;
+    }
+  });
+}
+
 /** @param {object} taxon */
 function taxonDisplayName(taxon) {
   if (!taxon || typeof taxon !== "object") return "";
@@ -594,6 +617,7 @@ async function refreshTree() {
     const compressed = compressVirtualRoot(trieRoot);
     const data = trieNodeToData(compressed, taxonById);
     const hRoot = d3.hierarchy(data, (d) => d.children);
+    collapseWideSubtreesByDefault(hRoot, 5);
 
     mountD3Tree(el.viz, hRoot);
   } catch (e) {
