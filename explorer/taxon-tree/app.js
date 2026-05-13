@@ -1,7 +1,14 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm";
 
 const API = "https://api.inaturalist.org/v1";
+const OPEN_TREE_TNRS = "https://api.opentreeoflife.org/v3/tnrs/match_names";
+const TIMETREE_MRCA = "https://timetree.org/api/mrca/id";
+/** Public CORS relay (used only if the browser cannot read TimeTree directly). */
+const ALL_ORIGINS_RAW = "https://api.allorigins.win/raw?url=";
+
 const TAXA_FETCH_CHUNK = 40;
+const TNRS_CHUNK = 80;
+const TIMETREE_REQUEST_GAP_MS = 110;
 
 const M = { top: 36, right: 40, bottom: 36, left: 36 };
 /** Horizontal spacing between sibling columns (d3 tree “breadth”). */
@@ -22,6 +29,229 @@ function inatFetch(pathAndQuery) {
   const u = new URL(trimmed, `${API}/`);
   u.searchParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
   return fetch(u.href, { cache: "no-store" });
+}
+
+/** Incremented on each full D3 remount to drop stale async divergence fetches. */
+let d3MountGeneration = 0;
+
+/**
+ * @param {string} url
+ * @returns {Promise<object>}
+ */
+async function fetchJsonCorsAny(url) {
+  try {
+    const res = await fetch(url, { mode: "cors", cache: "no-store" });
+    if (res.ok) return await res.json();
+  } catch {
+    /* fall through to relay */
+  }
+  const proxied = `${ALL_ORIGINS_RAW}${encodeURIComponent(url)}`;
+  const res2 = await fetch(proxied, { cache: "no-store" });
+  if (!res2.ok) throw new Error(`Relay fetch failed (${res2.status})`);
+  return await res2.json();
+}
+
+/**
+ * @param {object} taxon
+ * @returns {number | null}
+ */
+function extractNcbiFromOpenTreeTaxon(taxon) {
+  const sources = taxon?.tax_sources;
+  if (!Array.isArray(sources)) return null;
+  for (const s of sources) {
+    const m = String(s).match(/^ncbi:(\d+)$/i);
+    if (m) {
+      const n = Number(m[1]);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Map scientific names (as returned by iNaturalist `taxon.name`) to NCBI taxonomy ids via Open Tree TNRS.
+ * @param {Iterable<string>} names
+ * @returns {Promise<Map<string, number>>} lowercase name → ncbi id
+ */
+async function tnrsScientificNamesToNcbi(names) {
+  /** @type {Map<string, number>} */
+  const out = new Map();
+  const uniq = [];
+  const seen = new Set();
+  for (const raw of names) {
+    const n = String(raw || "").trim();
+    if (!n) continue;
+    const k = n.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    uniq.push(n);
+  }
+  for (let i = 0; i < uniq.length; i += TNRS_CHUNK) {
+    const chunk = uniq.slice(i, i + TNRS_CHUNK);
+    const res = await fetch(OPEN_TREE_TNRS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ names: chunk, context_name: "All life" }),
+      mode: "cors",
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`Open Tree TNRS failed (${res.status})`);
+    const data = await res.json();
+    for (const block of data.results || []) {
+      const nm = block?.name;
+      const matches = block?.matches;
+      if (!nm || !Array.isArray(matches) || !matches.length) continue;
+      const tax = matches[0]?.taxon;
+      const ncbi = extractNcbiFromOpenTreeTaxon(tax);
+      if (ncbi) out.set(String(nm).toLowerCase(), ncbi);
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} node
+ * @param {Map<number, object>} taxonById
+ * @param {Map<string, number>} nameToNcbi
+ * @returns {number | null}
+ */
+function ncbiForSubtreeLeaves(node, taxonById, nameToNcbi) {
+  for (const leaf of node.leaves()) {
+    const tid = leaf.data?.taxonId;
+    if (!Number.isFinite(tid) || tid <= 0) continue;
+    const t = taxonById.get(tid);
+    const nm = t && typeof t.name === "string" ? t.name.trim() : "";
+    if (!nm) continue;
+    const ncbi = nameToNcbi.get(nm.toLowerCase());
+    if (Number.isFinite(ncbi) && ncbi > 0) return ncbi;
+  }
+  return null;
+}
+
+/**
+ * @param {number} a
+ * @param {number} b
+ */
+function timetreeMrcaUrl(a, b) {
+  const x = Math.min(a, b);
+  const y = Math.max(a, b);
+  return `${TIMETREE_MRCA}/${x}+${y}/json`;
+}
+
+/**
+ * @param {object} j
+ */
+function parseTimeTreeMrca(j) {
+  const age = Number(j?.precomputed_age);
+  const low = Number(j?.precomputed_ci_low);
+  const high = Number(j?.precomputed_ci_high);
+  return {
+    age: Number.isFinite(age) ? age : NaN,
+    low: Number.isFinite(low) ? low : NaN,
+    high: Number.isFinite(high) ? high : NaN,
+  };
+}
+
+function formatDivergenceMa(age, low, high) {
+  if (!Number.isFinite(age)) return "";
+  const a = Math.round(age);
+  if (Number.isFinite(low) && Number.isFinite(high)) {
+    return `~${a} Ma (${Math.round(low)}–${Math.round(high)})`;
+  }
+  return `~${a} Ma`;
+}
+
+/**
+ * @param {SVGSVGElement} svgEl
+ * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} hRoot
+ * @param {Map<number, object>} taxonById
+ * @param {number} mountGen
+ */
+async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
+  const inner = svgEl.querySelector(".tree-zoom-inner");
+  if (!inner) return;
+
+  const names = [];
+  for (const leaf of hRoot.leaves()) {
+    const tid = leaf.data?.taxonId;
+    if (!Number.isFinite(tid) || tid <= 0) continue;
+    const t = taxonById.get(tid);
+    const nm = t && typeof t.name === "string" ? t.name.trim() : "";
+    if (nm) names.push(nm);
+  }
+  if (!names.length) return;
+
+  let nameToNcbi;
+  try {
+    nameToNcbi = await tnrsScientificNamesToNcbi(names);
+  } catch {
+    return;
+  }
+  if (mountGen !== d3MountGeneration) return;
+
+  /** @type {{ link: import("d3").HierarchyPointLink<{ taxonId: number }>, n1: number, n2: number, key: string }[]} */
+  const tasks = [];
+  for (const link of hRoot.links()) {
+    const source = link.source;
+    const target = link.target;
+    const kids = source.children;
+    if (!kids || kids.length < 2) continue;
+    const siblings = kids.filter((c) => c !== target);
+    if (!siblings.length) continue;
+    const n1 = ncbiForSubtreeLeaves(target, taxonById, nameToNcbi);
+    const n2 = ncbiForSubtreeLeaves(siblings[0], taxonById, nameToNcbi);
+    if (!n1 || !n2 || n1 === n2) continue;
+    const key = `${Math.min(n1, n2)}|${Math.max(n1, n2)}`;
+    tasks.push({ link, n1, n2, key });
+  }
+  if (!tasks.length) return;
+
+  const layer = d3.select(inner).append("g").attr("class", "tree-divergence-layer");
+
+  /** @type {Map<string, { age: number, low: number, high: number }>} */
+  const pairCache = new Map();
+
+  for (const task of tasks) {
+    if (mountGen !== d3MountGeneration) return;
+
+    const s = task.link.source;
+    const t = task.link.target;
+    const sx = s.px;
+    const sy = s.py;
+    const tx = t.px;
+    const ty = t.py;
+    const mid = (sy + ty) / 2;
+    const cx = (sx + tx) / 2;
+    const cy = mid - 10;
+
+    const te = layer
+      .append("text")
+      .attr("class", "tree-link-age")
+      .attr("text-anchor", "middle")
+      .attr("x", cx)
+      .attr("y", cy)
+      .attr("fill", "#4a3f6a")
+      .text("…");
+
+    let parsed = pairCache.get(task.key);
+    if (!parsed) {
+      try {
+        const url = timetreeMrcaUrl(task.n1, task.n2);
+        const j = await fetchJsonCorsAny(url);
+        parsed = parseTimeTreeMrca(j);
+        pairCache.set(task.key, parsed);
+      } catch {
+        parsed = { age: NaN, low: NaN, high: NaN };
+        pairCache.set(task.key, parsed);
+      }
+      await new Promise((r) => setTimeout(r, TIMETREE_REQUEST_GAP_MS));
+    }
+    if (mountGen !== d3MountGeneration) return;
+
+    const label = formatDivergenceMa(parsed.age, parsed.low, parsed.high);
+    if (label) te.text(label);
+    else te.remove();
+  }
 }
 
 function escapeHtml(s) {
@@ -408,8 +638,10 @@ function zoomToFitSubtree(svgEl, zoom, d) {
 /**
  * @param {HTMLElement} host
  * @param {import("d3").HierarchyNode<{ taxonId: number; label: string; rank: string; href: string }>} hRoot
+ * @param {Map<number, object>} taxonById
  */
-function mountD3Tree(host, hRoot) {
+function mountD3Tree(host, hRoot, taxonById) {
+  const mountGen = ++d3MountGeneration;
   host.innerHTML = "";
 
   const toolbar = document.createElement("div");
@@ -515,7 +747,7 @@ function mountD3Tree(host, hRoot) {
       ev.stopPropagation();
       if (!d.children && !d._children) return;
       toggleCollapse(d);
-      mountD3Tree(host, hRoot);
+      mountD3Tree(host, hRoot, taxonById);
     });
 
   nodes
@@ -586,8 +818,10 @@ function mountD3Tree(host, hRoot) {
   });
   toolbar.querySelector("#btn-expand-all")?.addEventListener("click", () => {
     expandAllUnder(hRoot);
-    mountD3Tree(host, hRoot);
+    mountD3Tree(host, hRoot, taxonById);
   });
+
+  void applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen);
 }
 
 async function refreshTree() {
@@ -623,7 +857,7 @@ async function refreshTree() {
     const hRoot = d3.hierarchy(data, (d) => d.children);
     collapseWideSubtreesByDefault(hRoot, 5);
 
-    mountD3Tree(el.viz, hRoot);
+    mountD3Tree(el.viz, hRoot, taxonById);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Something went wrong.";
     showError(msg);

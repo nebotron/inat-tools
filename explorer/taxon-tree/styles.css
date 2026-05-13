@@ -228,6 +228,16 @@ body.taxon-tree-page .site-header {
   stroke-width: 1.75px;
 }
 
+.tree-divergence-layer .tree-link-age {
+  font-size: 8.25px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  paint-order: stroke fill;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
 .tree-node-label-wrap {
   pointer-events: none;
 }

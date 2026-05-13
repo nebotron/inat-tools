@@ -8,8 +8,8 @@
     />
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
     <title>Taxonomic tree — iNaturalist</title>
-    <link rel="stylesheet" href="../styles.css?v=tree9" />
-    <link rel="stylesheet" href="styles.css?v=tree9" />
+    <link rel="stylesheet" href="../styles.css?v=tree10" />
+    <link rel="stylesheet" href="styles.css?v=tree10" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../../favicon.png?v=inat300" type="image/png" sizes="300x300" />
   </head>
@@ -18,7 +18,8 @@
       <h1>Taxonomic tree</h1>
       <p class="tagline">
         Interactive cladogram from iNaturalist taxonomy: root at the top, lineages downward. Pan and zoom, click a node’s ring to
-        fold or unfold, and double-click an internal node to zoom that subtree.
+        fold or unfold, and double-click an internal node to zoom that subtree. Where NCBI taxonomy can be matched, junction ages from
+        TimeTree of Life appear along branches (million years ago, with published confidence intervals when available).
         <a href="../">← Observation browser</a>
       </p>
     </header>
@@ -71,15 +72,19 @@
         <p class="tree-hint">
           Large branches start folded when a node covers more than five of your selected species (the top-level taxon stays expanded).
           Scroll or pinch to zoom; drag the canvas to pan. Click the transparent ring on a node to fold or unfold; double-click an
-          internal node to zoom its subtree. Hover a label for the full name.
+          internal node to zoom its subtree. Hover a label for the full name. Purple labels along branches are TimeTree MRCA ages when
+          both sides map to NCBI ids (via Open Tree TNRS).
         </p>
         <p class="tree-footnote">
-          Branch lengths are not scaled to evolutionary time. Data from
+          Branch geometry follows iNaturalist taxonomy, not branch lengths. Divergence times are median MRCA estimates from the
+          <a href="https://timetree.org/">TimeTree of Life</a> database (Kumar et al.), using NCBI taxonomy ids resolved with the
+          <a href="https://tree.opentreeoflife.org/">Open Tree of Life</a> TNRS service. If your browser blocks cross-origin access to
+          TimeTree, the app may load those JSON responses through a public CORS relay (allorigins.win). Data from
           <a href="https://www.inaturalist.org/">iNaturalist</a>.
         </p>
       </section>
     </main>
 
-    <script src="app.js?v=tree9" type="module"></script>
+    <script src="app.js?v=tree10" type="module"></script>
   </body>
 </html>

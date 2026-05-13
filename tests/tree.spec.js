@@ -11,5 +11,6 @@ test.describe("taxonomic tree page", () => {
     await expect(page.locator("svg.tree-viz-svg")).toBeVisible({ timeout: 90_000 });
     await expect(page.locator("svg.tree-viz-svg")).toContainText(/Insecta|Life|Animalia/i, { timeout: 30_000 });
     await expect(page.locator("svg .tree-link")).not.toHaveCount(0);
+    await expect(page.locator(".tree-footnote")).toContainText(/TimeTree of Life/i);
   });
 });
