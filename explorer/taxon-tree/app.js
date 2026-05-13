@@ -11,12 +11,12 @@ const TNRS_CHUNK = 80;
 const TIMETREE_REQUEST_GAP_MS = 110;
 
 const M = { top: 36, right: 40, bottom: 36, left: 36 };
-/** Horizontal spacing between sibling columns (d3 tree “breadth”). */
-const NODE_BREADTH = 34;
-/** Vertical spacing between parent and child rows (d3 tree “depth”). */
-const NODE_DEPTH = 62;
+/** Base horizontal spacing between sibling columns (d3 tree “breadth”); separation scales this up from label width. */
+const NODE_BREADTH = 52;
+/** Base vertical spacing between parent and child rows (d3 tree “depth”). */
+const NODE_DEPTH = 74;
 /** Horizontal gap from node dot outer edge to start of label text (px). */
-const LABEL_GAP_FROM_DOT = 4;
+const LABEL_GAP_FROM_DOT = 3;
 /** Extra vertical slack for collision boxes vs measured text. */
 const LABEL_VPAD = 3;
 
@@ -32,13 +32,13 @@ function nodeDotRadius(d) {
  * @param {import("d3").HierarchyPointNode<{ taxonId: number }>} d
  */
 function labelPadX(d) {
-  return nodeDotRadius(d) + 1.2 + LABEL_GAP_FROM_DOT;
+  return nodeDotRadius(d) + 1 + LABEL_GAP_FROM_DOT;
 }
 /** Approximate average character width (px) for label width estimates at 11px. */
 const LABEL_CHAR_PX = 6.15;
 const LABEL_LINE_H = 14;
 /** Minimum horizontal padding beyond the deepest node before label collision pass expands width. */
-const LABEL_SLOT_MIN = 240;
+const LABEL_SLOT_MIN = 280;
 
 /**
  * @param {string} pathAndQuery
@@ -315,6 +315,24 @@ function estimateLabelHeightPx(d) {
 }
 
 /**
+ * Widest label (px) in each subtree — drives sibling separation so columns leave room for text.
+ * @param {import("d3").HierarchyNode<{ label: string; rank?: string }>} root
+ */
+function subtreeMaxLabelWidth(root) {
+  /** @type {Map<import("d3").HierarchyNode<{ label: string; rank?: string }>, number>} */
+  const map = new Map();
+  root.eachAfter((n) => {
+    let m = estimateLabelWidthPx(n);
+    const ch = n.children;
+    if (ch) {
+      for (const c of ch) m = Math.max(m, map.get(c) ?? 0);
+    }
+    map.set(n, m);
+  });
+  return map;
+}
+
+/**
  * @param {{ x0: number, x1: number, y0: number, y1: number }} a
  * @param {{ x0: number, x1: number, y0: number, y1: number }} b
  */
@@ -345,8 +363,8 @@ function assignLabelOffsets(hRoot) {
       if (placed[i].y1 < it.y0 - 3) placed.splice(i, 1);
     }
     let dx = 0;
-    const step = 12;
-    const maxDx = 280;
+    const step = 10;
+    const maxDx = 140;
     while (dx <= maxDx) {
       const x0 = it.baseX + dx;
       const x1 = x0 + it.w;
@@ -682,10 +700,17 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
   const wrap = document.createElement("div");
   wrap.className = "tree-svg-wrap";
 
-  const tree = d3
-    .tree()
-    .nodeSize([NODE_BREADTH, NODE_DEPTH])
-    .separation((a, b) => (a.parent === b.parent ? 1.22 : 1.42));
+  const labelSpan = subtreeMaxLabelWidth(hRoot);
+  const sep = (/** @type {import("d3").HierarchyNode<{ label: string; rank?: string }>} */ a, b) => {
+    const wa = labelSpan.get(a) ?? 120;
+    const wb = labelSpan.get(b) ?? 120;
+    if (a.parent === b.parent) {
+      return 1.05 + Math.min(1.65, (Math.max(wa, wb) / 175) * 0.95);
+    }
+    return 1.18 + Math.min(1.35, (wa + wb) / 420);
+  };
+
+  const tree = d3.tree().nodeSize([NODE_BREADTH, NODE_DEPTH]).separation(sep);
   tree(hRoot);
 
   let xMin = Infinity;
