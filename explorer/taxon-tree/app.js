@@ -34,9 +34,12 @@ function nodeDotRadius(d) {
 function labelPadX(d) {
   return nodeDotRadius(d) + 1 + LABEL_GAP_FROM_DOT;
 }
-/** Approximate average character width (px) for label width estimates at 11px. */
-const LABEL_CHAR_PX = 6.15;
-const LABEL_LINE_H = 14;
+/** Approximate average character width (px) for label width estimates at ~11px. */
+const LABEL_CHAR_PX = 6.45;
+/** Match CSS font sizes for vertical alignment math. */
+const LABEL_FONT_MAIN = 11;
+const LABEL_FONT_RANK = 9.5;
+const LABEL_LINE_GAP = 3;
 /** Minimum horizontal padding beyond the deepest node before label collision pass expands width. */
 const LABEL_SLOT_MIN = 280;
 
@@ -295,23 +298,44 @@ function labelDisplayRank(d) {
 }
 
 /**
+ * True height of the drawn label block (px), matching mountD3Tree text y positions.
+ * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ */
+function labelBlockHeightPx(d) {
+  if (labelDisplayRank(d)) {
+    return LABEL_FONT_MAIN + LABEL_LINE_GAP + LABEL_FONT_RANK;
+  }
+  return LABEL_FONT_MAIN;
+}
+
+/**
+ * Local y positions (relative to node center) for text `dominant-baseline="middle"` lines.
+ * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ */
+function labelLineCentersY(d) {
+  if (!labelDisplayRank(d)) return { yMain: 0, yRank: null };
+  const total = labelBlockHeightPx(d);
+  const yTop = -total / 2;
+  const yMain = yTop + LABEL_FONT_MAIN / 2;
+  const yRank = yTop + LABEL_FONT_MAIN + LABEL_LINE_GAP + LABEL_FONT_RANK / 2;
+  return { yMain, yRank };
+}
+
+/**
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
  */
 function estimateLabelWidthPx(d) {
   const main = labelDisplayMain(d);
   const rank = labelDisplayRank(d);
   const wChars = Math.max(main.length, rank ? rank.length : 0);
-  return Math.min(wChars * LABEL_CHAR_PX + 14, 280);
+  return Math.min(wChars * LABEL_CHAR_PX + 18, 300);
 }
 
 /**
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
  */
 function estimateLabelHeightPx(d) {
-  if (labelDisplayRank(d)) {
-    return LABEL_LINE_H * 2 + LABEL_VPAD * 2;
-  }
-  return LABEL_LINE_H + LABEL_VPAD * 2;
+  return labelBlockHeightPx(d) + LABEL_VPAD * 2;
 }
 
 /**
@@ -340,47 +364,105 @@ function rectsOverlap2d(a, b) {
   return !(a.y1 < b.y0 - 0.5 || a.y0 > b.y1 + 0.5 || a.x1 < b.x0 - 0.5 || a.x0 > b.x1 + 0.5);
 }
 
+/** Hit circle around another node’s dot (global px); labels must not intrude here. */
+const NODE_OCCLUSION_R = 14;
+
 /**
- * Assign `d.labelDx` on each hierarchy node so label boxes avoid overlapping each other.
+ * @param {number} rx0
+ * @param {number} ry0
+ * @param {number} rx1
+ * @param {number} ry1
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} r
+ */
+function rectCircleOverlap(rx0, ry0, rx1, ry1, cx, cy, r) {
+  const px = Math.max(rx0, Math.min(cx, rx1));
+  const py = Math.max(ry0, Math.min(cy, ry1));
+  const dx = cx - px;
+  const dy = cy - py;
+  return dx * dx + dy * dy < r * r;
+}
+
+/**
+ * Assign `d.labelDx` / `d.labelDy` so label boxes avoid each other and other nodes’ dots.
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} hRoot
  */
 function assignLabelOffsets(hRoot) {
   const allNodes = hRoot.descendants();
+  for (const n of allNodes) {
+    n.labelDx = 0;
+    n.labelDy = 0;
+  }
+
   /** @type {{ y0: number, y1: number, x0: number, x1: number }[]} */
   const placed = [];
   const items = allNodes.map((d) => {
     const h = estimateLabelHeightPx(d);
     const w = estimateLabelWidthPx(d);
-    const y0 = d.py - h / 2;
-    const y1 = d.py + h / 2;
     const baseX = d.px + labelPadX(d);
-    return { d, y0, y1, baseX, w };
+    return { d, h, w, baseX };
   });
-  items.sort((a, b) => a.y0 - b.y0 || a.baseX - b.baseX);
+  items.sort((a, b) => a.d.py - b.d.py || a.baseX - b.baseX);
+
+  const dySteps = [0, 9, -9, 18, -18, 27, -27, 36, -36, 45, -45, 54, -54];
+  const maxDx = 260;
+  const dxStep = 11;
 
   for (const it of items) {
     for (let i = placed.length - 1; i >= 0; i -= 1) {
-      if (placed[i].y1 < it.y0 - 3) placed.splice(i, 1);
+      if (placed[i].y1 < it.d.py - 72) placed.splice(i, 1);
     }
-    let dx = 0;
-    const step = 10;
-    const maxDx = 140;
-    while (dx <= maxDx) {
-      const x0 = it.baseX + dx;
-      const x1 = x0 + it.w;
-      const cand = { x0, x1, y0: it.y0, y1: it.y1 };
-      let clash = false;
-      for (const o of placed) {
-        if (rectsOverlap2d(cand, o)) {
-          clash = true;
-          break;
+
+    let bestDx = 0;
+    let bestDy = 0;
+    let found = false;
+
+    outer: for (const dy of dySteps) {
+      for (let dx = 0; dx <= maxDx; dx += dxStep) {
+        const y0 = it.d.py + dy - it.h / 2;
+        const y1 = it.d.py + dy + it.h / 2;
+        const x0 = it.baseX + dx;
+        const x1 = x0 + it.w;
+        const cand = { x0, x1, y0, y1 };
+
+        let clash = false;
+        for (const o of placed) {
+          if (rectsOverlap2d(cand, o)) {
+            clash = true;
+            break;
+          }
+        }
+        if (!clash) {
+          for (const other of allNodes) {
+            if (other === it.d) continue;
+            if (rectCircleOverlap(cand.x0, cand.y0, cand.x1, cand.y1, other.px, other.py, NODE_OCCLUSION_R)) {
+              clash = true;
+              break;
+            }
+          }
+        }
+        if (!clash) {
+          bestDx = dx;
+          bestDy = dy;
+          found = true;
+          break outer;
         }
       }
-      if (!clash) break;
-      dx += step;
     }
-    it.d.labelDx = dx;
-    placed.push({ y0: it.y0, y1: it.y1, x0: it.baseX + dx, x1: it.baseX + dx + it.w });
+
+    if (!found) {
+      bestDx = maxDx;
+      bestDy = 0;
+    }
+
+    it.d.labelDx = bestDx;
+    it.d.labelDy = bestDy;
+
+    const y0 = it.d.py + bestDy - it.h / 2;
+    const y1 = it.d.py + bestDy + it.h / 2;
+    const x0 = it.baseX + bestDx;
+    placed.push({ y0, y1, x0, x1: x0 + it.w });
   }
 }
 
@@ -656,14 +738,15 @@ function zoomToFitSubtree(svgEl, zoom, d) {
   d.each((dd) => {
     if (dd.px == null || dd.py == null) return;
     const padX = 14;
-    const halfH = estimateLabelHeightPx(dd) / 2 + 4;
+    const halfH = estimateLabelHeightPx(dd) / 2 + 3;
     const lw = estimateLabelWidthPx(dd);
     const dx = dd.labelDx || 0;
+    const dy = dd.labelDy || 0;
     const lpad = labelPadX(dd);
     x0 = Math.min(x0, dd.px - padX);
     x1 = Math.max(x1, dd.px + lpad + dx + lw + 10);
-    y0 = Math.min(y0, dd.py - halfH);
-    y1 = Math.max(y1, dd.py + halfH);
+    y0 = Math.min(y0, dd.py + dy - halfH);
+    y1 = Math.max(y1, dd.py + dy + halfH);
   });
   if (!Number.isFinite(x0)) return;
   const fullW = x1 - x0;
@@ -705,9 +788,9 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     const wa = labelSpan.get(a) ?? 120;
     const wb = labelSpan.get(b) ?? 120;
     if (a.parent === b.parent) {
-      return 1.05 + Math.min(1.65, (Math.max(wa, wb) / 175) * 0.95);
+      return 1.08 + Math.min(1.85, (Math.max(wa, wb) / 165) * 1.02);
     }
-    return 1.18 + Math.min(1.35, (wa + wb) / 420);
+    return 1.15 + Math.min(1.5, (wa + wb) / 400);
   };
 
   const tree = d3.tree().nodeSize([NODE_BREADTH, NODE_DEPTH]).separation(sep);
@@ -727,23 +810,34 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
 
   assignLabelOffsets(hRoot);
 
+  let minLblY = Infinity;
+  let maxLblY = -Infinity;
+  hRoot.each((d) => {
+    const half = estimateLabelHeightPx(d) / 2;
+    const dy = d.labelDy || 0;
+    minLblY = Math.min(minLblY, d.py + dy - half);
+    maxLblY = Math.max(maxLblY, d.py + dy + half);
+  });
+  const viewY = Number.isFinite(minLblY) ? Math.min(0, minLblY - 8) : 0;
+  const maxPy = hRoot
+    .descendants()
+    .reduce((m, d) => Math.max(m, d.py), 0);
+
   let maxPx = 0;
-  let maxPy = 0;
   let labelRight = 0;
   hRoot.each((d) => {
     maxPx = Math.max(maxPx, d.px);
-    maxPy = Math.max(maxPy, d.py);
     const w = estimateLabelWidthPx(d);
     labelRight = Math.max(labelRight, d.px + labelPadX(d) + (d.labelDx || 0) + w);
   });
 
   const contentW = Math.max(maxPx + LABEL_SLOT_MIN, labelRight) + M.right;
-  const contentH = maxPy + M.bottom + 20;
+  const contentH = Math.max(maxLblY + M.bottom + 28, maxPy + M.bottom + 24) - viewY;
 
   const svg = d3
     .create("svg")
     .attr("class", "tree-viz-svg")
-    .attr("viewBox", `0 0 ${contentW} ${contentH}`)
+    .attr("viewBox", `0 ${viewY} ${contentW} ${contentH}`)
     .attr("width", "100%")
     .attr("height", Math.min(780, Math.max(380, contentH)))
     .attr("role", "img")
@@ -796,7 +890,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
 
   const nodes = nodeG
     .selectAll("g")
-    .data(hRoot.descendants(), (/** @type {import("d3").HierarchyPointNode<{ taxonId: number }>} */ d) => String(d.data.taxonId))
+    .data(hRoot.descendants(), (/** @type {import("d3").HierarchyPointNode<{ taxonId: number }>} */ d) => `${d.depth}-${d.data.taxonId}`)
     .join("g")
     .attr("class", "tree-node")
     .attr("transform", (d) => `translate(${d.px},${d.py})`);
@@ -832,6 +926,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     const main = labelDisplayMain(d);
     const rank = labelDisplayRank(d);
     const pad = labelPadX(d) + (d.labelDx || 0);
+    const lidy = d.labelDy || 0;
 
     const linkParent = hasHref
       ? g
@@ -841,15 +936,16 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
           .attr("rel", "noopener noreferrer")
       : g;
 
-    const labelG = linkParent.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${pad},0)`);
+    const labelG = linkParent.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${pad},${lidy})`);
 
     if (rank) {
+      const { yMain, yRank: yR } = labelLineCentersY(d);
       labelG
         .append("text")
         .attr("class", "tree-node-label")
         .attr("fill", "#1a2e1a")
         .attr("x", 0)
-        .attr("y", -5.5)
+        .attr("y", yMain)
         .attr("text-anchor", "start")
         .attr("dominant-baseline", "middle")
         .text(main);
@@ -857,7 +953,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         .append("text")
         .attr("class", "tree-node-rank")
         .attr("x", 0)
-        .attr("y", 6.5)
+        .attr("y", /** @type {number} */ (yR))
         .attr("text-anchor", "start")
         .attr("dominant-baseline", "middle")
         .text(rank);
