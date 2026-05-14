@@ -218,17 +218,21 @@ const el = {
   nearbyControls: document.getElementById("nearby-controls"),
   lat: document.getElementById("lat"),
   lng: document.getElementById("lng"),
-  filterNativeStatus: document.getElementById("filter-native-status"),
-  filterEndemic: document.getElementById("filter-endemic"),
+  filterEstEndemic: document.getElementById("filter-est-endemic"),
+  filterEstNative: document.getElementById("filter-est-native"),
+  filterEstIntroduced: document.getElementById("filter-est-introduced"),
+  filterEstInvasive: document.getElementById("filter-est-invasive"),
   qualityGrade: document.getElementById("quality-grade"),
   filterEvidencePresence: document.getElementById("filter-evidence-presence"),
   sortMode: document.getElementById("sort-mode"),
   mediaPhotos: document.getElementById("media-photos"),
   mediaSounds: document.getElementById("media-sounds"),
+  observedDays: document.getElementById("observed-days"),
   uploadedDays: document.getElementById("uploaded-days"),
   popularOnly: document.getElementById("popular-only"),
   metaFaves: document.getElementById("meta-faves"),
   metaSpeciesCount: document.getElementById("meta-species-count"),
+  metaObserver: document.getElementById("meta-observer"),
   metaLocation: document.getElementById("meta-location"),
   metaNativeStatus: document.getElementById("meta-native-status"),
   metaGrade: document.getElementById("meta-grade"),
@@ -885,11 +889,31 @@ function applyMediaFromQuery(q) {
 
 function parseCardMetaQuery(q) {
   if (!q.has("cardmeta")) {
-    return { faves: true, speciesCount: true, location: false, nativeStatus: false, grade: false, obsDate: false, photoPage: false, sciName: false };
+    return {
+      faves: true,
+      speciesCount: true,
+      observer: false,
+      location: false,
+      nativeStatus: false,
+      grade: false,
+      obsDate: false,
+      photoPage: false,
+      sciName: false,
+    };
   }
   const raw = q.get("cardmeta") ?? "";
   if (!raw) {
-    return { faves: false, speciesCount: false, location: false, nativeStatus: false, grade: false, obsDate: false, photoPage: false, sciName: false };
+    return {
+      faves: false,
+      speciesCount: false,
+      observer: false,
+      location: false,
+      nativeStatus: false,
+      grade: false,
+      obsDate: false,
+      photoPage: false,
+      sciName: false,
+    };
   }
   const set = new Set(
     raw
@@ -900,6 +924,7 @@ function parseCardMetaQuery(q) {
   return {
     faves: set.has("fav"),
     speciesCount: set.has("spc"),
+    observer: set.has("obs"),
     location: set.has("loc"),
     nativeStatus: set.has("nat"),
     grade: set.has("grd"),
@@ -914,6 +939,7 @@ function applyCardMetaFromQuery(q) {
   const o = parseCardMetaQuery(q);
   el.metaFaves.checked = o.faves;
   el.metaSpeciesCount.checked = o.speciesCount;
+  if (el.metaObserver) el.metaObserver.checked = o.observer;
   el.metaLocation.checked = o.location;
   el.metaNativeStatus.checked = o.nativeStatus;
   el.metaGrade.checked = o.grade;
@@ -925,17 +951,19 @@ function applyCardMetaFromQuery(q) {
 function formatCardMetaQuery() {
   const fav = el.metaFaves.checked;
   const spc = el.metaSpeciesCount.checked;
+  const obs = el.metaObserver && el.metaObserver.checked;
   const loc = el.metaLocation.checked;
   const nat = el.metaNativeStatus.checked;
   const grd = el.metaGrade.checked;
   const obsd = el.metaObsDate && el.metaObsDate.checked;
   const pp = el.metaPhotoPage && el.metaPhotoPage.checked;
   const sci = el.metaSciName.checked;
-  if (fav && spc && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
-  if (!fav && spc && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
+  if (fav && spc && !obs && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
+  if (!fav && spc && !obs && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
+  if (obs) parts.push("obs");
   if (loc) parts.push("loc");
   if (nat) parts.push("nat");
   if (grd) parts.push("grd");
@@ -945,78 +973,124 @@ function formatCardMetaQuery() {
   return parts.join(",");
 }
 
-function getEstablishmentFilter() {
-  const sel = el.filterNativeStatus;
-  const v = sel && sel.value ? sel.value : "any";
-  if (v === "native" || v === "introduced" || v === "invasive") return v;
-  return "any";
+function allEstablishmentBucketsEnabled() {
+  return (
+    el.filterEstEndemic &&
+    el.filterEstNative &&
+    el.filterEstIntroduced &&
+    el.filterEstInvasive &&
+    el.filterEstEndemic.checked &&
+    el.filterEstNative.checked &&
+    el.filterEstIntroduced.checked &&
+    el.filterEstInvasive.checked
+  );
 }
 
-/** @returns {"any"|"organism"|"egg"|"nest"|"feather"} */
-function getEvidencePresenceFilter() {
-  const sel = el.filterEvidencePresence;
-  const v = sel && sel.value ? sel.value : "any";
-  if (v === "organism" || v === "egg" || v === "nest" || v === "feather") return v;
-  return "any";
+/** True when every establishment checkbox is off (avoid filtering nothing). */
+function establishmentCheckboxSelectionEmpty() {
+  return (
+    el.filterEstEndemic &&
+    el.filterEstNative &&
+    el.filterEstIntroduced &&
+    el.filterEstInvasive &&
+    !el.filterEstEndemic.checked &&
+    !el.filterEstNative.checked &&
+    !el.filterEstIntroduced.checked &&
+    !el.filterEstInvasive.checked
+  );
+}
+
+function establishmentClientFilterActive() {
+  if (establishmentCheckboxSelectionEmpty()) return false;
+  return !allEstablishmentBucketsEnabled();
 }
 
 /**
- * Restrict observations to one Evidence of Presence value (iNat annotation API).
- * @param {URLSearchParams} p
+ * Disjoint establishment bucket for an observation (matches card native-status wording).
+ * @returns {"endemic"|"native"|"introduced"|"invasive"|null}
  */
-function applyEvidencePresenceToParams(p) {
-  const kind = getEvidencePresenceFilter();
-  if (kind === "any") return;
-  const termVal = EVIDENCE_OF_PRESENCE_TERM_VALUE[kind];
-  if (termVal == null) return;
-  p.set("term_id", String(EVIDENCE_OF_PRESENCE_TERM_ID));
-  p.set("term_value_id", String(termVal));
+function obsEstablishmentBucket(obs, kc) {
+  const t = obs && obs.taxon;
+  if (!t || typeof t !== "object") return null;
+  if (t.endemic === true) return "endemic";
+  if (t.native === true) return "native";
+  if (t.native === false) {
+    return kingCountyNoxiousMatchForTaxon(t, kc) ? "invasive" : "introduced";
+  }
+  return null;
+}
+
+function observationPassesEstablishmentCheckboxes(obs, kc) {
+  if (!establishmentClientFilterActive()) return true;
+  const b = obsEstablishmentBucket(obs, kc);
+  if (b == null) return true;
+  if (b === "endemic") return el.filterEstEndemic.checked;
+  if (b === "native") return el.filterEstNative.checked;
+  if (b === "introduced") return el.filterEstIntroduced.checked;
+  if (b === "invasive") return el.filterEstInvasive.checked;
+  return true;
+}
+
+function setEstablishmentCheckboxes({ endemic, native, introduced, invasive }) {
+  if (el.filterEstEndemic) el.filterEstEndemic.checked = endemic;
+  if (el.filterEstNative) el.filterEstNative.checked = native;
+  if (el.filterEstIntroduced) el.filterEstIntroduced.checked = introduced;
+  if (el.filterEstInvasive) el.filterEstInvasive.checked = invasive;
+}
+
+/** URL `est`: four `0`/`1` chars meaning endemic, native, introduced, invasive inclusion (default all `1`). */
+function formatEstablishmentForUrl() {
+  if (allEstablishmentBucketsEnabled() || establishmentCheckboxSelectionEmpty()) return null;
+  const bits = [
+    el.filterEstEndemic.checked ? "1" : "0",
+    el.filterEstNative.checked ? "1" : "0",
+    el.filterEstIntroduced.checked ? "1" : "0",
+    el.filterEstInvasive.checked ? "1" : "0",
+  ];
+  return bits.join("");
+}
+
+function parseEstablishmentFromQuery(q) {
+  const raw = (q.get("est") || "").trim();
+  if (/^[01]{4}$/.test(raw)) {
+    setEstablishmentCheckboxes({
+      endemic: raw[0] === "1",
+      native: raw[1] === "1",
+      introduced: raw[2] === "1",
+      invasive: raw[3] === "1",
+    });
+    return;
+  }
+  const es = (q.get("establish") || "").toLowerCase();
+  const endOnly = q.get("endemic") === "1" || q.get("endemic") === "true";
+  if (es === "invasive") {
+    setEstablishmentCheckboxes({ endemic: false, native: false, introduced: false, invasive: true });
+  } else if (es === "introduced") {
+    setEstablishmentCheckboxes({ endemic: false, native: false, introduced: true, invasive: false });
+  } else if (es === "native") {
+    setEstablishmentCheckboxes({ endemic: true, native: true, introduced: false, invasive: false });
+  } else if (endOnly) {
+    setEstablishmentCheckboxes({ endemic: true, native: false, introduced: false, invasive: false });
+  } else {
+    setEstablishmentCheckboxes({ endemic: true, native: true, introduced: true, invasive: true });
+  }
 }
 
 /**
  * @param {object} [options]
  * @param {"list"|"species_counts"} [options.establishmentMode]
- * @param {string} [options.kingCountyTaxonIdsCsv] comma-separated iNat taxon IDs from the King County list (precomputed when async context has already loaded KC data)
+ * @param {string} [options.kingCountyTaxonIdsCsv] unused; kept for call-site compatibility
  */
 function commonParams(options = {}) {
   const establishmentMode = options.establishmentMode || "list";
-  const kcCsv = options.kingCountyTaxonIdsCsv != null ? options.kingCountyTaxonIdsCsv : "";
-  const ef = getEstablishmentFilter();
+  void establishmentMode;
 
   const p = new URLSearchParams();
   const incBase = formatTaxonCsvParam(taxonIncludeFilters);
   const excBase = formatTaxonCsvParam(taxonExcludeFilters);
 
-  if (ef === "native") {
-    p.set("native", "true");
-    if (incBase) p.set("taxon_id", incBase);
-  } else if (ef === "introduced") {
-    p.set("introduced", "true");
-    if (incBase) p.set("taxon_id", incBase);
-    const excMerged = mergeTaxonCsvParam(excBase, parseTaxonCsvParam(kcCsv));
-    if (excMerged) p.set("without_taxon_id", excMerged);
-  } else if (ef === "invasive") {
-    if (kcCsv) {
-      if (incBase) {
-        p.set("taxon_id", mergeTaxonCsvParam(kcCsv, parseTaxonCsvParam(incBase)));
-      } else {
-        p.set("taxon_id", kcCsv);
-      }
-    } else if (incBase) {
-      p.set("taxon_id", incBase);
-    } else {
-      p.set("invasive", "true");
-    }
-    if (establishmentMode === "species_counts") {
-      p.set("introduced", "true");
-    } else if (kcCsv || incBase) {
-      p.set("invasive", "true");
-    }
-    if (excBase) p.set("without_taxon_id", excBase);
-  } else if (incBase) {
-    p.set("taxon_id", incBase);
-  }
-  if (excBase && ef !== "introduced") {
+  if (incBase) p.set("taxon_id", incBase);
+  if (excBase) {
     const existing = p.get("without_taxon_id");
     const merged = mergeTaxonCsvParam(existing || "", parseTaxonCsvParam(excBase));
     if (merged) p.set("without_taxon_id", merged);
@@ -1055,21 +1129,50 @@ function commonParams(options = {}) {
   } else if (photosOn) p.set("photos", "true");
   else if (soundsOn) p.set("sounds", "true");
 
-  const days = parseInt(el.uploadedDays.value, 10);
-  if (!Number.isNaN(days) && days >= 1) {
+  const uploadDays = parseInt(el.uploadedDays && el.uploadedDays.value, 10);
+  if (!Number.isNaN(uploadDays) && uploadDays >= 1) {
     const d = new Date();
-    d.setUTCDate(d.getUTCDate() - days);
+    d.setUTCDate(d.getUTCDate() - uploadDays);
     d.setUTCHours(0, 0, 0, 0);
     p.set("created_d1", d.toISOString());
   }
 
-  if (el.popularOnly.checked) p.set("popular", "true");
+  const obsDays = parseInt(el.observedDays && el.observedDays.value, 10);
+  if (!Number.isNaN(obsDays) && obsDays >= 1) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - obsDays);
+    const y = d.getUTCFullYear();
+    const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const da = String(d.getUTCDate()).padStart(2, "0");
+    p.set("d1", `${y}-${mo}-${da}`);
+  }
 
-  if (el.filterEndemic && el.filterEndemic.checked) p.set("endemic", "true");
+  if (el.popularOnly.checked) p.set("popular", "true");
 
   applyEvidencePresenceToParams(p);
 
   return p;
+}
+
+/** @returns {"any"|"organism"|"egg"|"nest"|"feather"} */
+function getEvidencePresenceFilter() {
+  const sel = el.filterEvidencePresence;
+  const v = sel && sel.value ? sel.value : "any";
+  if (v === "organism" || v === "egg" || v === "nest" || v === "feather") return v;
+  return "any";
+}
+
+/**
+ * Restrict observations to one Evidence of Presence value (iNat annotation API).
+ * @param {URLSearchParams} p
+ */
+function applyEvidencePresenceToParams(p) {
+  const kind = getEvidencePresenceFilter();
+  if (kind === "any") return;
+  const termVal = EVIDENCE_OF_PRESENCE_TERM_VALUE[kind];
+  if (termVal == null) return;
+  p.set("term_id", String(EVIDENCE_OF_PRESENCE_TERM_ID));
+  p.set("term_value_id", String(termVal));
 }
 
 function joinKingCountyTaxonIdsCsv(kc) {
@@ -1084,8 +1187,7 @@ function joinKingCountyTaxonIdsCsv(kc) {
 async function observationParams(opts = {}) {
   const idBelow = opts.idBelow != null && Number.isFinite(opts.idBelow) ? opts.idBelow : null;
   const idAbove = opts.idAbove != null && Number.isFinite(opts.idAbove) ? opts.idAbove : null;
-  const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  const p = commonParams({});
   p.set("per_page", String(OBS_PER_PAGE));
   const sort = el.sortMode.value;
   if (sort === "faves") {
@@ -1096,6 +1198,14 @@ async function observationParams(opts = {}) {
     p.set("order_by", "created_at");
     p.set("order", "asc");
     if (idAbove != null) p.set("id_above", String(Math.floor(idAbove)));
+  } else if (sort === "obs_oldest") {
+    p.set("order_by", "observed_on");
+    p.set("order", "asc");
+    if (idAbove != null) p.set("id_above", String(Math.floor(idAbove)));
+  } else if (sort === "obs_recent") {
+    p.set("order_by", "observed_on");
+    p.set("order", "desc");
+    if (idBelow != null) p.set("id_below", String(Math.floor(idBelow)));
   } else {
     p.set("order_by", "created_at");
     p.set("order", "desc");
@@ -1109,6 +1219,23 @@ function observationCreatedAtMs(obs) {
   if (obs && obs.created_at) {
     const t = Date.parse(obs.created_at);
     if (!Number.isNaN(t)) return t;
+  }
+  const id = obs && obs.id != null ? Number(obs.id) : 0;
+  return Number.isFinite(id) ? id : 0;
+}
+
+/** Epoch ms for observed date/time; falls back to `observed_on` date-only then observation id. */
+function observationObservedOnMs(obs) {
+  if (obs && obs.time_observed_at) {
+    const t = Date.parse(obs.time_observed_at);
+    if (!Number.isNaN(t)) return t;
+  }
+  if (obs && obs.observed_on) {
+    const raw = String(obs.observed_on).trim();
+    if (raw) {
+      const t = Date.parse(`${raw}T12:00:00Z`);
+      if (!Number.isNaN(t)) return t;
+    }
   }
   const id = obs && obs.id != null ? Number(obs.id) : 0;
   return Number.isFinite(id) ? id : 0;
@@ -1135,6 +1262,30 @@ function sortObservationResultsForDisplay(results) {
       const tb = observationCreatedAtMs(b);
       if (ta !== tb) return ta - tb;
       return (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
+  }
+  if (el.sortMode.value === "recent") {
+    return [...results].sort((a, b) => {
+      const ta = observationCreatedAtMs(a);
+      const tb = observationCreatedAtMs(b);
+      if (tb !== ta) return tb - ta;
+      return (Number(b.id) || 0) - (Number(a.id) || 0);
+    });
+  }
+  if (el.sortMode.value === "obs_oldest") {
+    return [...results].sort((a, b) => {
+      const ta = observationObservedOnMs(a);
+      const tb = observationObservedOnMs(b);
+      if (ta !== tb) return ta - tb;
+      return (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
+  }
+  if (el.sortMode.value === "obs_recent") {
+    return [...results].sort((a, b) => {
+      const ta = observationObservedOnMs(a);
+      const tb = observationObservedOnMs(b);
+      if (tb !== ta) return tb - ta;
+      return (Number(b.id) || 0) - (Number(a.id) || 0);
     });
   }
   return results;
@@ -1339,6 +1490,7 @@ async function fetchAllObservationsForStatsAggregation() {
   const out = [];
   let page = 1;
   const maxPages = Math.ceil(STATS_LOCAL_MAX_TOTAL / STATS_FETCH_PER_PAGE) + 5;
+  const kc = establishmentClientFilterActive() ? await ensureKingCountyNoxiousData() : null;
   while (page <= maxPages) {
     const p = new URLSearchParams(base);
     p.set("page", String(page));
@@ -1347,7 +1499,10 @@ async function fetchAllObservationsForStatsAggregation() {
     const j = await res.json();
     const rows = j.results || [];
     if (!rows.length) break;
-    for (const obs of rows) out.push(obs);
+    for (const obs of rows) {
+      if (kc && !observationPassesEstablishmentCheckboxes(obs, kc)) continue;
+      out.push(obs);
+    }
     if (rows.length < STATS_FETCH_PER_PAGE) break;
     page += 1;
   }
@@ -1624,6 +1779,7 @@ function getCardMetaOptions() {
   return {
     faves: el.metaFaves.checked,
     speciesCount: el.metaSpeciesCount.checked,
+    observer: el.metaObserver && el.metaObserver.checked,
     location: el.metaLocation.checked,
     nativeStatus: el.metaNativeStatus.checked,
     grade: el.metaGrade.checked,
@@ -1783,6 +1939,13 @@ function observationObservedOnLine(obs) {
   return "";
 }
 
+function observationObserverLine(obs) {
+  if (!obs || typeof obs !== "object") return "";
+  const u = obs.user;
+  const login = u && typeof u.login === "string" ? u.login.trim() : "";
+  return login;
+}
+
 function observationMetaHtmlParts(obs, kcData) {
   const o = getCardMetaOptions();
   const parts = [];
@@ -1792,6 +1955,12 @@ function observationMetaHtmlParts(obs, kcData) {
     if (c > 0) {
       const t = c === 1 ? "1 favorite" : `${c} favorites`;
       parts.push(`<p class="card-meta-line">${escapeHtml(t)}</p>`);
+    }
+  }
+  if (o.observer) {
+    const login = observationObserverLine(obs);
+    if (login) {
+      parts.push(`<p class="card-meta-line">${escapeHtml(login)}</p>`);
     }
   }
   if (o.location) {
@@ -1917,24 +2086,76 @@ async function runObservationSearch(reset) {
       el.resultsGrid.innerHTML = "";
     }
 
-    const res = await inatFetch(
-      `observations?${(await observationParams({
-        idBelow: obsListCursorId,
-        idAbove: obsListCursorAscId,
-      })).toString()}`
-    );
-    if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    const data = await res.json();
-    const results = sortObservationResultsForDisplay(data.results || []);
-    totalObs = data.total_results || 0;
+    const metaOptsEarly = getCardMetaOptions();
+    const estFilterActive = establishmentClientFilterActive();
+    let kcForEstablishment = null;
+    if (estFilterActive || metaOptsEarly.nativeStatus) {
+      kcForEstablishment = await ensureKingCountyNoxiousData();
+    }
 
-    const rawIds = results.map((o) => (o && o.id != null ? Number(o.id) : NaN)).filter((n) => Number.isFinite(n));
-    if (rawIds.length) {
-      if (el.sortMode.value === "oldest") {
-        obsListCursorAscId = Math.max(...rawIds);
-      } else {
-        obsListCursorId = Math.min(...rawIds);
+    let lastBatchLen = 0;
+    let lastIterAppended = 0;
+    let innerAttempts = 0;
+    const maxInnerAttempts = 20;
+
+    while (innerAttempts < maxInnerAttempts) {
+      innerAttempts += 1;
+      const res = await inatFetch(
+        `observations?${(await observationParams({
+          idBelow: obsListCursorId,
+          idAbove: obsListCursorAscId,
+        })).toString()}`
+      );
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = await res.json();
+      totalObs = data.total_results || 0;
+      const batch = sortObservationResultsForDisplay(data.results || []);
+      lastBatchLen = batch.length;
+
+      const rawIds = batch.map((o) => (o && o.id != null ? Number(o.id) : NaN)).filter((n) => Number.isFinite(n));
+      if (rawIds.length) {
+        if (el.sortMode.value === "oldest" || el.sortMode.value === "obs_oldest") {
+          obsListCursorAscId = Math.max(...rawIds);
+        } else {
+          obsListCursorId = Math.min(...rawIds);
+        }
       }
+
+      const forDisplay = estFilterActive
+        ? batch.filter((o) => observationPassesEstablishmentCheckboxes(o, kcForEstablishment))
+        : batch;
+
+      const metaOpts = getCardMetaOptions();
+      let kcData = null;
+      if (metaOpts.nativeStatus) {
+        kcData = kcForEstablishment || (await ensureKingCountyNoxiousData());
+      }
+
+      const frag = document.createDocumentFragment();
+      let iterAppended = 0;
+      for (const obs of forDisplay) {
+        const oid = obs && obs.id != null ? Number(obs.id) : NaN;
+        if (!Number.isFinite(oid) || obsSeenIds.has(oid)) continue;
+        obsSeenIds.add(oid);
+        const name = obs.taxon?.preferred_common_name || obs.taxon?.name || obs.species_guess || "Unknown";
+        const imageUrl = obs.photos?.[0]?.url ? mediumPhotoUrl(obs.photos[0].url) : "";
+        frag.appendChild(
+          renderCard({
+            href: `https://www.inaturalist.org/observations/${obs.id}`,
+            name,
+            imageUrl,
+            metaParts: observationMetaHtmlParts(obs, kcData),
+            saveObservation: obs,
+          })
+        );
+        iterAppended += 1;
+      }
+      el.resultsGrid.appendChild(frag);
+      obsCardCount += iterAppended;
+      lastIterAppended = iterAppended;
+
+      if (iterAppended > 0) break;
+      if (batch.length === 0) break;
     }
 
     if (reset) {
@@ -1951,36 +2172,12 @@ async function runObservationSearch(reset) {
       })();
     }
 
-    const metaOpts = getCardMetaOptions();
-    let kcData = null;
-    if (metaOpts.nativeStatus) {
-      kcData = await ensureKingCountyNoxiousData();
+    const stuckWithNoNewCards = lastBatchLen > 0 && lastIterAppended === 0 && !establishmentClientFilterActive();
+    if (establishmentClientFilterActive()) {
+      obsHasMore = lastBatchLen === OBS_PER_PAGE;
+    } else {
+      obsHasMore = !stuckWithNoNewCards && obsCardCount < totalObs && lastBatchLen > 0;
     }
-
-    const frag = document.createDocumentFragment();
-    let appended = 0;
-    for (const obs of results) {
-      const oid = obs && obs.id != null ? Number(obs.id) : NaN;
-      if (!Number.isFinite(oid) || obsSeenIds.has(oid)) continue;
-      obsSeenIds.add(oid);
-      const name = obs.taxon?.preferred_common_name || obs.taxon?.name || obs.species_guess || "Unknown";
-      const imageUrl = obs.photos?.[0]?.url ? mediumPhotoUrl(obs.photos[0].url) : "";
-      frag.appendChild(renderCard({
-        href: `https://www.inaturalist.org/observations/${obs.id}`,
-        name,
-        imageUrl,
-        metaParts: observationMetaHtmlParts(obs, kcData),
-        saveObservation: obs,
-      }));
-      appended += 1;
-    }
-    el.resultsGrid.appendChild(frag);
-    obsCardCount += appended;
-
-    const loaded = obsCardCount;
-    const gotBatch = results.length > 0;
-    const stuckWithNoNewCards = gotBatch && appended === 0;
-    obsHasMore = !stuckWithNoNewCards && loaded < totalObs && gotBatch;
     updateSearchSummaryElements();
     syncUrl();
   } catch (err) {
@@ -2363,6 +2560,10 @@ async function mapFilterKey() {
   p.delete("lng");
   p.delete("radius");
   p.delete("geo");
+  p.set("_sort", el.sortMode.value);
+  const est = formatEstablishmentForUrl();
+  if (est) p.set("_est", est);
+  else p.delete("_est");
   p.sort();
   return p.toString();
 }
@@ -2390,7 +2591,10 @@ async function runMapSearch(forceRecheck) {
     if (seq !== mapSearchSeq) return;
     const totalInArea = countData.total_results || 0;
 
-    if (totalInArea < MAP_PIN_THRESHOLD) {
+    const pinEstablishmentFilter = establishmentClientFilterActive();
+    const usePins = totalInArea < MAP_PIN_THRESHOLD || pinEstablishmentFilter;
+
+    if (usePins) {
       removeHeatLayer();
       currentHeatUrl = null;
       mapMode = "pins";
@@ -2402,7 +2606,11 @@ async function runMapSearch(forceRecheck) {
       if (!pinRes.ok) throw new Error(`Request failed (${pinRes.status})`);
       const pinData = await pinRes.json();
       if (seq !== mapSearchSeq) return;
-      const observations = pinData.results || [];
+      let observations = pinData.results || [];
+      if (pinEstablishmentFilter) {
+        const kcPins = await ensureKingCountyNoxiousData();
+        observations = observations.filter((o) => observationPassesEstablishmentCheckboxes(o, kcPins));
+      }
 
       const pinR = mapPinMarkerRadius();
       const newPins = L.layerGroup();
@@ -2609,15 +2817,17 @@ function syncUrl() {
   const ud = el.uploadedDays.value.trim();
   if (ud) q.set("days", ud);
   else q.delete("days");
+  const od = el.observedDays && el.observedDays.value.trim();
+  if (od) q.set("odays", od);
+  else q.delete("odays");
   if (el.popularOnly.checked) q.set("popular", "1");
   else q.delete("popular");
 
-  const establish = el.filterNativeStatus && el.filterNativeStatus.value ? el.filterNativeStatus.value : "any";
-  if (establish && establish !== "any") q.set("establish", establish);
-  else q.delete("establish");
-
-  if (el.filterEndemic && el.filterEndemic.checked) q.set("endemic", "1");
-  else q.delete("endemic");
+  const est = formatEstablishmentForUrl();
+  if (est) q.set("est", est);
+  else q.delete("est");
+  q.delete("establish");
+  q.delete("endemic");
 
   const evidence = getEvidencePresenceFilter();
   if (evidence !== "any") q.set("evidence", evidence);
@@ -2697,19 +2907,15 @@ function readUrl() {
   el.qualityGrade.value = q.get("grade") || "";
   {
     const s = q.get("sort") || "recent";
-    el.sortMode.value = s === "oldest" || s === "faves" ? s : "recent";
+    const allowed = new Set(["recent", "oldest", "faves", "obs_recent", "obs_oldest"]);
+    el.sortMode.value = allowed.has(s) ? s : "recent";
   }
   applyMediaFromQuery(q);
   el.uploadedDays.value = q.get("days") || "";
+  if (el.observedDays) el.observedDays.value = q.get("odays") || "";
   el.popularOnly.checked = q.get("popular") === "1";
 
-  if (el.filterNativeStatus) {
-    const es = q.get("establish");
-    el.filterNativeStatus.value = es === "native" || es === "introduced" || es === "invasive" ? es : "any";
-  }
-  if (el.filterEndemic) {
-    el.filterEndemic.checked = q.get("endemic") === "1" || q.get("endemic") === "true";
-  }
+  parseEstablishmentFromQuery(q);
 
   if (el.filterEvidencePresence) {
     const ev = (q.get("evidence") || "").toLowerCase();
@@ -3074,6 +3280,13 @@ function wireFilterExtras() {
   el.mediaPhotos.addEventListener("change", onChange);
   el.mediaSounds.addEventListener("change", onChange);
   el.uploadedDays.addEventListener("change", onChange);
+  if (el.observedDays) {
+    el.observedDays.addEventListener("change", () => {
+      lastMapFilterKey = null;
+      onChange();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
   el.popularOnly.addEventListener("change", onChange);
   el.radiusKm.addEventListener("input", () => {
     void onLocationFilterChanged();
@@ -3120,19 +3333,17 @@ function wireFilterExtras() {
   if (el.metaObsDate) el.metaObsDate.addEventListener("change", onMeta);
   if (el.metaPhotoPage) el.metaPhotoPage.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
+  if (el.metaObserver) el.metaObserver.addEventListener("change", onMeta);
 
-  if (el.filterNativeStatus) {
-    el.filterNativeStatus.addEventListener("change", () => {
-      lastMapFilterKey = null;
-      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
-    });
-  }
-  if (el.filterEndemic) {
-    el.filterEndemic.addEventListener("change", () => {
-      lastMapFilterKey = null;
-      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
-    });
-  }
+  const onEstablishmentChange = () => {
+    lastMapFilterKey = null;
+    scheduleUrlSync();
+    queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+  };
+  if (el.filterEstEndemic) el.filterEstEndemic.addEventListener("change", onEstablishmentChange);
+  if (el.filterEstNative) el.filterEstNative.addEventListener("change", onEstablishmentChange);
+  if (el.filterEstIntroduced) el.filterEstIntroduced.addEventListener("change", onEstablishmentChange);
+  if (el.filterEstInvasive) el.filterEstInvasive.addEventListener("change", onEstablishmentChange);
 }
 
 function wireButtons() {
@@ -3157,17 +3368,18 @@ function wireButtons() {
     el.mediaPhotos.checked = true;
     el.mediaSounds.checked = false;
     el.uploadedDays.value = "";
+    if (el.observedDays) el.observedDays.value = "";
     el.popularOnly.checked = false;
     el.metaFaves.checked = true;
     el.metaSpeciesCount.checked = true;
+    if (el.metaObserver) el.metaObserver.checked = false;
     el.metaLocation.checked = false;
     el.metaNativeStatus.checked = false;
     el.metaGrade.checked = false;
     if (el.metaObsDate) el.metaObsDate.checked = false;
     if (el.metaPhotoPage) el.metaPhotoPage.checked = false;
     el.metaSciName.checked = false;
-    if (el.filterNativeStatus) el.filterNativeStatus.value = "any";
-    if (el.filterEndemic) el.filterEndemic.checked = false;
+    setEstablishmentCheckboxes({ endemic: true, native: true, introduced: true, invasive: true });
     if (el.filterEvidencePresence) el.filterEvidencePresence.value = "any";
     el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
       x.checked = false;

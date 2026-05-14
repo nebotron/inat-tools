@@ -67,19 +67,16 @@
                 <div id="months-grid" class="months-grid" role="group" aria-label="Months of the year"></div>
               </fieldset>
 
-              <div class="field">
-                <label for="filter-native-status">Native / introduced / invasive</label>
-                <select id="filter-native-status">
-                  <option value="any" selected>Any</option>
-                  <option value="native">Native</option>
-                  <option value="introduced">Introduced (not King County noxious)</option>
-                  <option value="invasive">Invasive (King County noxious weed list)</option>
-                </select>
-              </div>
-
-              <div class="field field--checkbox-row">
-                <label class="checkbox-row-label"><input type="checkbox" id="filter-endemic" /> Endemic only</label>
-              </div>
+              <fieldset class="months-fieldset establishment-fieldset">
+                <legend>Native / introduced / invasive / endemic</legend>
+                <p class="establishment-fieldset-hint">Uncheck a category to hide those observations. All checked shows every category.</p>
+                <div class="card-meta-checks">
+                  <label class="card-meta-label"><input type="checkbox" id="filter-est-endemic" checked /> Endemic</label>
+                  <label class="card-meta-label"><input type="checkbox" id="filter-est-native" checked /> Native</label>
+                  <label class="card-meta-label"><input type="checkbox" id="filter-est-introduced" checked /> Introduced</label>
+                  <label class="card-meta-label"><input type="checkbox" id="filter-est-invasive" checked /> Invasive (King County noxious)</label>
+                </div>
+              </fieldset>
 
               <div class="field">
                 <label for="quality-grade">Quality grade</label>
@@ -107,8 +104,15 @@
                 <select id="sort-mode">
                   <option value="recent" selected>Most recently uploaded</option>
                   <option value="oldest">Least recently uploaded</option>
+                  <option value="obs_recent">Most recently observed</option>
+                  <option value="obs_oldest">Least recently observed</option>
                   <option value="faves">Most faved</option>
                 </select>
+              </div>
+
+              <div class="field">
+                <label for="observed-days">Observed within last N days</label>
+                <input id="observed-days" type="number" min="1" max="3650" step="1" placeholder="e.g. 7" />
               </div>
 
               <div class="field">
@@ -130,6 +134,7 @@
                 <div class="card-meta-checks">
                   <label class="card-meta-label"><input type="checkbox" id="meta-faves" checked /> Favorites count</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-species-count" checked /> Observations per species</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-observer" /> Observer</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-location" /> Location</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-native-status" /> Native status</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-grade" /> Grade</label>
@@ -213,6 +218,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=stats-local-agg1" type="module"></script>
+    <script src="app.js?v=explore-est-time-meta1" type="module"></script>
   </body>
 </html>
