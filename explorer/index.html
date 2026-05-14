@@ -137,6 +137,7 @@
                   <label class="card-meta-label"><input type="checkbox" id="meta-observer" /> Observer</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-location" /> Location</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-native-status" /> Native status</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-conservation-status" /> Conservation status</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-grade" /> Grade</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-obs-date" /> Observation date</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-photo-page" /> Photo page</label>
@@ -156,11 +157,16 @@
 
         <section id="panel-observations" class="view-panel hidden" role="tabpanel" hidden>
           <p id="error-banner-obs" class="error-banner" role="alert" hidden></p>
-          <div class="search-summary-bar" role="region" aria-label="Observation results summary">
+          <div class="search-summary-bar search-summary-bar--obs" role="region" aria-label="Observation results summary">
             <p id="search-summary-obs" class="search-summary-text" aria-live="polite"></p>
-            <button type="button" id="btn-refresh-observations" class="btn-icon-refresh" aria-label="Refresh observations" title="Refresh">
+            <div class="search-summary-actions">
+              <button type="button" id="btn-jump-last-obs" class="btn secondary btn-summary-action" disabled aria-label="Scroll to the last observation you were viewing" title="Scroll to the last observation you were viewing">
+                Last place
+              </button>
+              <button type="button" id="btn-refresh-observations" class="btn-icon-refresh" aria-label="Refresh observations" title="Refresh">
               <svg class="btn-icon-refresh__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
             </button>
+            </div>
           </div>
           <div id="results-grid" class="results-grid"></div>
           <div id="obs-sentinel" class="scroll-sentinel" aria-hidden="true"></div>
@@ -218,6 +224,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=explore-est-time-meta1" type="module"></script>
+    <script src="app.js?v=obs-scroll-conservation1" type="module"></script>
   </body>
 </html>

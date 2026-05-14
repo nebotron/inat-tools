@@ -1,6 +1,9 @@
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
 
+const OBS_SCROLL_SESSION_ID = "inatExplorerObsScrollId";
+const OBS_SCROLL_SESSION_TOP = "inatExplorerObsScrollTop";
+
 /** iNaturalist controlled term "Evidence of Presence" (`GET /controlled_terms`). */
 const EVIDENCE_OF_PRESENCE_TERM_ID = 22;
 /** `term_value_id` for each filter option (Organism = animal present; Construction = nests, burrows, etc.). */
@@ -235,6 +238,7 @@ const el = {
   metaObserver: document.getElementById("meta-observer"),
   metaLocation: document.getElementById("meta-location"),
   metaNativeStatus: document.getElementById("meta-native-status"),
+  metaConservationStatus: document.getElementById("meta-conservation-status"),
   metaGrade: document.getElementById("meta-grade"),
   metaObsDate: document.getElementById("meta-obs-date"),
   metaPhotoPage: document.getElementById("meta-photo-page"),
@@ -243,6 +247,7 @@ const el = {
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
   btnRefreshObservations: document.getElementById("btn-refresh-observations"),
+  btnJumpLastObs: document.getElementById("btn-jump-last-obs"),
   btnRefreshSpecies: document.getElementById("btn-refresh-species"),
   btnRefreshMap: document.getElementById("btn-refresh-map"),
   btnRefreshStats: document.getElementById("btn-refresh-stats"),
@@ -286,6 +291,7 @@ let placeDebounce = null;
 let unobsDebounce = null;
 /** Debounce URL updates from the Filters tab (no iNaturalist list/map API calls until a result tab is opened). */
 let urlSyncDebounce = null;
+let obsScrollSaveDebounce = null;
 let taxonHighlight = -1;
 let placeHighlight = -1;
 let unobsHighlight = -1;
@@ -895,6 +901,7 @@ function parseCardMetaQuery(q) {
       observer: false,
       location: false,
       nativeStatus: false,
+      conservationStatus: false,
       grade: false,
       obsDate: false,
       photoPage: false,
@@ -909,6 +916,7 @@ function parseCardMetaQuery(q) {
       observer: false,
       location: false,
       nativeStatus: false,
+      conservationStatus: false,
       grade: false,
       obsDate: false,
       photoPage: false,
@@ -927,6 +935,7 @@ function parseCardMetaQuery(q) {
     observer: set.has("obs"),
     location: set.has("loc"),
     nativeStatus: set.has("nat"),
+    conservationStatus: set.has("cns"),
     grade: set.has("grd"),
     obsDate: set.has("obsd"),
     /** `pp` = photo page link; `cam` kept for older shared URLs (same feature now). */
@@ -942,6 +951,7 @@ function applyCardMetaFromQuery(q) {
   if (el.metaObserver) el.metaObserver.checked = o.observer;
   el.metaLocation.checked = o.location;
   el.metaNativeStatus.checked = o.nativeStatus;
+  if (el.metaConservationStatus) el.metaConservationStatus.checked = o.conservationStatus;
   el.metaGrade.checked = o.grade;
   if (el.metaObsDate) el.metaObsDate.checked = o.obsDate;
   if (el.metaPhotoPage) el.metaPhotoPage.checked = o.photoPage;
@@ -954,18 +964,20 @@ function formatCardMetaQuery() {
   const obs = el.metaObserver && el.metaObserver.checked;
   const loc = el.metaLocation.checked;
   const nat = el.metaNativeStatus.checked;
+  const cns = el.metaConservationStatus && el.metaConservationStatus.checked;
   const grd = el.metaGrade.checked;
   const obsd = el.metaObsDate && el.metaObsDate.checked;
   const pp = el.metaPhotoPage && el.metaPhotoPage.checked;
   const sci = el.metaSciName.checked;
-  if (fav && spc && !obs && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
-  if (!fav && spc && !obs && !loc && !nat && !grd && !obsd && !pp && !sci) return null;
+  if (fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci) return null;
+  if (!fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
   if (obs) parts.push("obs");
   if (loc) parts.push("loc");
   if (nat) parts.push("nat");
+  if (cns) parts.push("cns");
   if (grd) parts.push("grd");
   if (obsd) parts.push("obsd");
   if (pp) parts.push("pp");
@@ -1782,6 +1794,7 @@ function getCardMetaOptions() {
     observer: el.metaObserver && el.metaObserver.checked,
     location: el.metaLocation.checked,
     nativeStatus: el.metaNativeStatus.checked,
+    conservationStatus: el.metaConservationStatus && el.metaConservationStatus.checked,
     grade: el.metaGrade.checked,
     obsDate: el.metaObsDate && el.metaObsDate.checked,
     photoPage: el.metaPhotoPage && el.metaPhotoPage.checked,
@@ -1795,6 +1808,19 @@ function formatQualityGradeLabel(qg) {
   if (g === "needs_id") return "Needs ID";
   if (g === "casual") return "Casual";
   return "";
+}
+
+/** Human-readable conservation line from iNaturalist `taxon.conservation_status`. */
+function conservationStatusMetaLine(taxon) {
+  const cs = taxon && taxon.conservation_status;
+  if (!cs || typeof cs !== "object") return "";
+  const name = typeof cs.status_name === "string" ? cs.status_name.trim() : "";
+  const auth = typeof cs.authority === "string" ? cs.authority.trim() : "";
+  const code = typeof cs.status === "string" ? cs.status.trim().toUpperCase() : "";
+  const label = name ? name.charAt(0).toUpperCase() + name.slice(1) : code;
+  if (!label) return "";
+  if (auth) return `${label} (${auth})`;
+  return label;
 }
 
 /**
@@ -1976,6 +2002,10 @@ function observationMetaHtmlParts(obs, kcData) {
     const h = renderMetaSegmentsHtml(segs);
     if (h) parts.push(h);
   }
+  if (o.conservationStatus) {
+    const line = conservationStatusMetaLine(obs && obs.taxon);
+    if (line) parts.push(`<p class="card-meta-line">${escapeHtml(line)}</p>`);
+  }
   if (o.grade) {
     const gl = formatQualityGradeLabel(obs.quality_grade);
     if (gl) parts.push(`<p class="card-meta-line">${escapeHtml(gl)}</p>`);
@@ -2011,6 +2041,14 @@ function speciesMetaParts(row, obsTaxonById, kcData) {
     const h = renderMetaSegmentsHtml(segs);
     if (h) parts.push(h);
   }
+  if (o.conservationStatus) {
+    const taxon = row.taxon || {};
+    const tid = taxon.id != null ? Number(taxon.id) : NaN;
+    const rich = !Number.isNaN(tid) && obsTaxonById ? obsTaxonById.get(tid) : null;
+    const tCon = rich || taxon;
+    const line = conservationStatusMetaLine(tCon);
+    if (line) parts.push(`<p class="card-meta-line">${escapeHtml(line)}</p>`);
+  }
   if (o.sciName) {
     const taxon = row.taxon || {};
     const sci = typeof taxon.name === "string" ? taxon.name.trim() : "";
@@ -2019,9 +2057,13 @@ function speciesMetaParts(row, obsTaxonById, kcData) {
   return parts;
 }
 
-function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation }) {
+function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation, observationId }) {
   const card = document.createElement("article");
   card.className = "card";
+  const oid = observationId != null ? Number(observationId) : NaN;
+  if (Number.isFinite(oid) && oid > 0) {
+    card.dataset.obsId = String(Math.floor(oid));
+  }
   const metaBlock = metaParts != null
     ? metaParts.join("")
     : metaLines.length
@@ -2146,6 +2188,7 @@ async function runObservationSearch(reset) {
             imageUrl,
             metaParts: observationMetaHtmlParts(obs, kcData),
             saveObservation: obs,
+            observationId: oid,
           })
         );
         iterAppended += 1;
@@ -2184,6 +2227,7 @@ async function runObservationSearch(reset) {
     showError("obs", err.message || "Could not load observations.");
   } finally {
     obsLoading = false;
+    updateObsJumpLastButton();
   }
 }
 
@@ -2224,8 +2268,10 @@ async function runSpeciesSearch(reset) {
     const metaOpts = getCardMetaOptions();
     let kcData = null;
     let obsTaxonById = null;
-    if (metaOpts.nativeStatus) {
-      kcData = await ensureKingCountyNoxiousData();
+    if (metaOpts.nativeStatus || metaOpts.conservationStatus) {
+      if (metaOpts.nativeStatus) {
+        kcData = await ensureKingCountyNoxiousData();
+      }
       const ids = results.map((r) => r.taxon && r.taxon.id).filter((id) => id != null);
       obsTaxonById = await fetchObservationTaxonById(ids);
     }
@@ -2747,6 +2793,9 @@ async function switchView(view) {
   } else if (view === "detail" && detailTaxonId) {
     await loadDetailFromTaxonId(detailTaxonId);
   }
+  if (view === "observations") {
+    updateObsJumpLastButton();
+  }
 }
 
 function syncUrl() {
@@ -3235,6 +3284,127 @@ function wireTabs() {
   });
 }
 
+function readObsScrollMemory() {
+  try {
+    const rawId = sessionStorage.getItem(OBS_SCROLL_SESSION_ID);
+    const rawTop = sessionStorage.getItem(OBS_SCROLL_SESSION_TOP);
+    const id = rawId != null && rawId !== "" ? Number(rawId) : NaN;
+    const scrollTop = rawTop != null && rawTop !== "" ? Number(rawTop) : 0;
+    return {
+      id: Number.isFinite(id) && id > 0 ? id : null,
+      scrollTop: Number.isFinite(scrollTop) && scrollTop > 0 ? scrollTop : 0,
+    };
+  } catch {
+    return { id: null, scrollTop: 0 };
+  }
+}
+
+function findObsCardIdNearViewportCenter() {
+  if (!el.panelObs || !el.resultsGrid) return null;
+  const panel = el.panelObs;
+  const prect = panel.getBoundingClientRect();
+  const midY = prect.top + prect.height / 2;
+  const cards = el.resultsGrid.querySelectorAll(".card[data-obs-id]");
+  let bestId = null;
+  let bestDist = Infinity;
+  for (const c of cards) {
+    const cr = c.getBoundingClientRect();
+    if (cr.bottom < prect.top || cr.top > prect.bottom) continue;
+    const cy = cr.top + cr.height / 2;
+    const d = Math.abs(cy - midY);
+    if (d < bestDist) {
+      bestDist = d;
+      const oid = Number(c.dataset.obsId);
+      if (Number.isFinite(oid) && oid > 0) bestId = oid;
+    }
+  }
+  return bestId;
+}
+
+function updateObsJumpLastButton() {
+  const btn = el.btnJumpLastObs;
+  if (!btn) return;
+  const { id, scrollTop } = readObsScrollMemory();
+  btn.disabled = id == null && scrollTop < 12;
+}
+
+function writeObsScrollMemory(obsId, scrollTop) {
+  const prev = readObsScrollMemory();
+  const id = obsId != null && Number.isFinite(obsId) && obsId > 0 ? Math.floor(obsId) : prev.id;
+  const top = Number.isFinite(scrollTop) && scrollTop >= 0 ? Math.floor(scrollTop) : prev.scrollTop;
+  try {
+    if (id != null) sessionStorage.setItem(OBS_SCROLL_SESSION_ID, String(id));
+    sessionStorage.setItem(OBS_SCROLL_SESSION_TOP, String(Math.max(0, top)));
+  } catch {
+    /* quota / private mode */
+  }
+  updateObsJumpLastButton();
+}
+
+function flushObsScrollMemorySave() {
+  obsScrollSaveDebounce = null;
+  if (!el.panelObs || currentView !== "observations") return;
+  const st = el.panelObs.scrollTop;
+  const centerId = findObsCardIdNearViewportCenter();
+  const prev = readObsScrollMemory();
+  writeObsScrollMemory(centerId != null ? centerId : prev.id, st);
+}
+
+function scheduleObsScrollMemorySave() {
+  if (obsScrollSaveDebounce != null) clearTimeout(obsScrollSaveDebounce);
+  obsScrollSaveDebounce = setTimeout(() => {
+    obsScrollSaveDebounce = null;
+    flushObsScrollMemorySave();
+  }, 200);
+}
+
+function jumpToLastObsScrollPosition() {
+  if (!el.panelObs) return;
+  const { id, scrollTop } = readObsScrollMemory();
+  const panel = el.panelObs;
+  if (id != null && el.resultsGrid) {
+    const elCard = el.resultsGrid.querySelector(`.card[data-obs-id="${id}"]`);
+    if (elCard) {
+      elCard.scrollIntoView({ block: "center", behavior: "smooth" });
+      requestAnimationFrame(() => {
+        writeObsScrollMemory(id, panel.scrollTop);
+      });
+      return;
+    }
+  }
+  const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
+  const target = Math.min(Math.max(0, scrollTop), maxScroll);
+  panel.scrollTo({ top: target, behavior: "smooth" });
+}
+
+function wireObservationScrollMemory() {
+  updateObsJumpLastButton();
+  if (!el.panelObs) return;
+  el.panelObs.addEventListener(
+    "scroll",
+    () => {
+      if (currentView !== "observations") return;
+      scheduleObsScrollMemorySave();
+    },
+    { passive: true }
+  );
+  if (el.resultsGrid) {
+    el.resultsGrid.addEventListener("pointerdown", (e) => {
+      if (currentView !== "observations") return;
+      const card = e.target && e.target.closest && e.target.closest(".card[data-obs-id]");
+      if (!card) return;
+      const oid = Number(card.dataset.obsId);
+      if (!Number.isFinite(oid) || oid <= 0) return;
+      writeObsScrollMemory(oid, el.panelObs.scrollTop);
+    });
+  }
+  if (el.btnJumpLastObs) {
+    el.btnJumpLastObs.addEventListener("click", () => {
+      jumpToLastObsScrollPosition();
+    });
+  }
+}
+
 function wireInfiniteScroll() {
   const opts = { rootMargin: "120px" };
   const obsObserver = new IntersectionObserver((entries) => {
@@ -3329,6 +3499,7 @@ function wireFilterExtras() {
   el.metaSpeciesCount.addEventListener("change", onMeta);
   el.metaLocation.addEventListener("change", onMeta);
   el.metaNativeStatus.addEventListener("change", onMeta);
+  if (el.metaConservationStatus) el.metaConservationStatus.addEventListener("change", onMeta);
   el.metaGrade.addEventListener("change", onMeta);
   if (el.metaObsDate) el.metaObsDate.addEventListener("change", onMeta);
   if (el.metaPhotoPage) el.metaPhotoPage.addEventListener("change", onMeta);
@@ -3375,6 +3546,7 @@ function wireButtons() {
     if (el.metaObserver) el.metaObserver.checked = false;
     el.metaLocation.checked = false;
     el.metaNativeStatus.checked = false;
+    if (el.metaConservationStatus) el.metaConservationStatus.checked = false;
     el.metaGrade.checked = false;
     if (el.metaObsDate) el.metaObsDate.checked = false;
     if (el.metaPhotoPage) el.metaPhotoPage.checked = false;
@@ -3610,6 +3782,7 @@ async function boot() {
   wirePlaceField();
   wireTabs();
   wireInfiniteScroll();
+  wireObservationScrollMemory();
   wireFilterExtras();
   wireButtons();
   if (el.btnRefreshObservations) {

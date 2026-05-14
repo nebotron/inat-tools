@@ -101,6 +101,20 @@ main {
   justify-content: flex-end;
 }
 
+.search-summary-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.btn-summary-action {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 .search-summary-text {
   margin: 0;
   flex: 1;
