@@ -5,6 +5,8 @@ const OPEN_TREE_TNRS = "https://api.opentreeoflife.org/v3/tnrs/match_names";
 const TIMETREE_MRCA = "https://timetree.org/api/mrca/id";
 /** Public CORS relay (used only if the browser cannot read TimeTree directly). */
 const ALL_ORIGINS_RAW = "https://api.allorigins.win/raw?url=";
+/** Second relay (`Access-Control-Allow-Origin: *`) when allorigins is down or rate-limited. */
+const CODETABS_PROXY = "https://api.codetabs.com/v1/proxy/?quest=";
 
 const TAXA_FETCH_CHUNK = 40;
 const TNRS_CHUNK = 80;
@@ -54,14 +56,27 @@ async function fetchJsonCorsAny(url) {
   const fetchOpts = { mode: "cors", cache: "no-store" };
   try {
     const res = await fetch(url, fetchOpts);
-    if (res.ok) return await res.json();
+    if (res.ok) {
+      const j = await res.json();
+      if (j && typeof j === "object") return j;
+    }
   } catch {
-    /* fall through to relay */
+    /* e.g. TimeTree has no CORS — browser blocks cross-origin reads */
   }
-  const proxied = `${ALL_ORIGINS_RAW}${encodeURIComponent(url)}`;
-  const res2 = await fetch(proxied, fetchOpts);
-  if (!res2.ok) throw new Error(`Relay fetch failed (${res2.status})`);
-  return await res2.json();
+  /** @type {unknown} */
+  let lastErr = null;
+  for (const proxied of [`${CODETABS_PROXY}${encodeURIComponent(url)}`, `${ALL_ORIGINS_RAW}${encodeURIComponent(url)}`]) {
+    try {
+      const res2 = await fetch(proxied, fetchOpts);
+      if (!res2.ok) continue;
+      const j = await res2.json();
+      if (j && typeof j === "object") return j;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (lastErr instanceof Error) throw lastErr;
+  throw new Error("JSON fetch failed (direct and CORS proxies)");
 }
 
 /**
@@ -221,7 +236,10 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
   const layer = d3.select(inner).append("g").attr("class", "tree-divergence-layer");
 
   for (const task of tasks) {
-    if (mountGen !== d3MountGeneration) return;
+    if (mountGen !== d3MountGeneration) {
+      layer.remove();
+      return;
+    }
 
     const s = task.link.source;
     const t = task.link.target;
@@ -243,7 +261,10 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
       parsed = { age: NaN, low: NaN, high: NaN };
     }
     await new Promise((r) => setTimeout(r, TIMETREE_REQUEST_GAP_MS));
-    if (mountGen !== d3MountGeneration) return;
+    if (mountGen !== d3MountGeneration) {
+      layer.remove();
+      return;
+    }
 
     const label = formatDivergenceMa(parsed.age, parsed.low, parsed.high);
     if (!label) continue;
@@ -270,6 +291,8 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
       .attr("y", 0)
       .text(label);
   }
+
+  if (layer.selectAll(".tree-divergence-bubble").empty()) layer.remove();
 }
 
 function escapeHtml(s) {
