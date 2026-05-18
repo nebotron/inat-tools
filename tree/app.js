@@ -20,13 +20,13 @@ const NODE_VERT_GAP = 14;
 /** Horizontal gap required between adjacent sibling node edges (px). */
 const SIBLING_H_GAP = 12;
 /** Padding inside the node pill around text (px). */
-const NODE_CELL_PAD_X = 6;
-const NODE_CELL_PAD_Y = 4;
-const NODE_MIN_W = 72;
+const NODE_CELL_PAD_X = 4;
+const NODE_CELL_PAD_Y = 3;
+const NODE_MIN_W = 68;
 /** Left strip width on branch nodes for fold/unfold hit target (px). */
-const TOGGLE_STRIP_W = 18;
+const TOGGLE_STRIP_W = 16;
 /** Extra vertical slack inside the pill vs measured text. */
-const LABEL_VPAD = 2;
+const LABEL_VPAD = 1;
 
 /** Approximate average character width (px) for label width estimates at ~11px. */
 const LABEL_CHAR_PX = 6.85;
@@ -402,7 +402,7 @@ function estimateTextBlockWidthPx(d) {
   const sci = String(d.data.scientificName || "").trim();
   const rank = d.data.rank ? String(d.data.rank).trim() : "";
   const wChars = Math.max(common.length, sci.length, rank.length);
-  return wChars * LABEL_CHAR_PX + 28;
+  return wChars * LABEL_CHAR_PX + 20;
 }
 
 /**
@@ -952,8 +952,6 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     const titlePlain = taxonNodeTitlePlain(d);
     g.append("title").text(titlePlain);
 
-    const tw = expandable ? TOGGLE_STRIP_W : 0;
-    const innerTx = tw > 0 ? TOGGLE_STRIP_W / 2 : 0;
     const common = labelDisplayCommonInCell(d);
     const sci = labelDisplayScientificInCell(d);
     const rank = labelDisplayRankInCell(d);
@@ -992,7 +990,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         });
     }
 
-    const labelG = g.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${innerTx},0)`);
+    const labelG = g.append("g").attr("class", "tree-node-label-wrap");
 
     if (ys.hasCommon && common) {
       labelG
