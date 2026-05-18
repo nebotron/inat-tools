@@ -507,6 +507,47 @@ function pathIdsForTaxon(taxon) {
   return out;
 }
 
+/** iNaturalist `rank` slugs kept in the merged tree (Life uses `stateofmatter` in the API). */
+const MAJOR_RANK_SLUGS = new Set([
+  "domain",
+  "kingdom",
+  "phylum",
+  "class",
+  "order",
+  "family",
+  "genus",
+  "species",
+  "hybrid",
+  "stateofmatter",
+]);
+
+/**
+ * @param {string} rankLower
+ */
+function isMajorRankSlug(rankLower) {
+  return MAJOR_RANK_SLUGS.has(rankLower);
+}
+
+/**
+ * Root-to-tip ids along the lineage, keeping only major ranks plus the selected tip (any rank).
+ * @param {object} taxon
+ * @param {Map<number, object>} taxonById
+ * @returns {number[]}
+ */
+function majorRankPathIdsForTaxon(taxon, taxonById) {
+  const full = pathIdsForTaxon(taxon);
+  const selfId = taxon.id != null ? Number(taxon.id) : NaN;
+  const out = [];
+  for (const id of full) {
+    const t = taxonById.get(id);
+    const isTip = Number.isFinite(selfId) && id === selfId;
+    const rk = t && typeof t.rank === "string" ? t.rank.trim().toLowerCase() : "";
+    const keep = isTip || !t || isMajorRankSlug(rk);
+    if (keep && (out.length === 0 || out[out.length - 1] !== id)) out.push(id);
+  }
+  return out;
+}
+
 /**
  * @param {Map<number, object>} taxonById
  * @param {Set<number>} tipIds
@@ -998,7 +1039,7 @@ async function refreshTree() {
     for (const tid of tipIds) {
       const t = taxonById.get(tid);
       if (!t) continue;
-      const path = pathIdsForTaxon(t);
+      const path = majorRankPathIdsForTaxon(t, taxonById);
       if (path.length) insertPath(trieRoot, path);
     }
 
