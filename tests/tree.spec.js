@@ -2,7 +2,7 @@
 import { test, expect } from "@playwright/test";
 
 /** Two common species with a shared insect ancestry (stable iNat taxon ids). */
-const TREE_SEED = "taxa=47219,48662";
+const TREE_SEED = "taxa=47219-48662";
 
 test.describe("taxonomic tree page", () => {
   test("loads merged tree from URL taxa parameter", async ({ page }) => {

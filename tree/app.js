@@ -626,10 +626,15 @@ function compressVirtualRoot(trieRoot) {
   return r;
 }
 
+/**
+ * Parse `taxa` / `ids` query values. Canonical delimiter is `-` (no URL-encoding needed for ids).
+ * Also accepts commas, plus signs, and whitespace for older shared links.
+ * @param {URLSearchParams} q
+ */
 function parseTaxaQuery(q) {
   const raw = q.get("taxa") || q.get("ids") || "";
   const parts = String(raw)
-    .split(/[,+\s]+/)
+    .split(/[,+\s-]+/)
     .map((s) => s.trim())
     .filter(Boolean);
   const ids = [];
@@ -680,7 +685,7 @@ function syncUrlSoon() {
     urlWriteTimer = null;
     const ids = [...tipIds].sort((a, b) => a - b);
     const u = new URL(window.location.href);
-    if (ids.length) u.searchParams.set("taxa", ids.join(","));
+    if (ids.length) u.searchParams.set("taxa", ids.join("-"));
     else u.searchParams.delete("taxa");
     history.replaceState(null, "", `${u.pathname}${u.search}`);
   }, 200);
