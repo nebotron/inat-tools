@@ -286,23 +286,6 @@ body.taxon-tree-page .site-header {
   pointer-events: none;
 }
 
-.tree-node-app-link {
-  cursor: pointer;
-}
-
-.tree-node-app-link:hover .tree-node-app-link-icon {
-  fill: #1b4332;
-}
-
-.tree-node-app-link:focus {
-  outline: none;
-}
-
-.tree-node-app-link:focus .tree-node-app-link-hit {
-  stroke: #2d6a4f;
-  stroke-width: 1.5;
-}
-
 .tree-node-label {
   font-size: 11px;
   font-weight: 600;

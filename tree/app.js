@@ -21,14 +21,8 @@ const SIBLING_H_GAP = 12;
 const NODE_CELL_PAD_X = 6;
 const NODE_CELL_PAD_Y = 4;
 const NODE_MIN_W = 72;
-const NODE_MAX_W = 300;
 /** Left strip width on branch nodes for fold/unfold hit target (px). */
 const TOGGLE_STRIP_W = 18;
-/** Space reserved on the right of the pill for the “open in app” control (px). */
-const APP_LINK_ICON_RESERVE = 24;
-/** “Open in new” style path, viewBox 0 0 24 24 (scaled when drawn). */
-const APP_LINK_ICON_PATH =
-  "M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3h7v7h-2V5.41l-9.83 9.83-1.41-1.41L17.59 5H14V3z";
 /** Extra vertical slack inside the pill vs measured text. */
 const LABEL_VPAD = 2;
 
@@ -258,7 +252,7 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
     const padX = 9;
     const padY = 5;
     const boxH = 20;
-    const estW = Math.min(220, Math.max(44, label.length * charPx + padX * 2));
+    const estW = Math.max(44, label.length * charPx + padX * 2);
 
     const g = layer.append("g").attr("class", "tree-divergence-bubble").attr("transform", `translate(${cx},${midY})`);
     g.append("rect")
@@ -286,12 +280,6 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function truncateLabel(s, max) {
-  const t = String(s).trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, Math.max(0, max - 1))}…`;
-}
-
 /**
  * @param {object | null} taxon
  * @param {number} tid
@@ -308,34 +296,26 @@ function taxonCommonScientificStrings(taxon, tid) {
 
 /**
  * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string }>} d
- * @param {number} innerWidthPx
  */
-function labelDisplayCommonInCell(d, innerWidthPx) {
-  const cap = Math.max(6, Math.floor(innerWidthPx / LABEL_CHAR_PX));
+function labelDisplayCommonInCell(d) {
   const raw = d.data.commonName && String(d.data.commonName).trim();
-  if (!raw) return "";
-  return truncateLabel(raw, Math.min(36, cap));
+  return raw || "";
 }
 
 /**
  * @param {import("d3").HierarchyPointNode<{ scientificName?: string }>} d
- * @param {number} innerWidthPx
  */
-function labelDisplayScientificInCell(d, innerWidthPx) {
-  const cap = Math.max(6, Math.floor(innerWidthPx / LABEL_CHAR_PX));
+function labelDisplayScientificInCell(d) {
   const raw = d.data.scientificName && String(d.data.scientificName).trim();
-  if (!raw) return "";
-  return truncateLabel(raw, Math.min(36, cap));
+  return raw || "";
 }
 
 /**
- * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string }>} d
- * @param {number} innerWidthPx
+ * @param {import("d3").HierarchyPointNode<{ rank?: string }>} d
  */
-function labelDisplayRankInCell(d, innerWidthPx) {
+function labelDisplayRankInCell(d) {
   if (!d.data.rank) return "";
-  const cap = Math.max(4, Math.floor(innerWidthPx / LABEL_CHAR_PX));
-  return truncateLabel(String(d.data.rank), Math.min(22, cap));
+  return String(d.data.rank).trim();
 }
 
 /**
@@ -395,12 +375,11 @@ function labelStackHangYs(d) {
  * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string }>} d
  */
 function estimateTextBlockWidthPx(d) {
-  const cap = 36;
-  const common = d.data.commonName ? truncateLabel(String(d.data.commonName), cap) : "";
-  const sci = truncateLabel(String(d.data.scientificName || ""), cap);
-  const rank = d.data.rank ? truncateLabel(String(d.data.rank), 22) : "";
+  const common = d.data.commonName ? String(d.data.commonName).trim() : "";
+  const sci = String(d.data.scientificName || "").trim();
+  const rank = d.data.rank ? String(d.data.rank).trim() : "";
   const wChars = Math.max(common.length, sci.length, rank.length);
-  return Math.min(wChars * LABEL_CHAR_PX + 18, 300);
+  return wChars * LABEL_CHAR_PX + 28;
 }
 
 /**
@@ -408,7 +387,7 @@ function estimateTextBlockWidthPx(d) {
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
  */
 function nodeBoxWidth(d) {
-  return Math.min(Math.max(estimateTextBlockWidthPx(d) + 2 * NODE_CELL_PAD_X, NODE_MIN_W), NODE_MAX_W);
+  return Math.max(estimateTextBlockWidthPx(d) + 2 * NODE_CELL_PAD_X, NODE_MIN_W);
 }
 
 /**
@@ -487,19 +466,6 @@ function taxonDisplayName(taxon) {
   const nm = typeof taxon.name === "string" ? taxon.name.trim() : "";
   if (cn && nm && cn.toLowerCase() !== nm.toLowerCase()) return `${cn} (${nm})`;
   return cn || nm || `Taxon ${taxon.id ?? ""}`;
-}
-
-/** Taxon page on iNaturalist (HTTPS works in every browser; some mobile setups still open the native app). */
-function taxonWebHrefForId(id) {
-  const sid = id != null ? String(id).trim() : "";
-  if (!sid) return "https://www.inaturalist.org/";
-  return `https://www.inaturalist.org/taxa/${sid}`;
-}
-
-/** @param {object | null} taxon */
-function taxonHref(taxon) {
-  if (!taxon || taxon.id == null) return "https://www.inaturalist.org/";
-  return taxonWebHrefForId(taxon.id);
 }
 
 /**
@@ -649,14 +615,12 @@ function trieNodeToData(node, taxonById) {
   const label =
     tid < 0 ? "Shared ancestry" : t ? taxonDisplayName(t) : `Taxon ${tid}`;
   const rank = tid < 0 ? "" : t && t.rank ? String(t.rank) : "";
-  const href = tid < 0 ? "" : t ? taxonHref(t) : taxonWebHrefForId(tid);
   return {
     taxonId: tid,
     label,
     commonName,
     scientificName,
     rank,
-    href,
     children: kids.length ? kids.map((k) => trieNodeToData(k, taxonById)) : undefined,
   };
 }
@@ -818,7 +782,7 @@ function zoomToFitSubtree(svgEl, zoom, d) {
 
 /**
  * @param {HTMLElement} host
- * @param {import("d3").HierarchyNode<{ taxonId: number; label: string; rank: string; href: string }>} hRoot
+ * @param {import("d3").HierarchyNode<{ taxonId: number; label: string; rank: string }>} hRoot
  * @param {Map<number, object>} taxonById
  * @param {{ preserveZoom?: boolean }} [opts]
  */
@@ -962,17 +926,14 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     const hw = nodeHalfW(d);
     const hh = nodeHalfH(d);
     const expandable = Boolean(d.children || d._children);
-    const hasHref = Boolean(d.data.href && String(d.data.href).length > 1);
     const titlePlain = taxonNodeTitlePlain(d);
     g.append("title").text(titlePlain);
 
     const tw = expandable ? TOGGLE_STRIP_W : 0;
-    const iconReserve = hasHref ? APP_LINK_ICON_RESERVE : 0;
-    const innerW = Math.max(16, 2 * hw - tw - 12 - iconReserve);
     const innerTx = tw > 0 ? TOGGLE_STRIP_W / 2 : 0;
-    const common = labelDisplayCommonInCell(d, innerW);
-    const sci = labelDisplayScientificInCell(d, innerW);
-    const rank = labelDisplayRankInCell(d, innerW);
+    const common = labelDisplayCommonInCell(d);
+    const sci = labelDisplayScientificInCell(d);
+    const rank = labelDisplayRankInCell(d);
     const ys = labelStackHangYs(d);
 
     const branchTone = expandable ? "#cfe8d9" : "#d8f3dc";
@@ -1039,38 +1000,6 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "hanging")
         .text(rank);
-    }
-
-    if (hasHref) {
-      const hit = 22;
-      const ax = hw - hit - 1;
-      const ay = -hh + 1;
-      const tipRaw = titlePlain.length > 80 ? `${titlePlain.slice(0, 77)}…` : titlePlain;
-      const tipName = tipRaw.replace(/"/g, "'");
-      const linkA = g
-        .append("a")
-        .attr("class", "tree-node-app-link")
-        .attr("href", d.data.href)
-        .attr("target", "_blank")
-        .attr("rel", "noopener noreferrer")
-        .attr("aria-label", `View ${tipName} on iNaturalist`)
-        .attr("title", "View on iNaturalist (opens in a new tab)");
-      linkA
-        .append("rect")
-        .attr("class", "tree-node-app-link-hit")
-        .attr("x", ax)
-        .attr("y", ay)
-        .attr("width", hit)
-        .attr("height", hit)
-        .attr("rx", 5)
-        .attr("ry", 5)
-        .attr("fill", "transparent");
-      linkA
-        .append("path")
-        .attr("class", "tree-node-app-link-icon")
-        .attr("d", APP_LINK_ICON_PATH)
-        .attr("transform", `translate(${ax + 4},${ay + 4}) scale(0.55)`)
-        .attr("fill", strokeTone);
     }
   });
 
