@@ -489,17 +489,17 @@ function taxonDisplayName(taxon) {
   return cn || nm || `Taxon ${taxon.id ?? ""}`;
 }
 
-/** Same deep link as the observation explorer: opens the taxon in the iNaturalist mobile app when installed. */
-function taxonAppHrefForId(id) {
+/** Taxon page on iNaturalist (HTTPS works in every browser; some mobile setups still open the native app). */
+function taxonWebHrefForId(id) {
   const sid = id != null ? String(id).trim() : "";
   if (!sid) return "https://www.inaturalist.org/";
-  return `inaturalist://taxa/${sid}`;
+  return `https://www.inaturalist.org/taxa/${sid}`;
 }
 
 /** @param {object | null} taxon */
 function taxonHref(taxon) {
   if (!taxon || taxon.id == null) return "https://www.inaturalist.org/";
-  return taxonAppHrefForId(taxon.id);
+  return taxonWebHrefForId(taxon.id);
 }
 
 /**
@@ -649,7 +649,7 @@ function trieNodeToData(node, taxonById) {
   const label =
     tid < 0 ? "Shared ancestry" : t ? taxonDisplayName(t) : `Taxon ${tid}`;
   const rank = tid < 0 ? "" : t && t.rank ? String(t.rank) : "";
-  const href = tid < 0 ? "" : t ? taxonHref(t) : taxonAppHrefForId(tid);
+  const href = tid < 0 ? "" : t ? taxonHref(t) : taxonWebHrefForId(tid);
   return {
     taxonId: tid,
     label,
@@ -1051,8 +1051,10 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         .append("a")
         .attr("class", "tree-node-app-link")
         .attr("href", d.data.href)
-        .attr("aria-label", `Open ${tipName} in the iNaturalist app`)
-        .attr("title", "Open in iNaturalist app");
+        .attr("target", "_blank")
+        .attr("rel", "noopener noreferrer")
+        .attr("aria-label", `View ${tipName} on iNaturalist`)
+        .attr("title", "View on iNaturalist (opens in a new tab)");
       linkA
         .append("rect")
         .attr("class", "tree-node-app-link-hit")

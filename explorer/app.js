@@ -26,11 +26,11 @@ function inatFetch(pathAndQuery) {
   return fetch(u.href, { cache: "no-store" });
 }
 
-/** Opens the taxon in the iNaturalist mobile app when installed (falls back to website on desktop). */
-function inaturalistTaxonAppUrl(taxonId) {
+/** Taxon page on iNaturalist (HTTPS works in every browser; some mobile setups still open the native app). */
+function inaturalistTaxonWebUrl(taxonId) {
   const id = taxonId != null ? String(taxonId).trim() : "";
   if (!id) return "https://www.inaturalist.org/";
-  return `inaturalist://taxa/${id}`;
+  return `https://www.inaturalist.org/taxa/${id}`;
 }
 
 /**
@@ -3708,7 +3708,7 @@ async function showSpeciesDetail(taxon, obsCount) {
   const name = taxon.preferred_common_name || taxon.name || "Unknown";
   const sciName = taxon.name || "";
   const imageUrl = mediumPhotoUrl(taxon.default_photo?.url || taxon.default_photo?.medium_url || "").replace("/medium.", "/large.");
-  const inatAppUrl = inaturalistTaxonAppUrl(taxon.id);
+  const inatAppUrl = inaturalistTaxonWebUrl(taxon.id);
   const searchUrl = buildSearchUrlWithSpecies(taxon.id, taxon.preferred_common_name || taxon.name);
 
   el.detailContent.innerHTML = `
@@ -3718,7 +3718,7 @@ async function showSpeciesDetail(taxon, obsCount) {
         <h2>${escapeHtml(name)}</h2>
         ${sciName && sciName !== name ? `<p class="sci-name">${escapeHtml(sciName)}</p>` : ""}
         <div class="detail-links">
-          <a href="${escapeHtml(inatAppUrl)}">View on iNaturalist &rarr;</a>
+          <a href="${escapeHtml(inatAppUrl)}" target="_blank" rel="noopener noreferrer">View on iNaturalist &rarr;</a>
           <a href="${escapeHtml(searchUrl)}">Search observations of this species &rarr;</a>
         </div>
       </div>
