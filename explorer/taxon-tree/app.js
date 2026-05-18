@@ -232,18 +232,8 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
     const ty = t.py;
     const syOut = sy + nodeHalfH(s);
     const tyIn = ty - nodeHalfH(t);
-    const mid = (syOut + tyIn) / 2;
+    const midY = (syOut + tyIn) / 2;
     const cx = (sx + tx) / 2;
-    const cy = mid - 10;
-
-    const te = layer
-      .append("text")
-      .attr("class", "tree-link-age")
-      .attr("text-anchor", "middle")
-      .attr("x", cx)
-      .attr("y", cy)
-      .attr("fill", "#4a3f6a")
-      .text("…");
 
     let parsed;
     try {
@@ -257,8 +247,29 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
     if (mountGen !== d3MountGeneration) return;
 
     const label = formatDivergenceMa(parsed.age, parsed.low, parsed.high);
-    if (label) te.text(label);
-    else te.remove();
+    if (!label) continue;
+
+    const charPx = 5.45;
+    const padX = 9;
+    const padY = 5;
+    const boxH = 20;
+    const estW = Math.min(220, Math.max(44, label.length * charPx + padX * 2));
+
+    const g = layer.append("g").attr("class", "tree-divergence-bubble").attr("transform", `translate(${cx},${midY})`);
+    g.append("rect")
+      .attr("class", "tree-link-age-bg")
+      .attr("x", -estW / 2)
+      .attr("y", -boxH / 2)
+      .attr("width", estW)
+      .attr("height", boxH)
+      .attr("rx", 6)
+      .attr("ry", 6);
+    g.append("text")
+      .attr("class", "tree-link-age")
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .attr("y", 0)
+      .text(label);
   }
 }
 
@@ -477,10 +488,23 @@ function insertPath(root, pathIds) {
 function pathIdsForTaxon(taxon) {
   const selfId = taxon.id != null ? Number(taxon.id) : NaN;
   if (!Number.isFinite(selfId)) return [];
-  const anc = Array.isArray(taxon.ancestor_ids)
+  const ancRaw = Array.isArray(taxon.ancestor_ids)
     ? taxon.ancestor_ids.map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0)
     : [];
-  return [...anc, selfId];
+  /** Root-to-tip ids without duplicates (APIs may repeat ids or include the tip in `ancestor_ids`). */
+  const out = [];
+  const seen = new Set();
+  for (const id of ancRaw) {
+    if (id === selfId) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  if (!seen.has(selfId)) {
+    seen.add(selfId);
+    out.push(selfId);
+  }
+  return out;
 }
 
 /**
