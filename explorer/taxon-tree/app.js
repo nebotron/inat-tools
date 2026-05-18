@@ -35,7 +35,7 @@ function labelPadX(d) {
   return nodeDotRadius(d) + 1 + LABEL_GAP_FROM_DOT;
 }
 /** Approximate average character width (px) for label width estimates at ~11px. */
-const LABEL_CHAR_PX = 6.45;
+const LABEL_CHAR_PX = 6.85;
 /** Match CSS font sizes for vertical alignment math. */
 const LABEL_FONT_MAIN = 11;
 const LABEL_FONT_RANK = 9.5;
@@ -309,15 +309,19 @@ function labelBlockHeightPx(d) {
 }
 
 /**
- * Local y positions (relative to node center) for text `dominant-baseline="middle"` lines.
+ * Local y positions for `dominant-baseline="hanging"` so stacked lines match font metrics
+ * and the block stays vertically centered on the label origin (node row + optional labelDy).
  * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ * @returns {{ yMain: number, yRank: number | null }}
  */
-function labelLineCentersY(d) {
-  if (!labelDisplayRank(d)) return { yMain: 0, yRank: null };
+function labelHangLineYs(d) {
   const total = labelBlockHeightPx(d);
   const yTop = -total / 2;
-  const yMain = yTop + LABEL_FONT_MAIN / 2;
-  const yRank = yTop + LABEL_FONT_MAIN + LABEL_LINE_GAP + LABEL_FONT_RANK / 2;
+  if (!labelDisplayRank(d)) {
+    return { yMain: yTop, yRank: null };
+  }
+  const yMain = yTop;
+  const yRank = yTop + LABEL_FONT_MAIN + LABEL_LINE_GAP;
   return { yMain, yRank };
 }
 
@@ -365,7 +369,7 @@ function rectsOverlap2d(a, b) {
 }
 
 /** Hit circle around another node’s dot (global px); labels must not intrude here. */
-const NODE_OCCLUSION_R = 14;
+const NODE_OCCLUSION_R = 15;
 
 /**
  * @param {number} rx0
@@ -405,9 +409,10 @@ function assignLabelOffsets(hRoot) {
   });
   items.sort((a, b) => a.d.py - b.d.py || a.baseX - b.baseX);
 
-  const dySteps = [0, 9, -9, 18, -18, 27, -27, 36, -36, 45, -45, 54, -54];
-  const maxDx = 260;
-  const dxStep = 11;
+  /** Prefer horizontal nudges so labels stay on the node’s row and read as that node’s caption. */
+  const dySteps = [0, 11, -11, 22, -22, 34, -34];
+  const maxDx = 420;
+  const dxStep = 9;
 
   for (const it of items) {
     for (let i = placed.length - 1; i >= 0; i -= 1) {
@@ -939,7 +944,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     const labelG = linkParent.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${pad},${lidy})`);
 
     if (rank) {
-      const { yMain, yRank: yR } = labelLineCentersY(d);
+      const { yMain, yRank: yR } = labelHangLineYs(d);
       labelG
         .append("text")
         .attr("class", "tree-node-label")
@@ -947,7 +952,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         .attr("x", 0)
         .attr("y", yMain)
         .attr("text-anchor", "start")
-        .attr("dominant-baseline", "middle")
+        .attr("dominant-baseline", "hanging")
         .text(main);
       labelG
         .append("text")
@@ -955,17 +960,18 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         .attr("x", 0)
         .attr("y", /** @type {number} */ (yR))
         .attr("text-anchor", "start")
-        .attr("dominant-baseline", "middle")
+        .attr("dominant-baseline", "hanging")
         .text(rank);
     } else {
+      const { yMain } = labelHangLineYs(d);
       labelG
         .append("text")
         .attr("class", "tree-node-label")
         .attr("fill", "#1a2e1a")
         .attr("x", 0)
-        .attr("y", 0)
+        .attr("y", yMain)
         .attr("text-anchor", "start")
-        .attr("dominant-baseline", "middle")
+        .attr("dominant-baseline", "hanging")
         .text(main);
     }
   });
