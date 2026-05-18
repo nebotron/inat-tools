@@ -19,8 +19,8 @@
     <header class="site-header">
       <h1>Taxonomic tree</h1>
       <p class="tagline">
-        Interactive cladogram from iNaturalist taxonomy: root at the top, lineages downward. Pan and zoom, click a node’s ring to
-        fold or unfold, and double-click an internal node to zoom that subtree. Where NCBI taxonomy can be matched, junction ages from
+        Interactive cladogram from iNaturalist taxonomy: root at the top, lineages downward. Pan and zoom, click the left strip of a
+        branch pill to fold or unfold, and double-click an internal node to zoom that subtree. Where NCBI taxonomy can be matched, junction ages from
         TimeTree of Life appear along branches (million years ago, with published confidence intervals when available).
         <a href="../">← Observation browser</a>
       </p>
@@ -73,9 +73,10 @@
         <div id="tree-viz-root" class="tree-viz-root"></div>
         <p class="tree-hint">
           Large branches start folded when a node covers more than five of your selected species (the top-level taxon stays expanded).
-          Scroll or pinch to zoom; drag the canvas to pan. Click the transparent ring on a node to fold or unfold; double-click an
-          internal node to zoom its subtree. Hover a label for the full name. Purple labels along branches are TimeTree MRCA ages when
-          both sides map to NCBI ids (via Open Tree TNRS).
+          Scroll or pinch to zoom; drag the canvas to pan. Each taxon is drawn as a pill with the name inside; spacing follows pill size so
+          labels do not overlap. Click the left strip of a branch pill to fold or unfold; click the name to open the taxon on
+          iNaturalist when linked. Double-click an internal node to zoom its subtree. Hover a pill for the full name. Purple labels along
+          branches are TimeTree MRCA ages when both sides map to NCBI ids (via Open Tree TNRS).
         </p>
         <p class="tree-footnote">
           Branch geometry follows iNaturalist taxonomy, not branch lengths. Divergence times are median MRCA estimates from the
