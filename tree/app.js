@@ -18,9 +18,9 @@ const NODE_VERT_GAP = 14;
 /** Horizontal gap required between adjacent sibling node edges (px). */
 const SIBLING_H_GAP = 12;
 /** Padding inside the node pill around text (px). */
-const NODE_CELL_PAD_X = 10;
-const NODE_CELL_PAD_Y = 6;
-const NODE_MIN_W = 80;
+const NODE_CELL_PAD_X = 6;
+const NODE_CELL_PAD_Y = 4;
+const NODE_MIN_W = 72;
 const NODE_MAX_W = 300;
 /** Left strip width on branch nodes for fold/unfold hit target (px). */
 const TOGGLE_STRIP_W = 18;
@@ -30,7 +30,7 @@ const APP_LINK_ICON_RESERVE = 24;
 const APP_LINK_ICON_PATH =
   "M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3h7v7h-2V5.41l-9.83 9.83-1.41-1.41L17.59 5H14V3z";
 /** Extra vertical slack inside the pill vs measured text. */
-const LABEL_VPAD = 3;
+const LABEL_VPAD = 2;
 
 /** Approximate average character width (px) for label width estimates at ~11px. */
 const LABEL_CHAR_PX = 6.85;
