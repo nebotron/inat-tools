@@ -293,30 +293,43 @@ function truncateLabel(s, max) {
 }
 
 /**
- * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ * @param {object | null} taxon
+ * @param {number} tid
  */
-function labelDisplayMain(d) {
-  return truncateLabel(d.data.label, 34);
+function taxonCommonScientificStrings(taxon, tid) {
+  if (tid < 0) return { common: "", scientific: "Shared ancestry" };
+  if (!taxon || typeof taxon !== "object") return { common: "", scientific: `Taxon ${tid}` };
+  const cn = typeof taxon.preferred_common_name === "string" ? taxon.preferred_common_name.trim() : "";
+  const nm = typeof taxon.name === "string" ? taxon.name.trim() : "";
+  const sci = nm || `Taxon ${tid}`;
+  if (cn && sci && cn.toLowerCase() !== sci.toLowerCase()) return { common: cn, scientific: sci };
+  return { common: "", scientific: cn || sci };
 }
 
 /**
- * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
- */
-function labelDisplayRank(d) {
-  return d.data.rank ? truncateLabel(String(d.data.rank), 22) : "";
-}
-
-/**
- * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string }>} d
  * @param {number} innerWidthPx
  */
-function labelDisplayMainInCell(d, innerWidthPx) {
+function labelDisplayCommonInCell(d, innerWidthPx) {
   const cap = Math.max(6, Math.floor(innerWidthPx / LABEL_CHAR_PX));
-  return truncateLabel(d.data.label, Math.min(36, cap));
+  const raw = d.data.commonName && String(d.data.commonName).trim();
+  if (!raw) return "";
+  return truncateLabel(raw, Math.min(36, cap));
 }
 
 /**
- * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ * @param {import("d3").HierarchyPointNode<{ scientificName?: string }>} d
+ * @param {number} innerWidthPx
+ */
+function labelDisplayScientificInCell(d, innerWidthPx) {
+  const cap = Math.max(6, Math.floor(innerWidthPx / LABEL_CHAR_PX));
+  const raw = d.data.scientificName && String(d.data.scientificName).trim();
+  if (!raw) return "";
+  return truncateLabel(raw, Math.min(36, cap));
+}
+
+/**
+ * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string }>} d
  * @param {number} innerWidthPx
  */
 function labelDisplayRankInCell(d, innerWidthPx) {
@@ -326,36 +339,67 @@ function labelDisplayRankInCell(d, innerWidthPx) {
 }
 
 /**
- * True height of the drawn label block (px), matching mountD3Tree text y positions.
- * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ * Untruncated tooltip / aria string: common · scientific · rank.
+ * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string; label?: string }>} d
  */
-function labelBlockHeightPx(d) {
+function taxonNodeTitlePlain(d) {
+  const parts = [];
+  const cn = d.data.commonName && String(d.data.commonName).trim();
+  const sci = d.data.scientificName && String(d.data.scientificName).trim();
   const rk = d.data.rank && String(d.data.rank).trim();
-  if (rk) {
-    return LABEL_FONT_MAIN + LABEL_LINE_GAP + LABEL_FONT_RANK;
-  }
-  return LABEL_FONT_MAIN;
+  if (cn) parts.push(cn);
+  if (sci) parts.push(sci);
+  else if (d.data.label) parts.push(String(d.data.label));
+  if (rk) parts.push(rk);
+  return parts.join(" · ");
 }
 
 /**
- * @param {boolean} hasRankLine
- * @returns {{ yMain: number, yRank: number | null }}
+ * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string }>} d
  */
-function labelHangLineYsForRank(hasRankLine) {
-  const total = hasRankLine ? LABEL_FONT_MAIN + LABEL_LINE_GAP + LABEL_FONT_RANK : LABEL_FONT_MAIN;
+function nodeNameLineCount(d) {
+  return d.data.commonName && String(d.data.commonName).trim() ? 2 : 1;
+}
+
+/**
+ * True height of the drawn label block (px), matching mountD3Tree text y positions.
+ * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string }>} d
+ */
+function labelBlockHeightPx(d) {
+  const twoNames = nodeNameLineCount(d) === 2;
+  const nameBlock = twoNames ? LABEL_FONT_MAIN + LABEL_LINE_GAP + LABEL_FONT_MAIN : LABEL_FONT_MAIN;
+  const rk = d.data.rank && String(d.data.rank).trim();
+  if (rk) return nameBlock + LABEL_LINE_GAP + LABEL_FONT_RANK;
+  return nameBlock;
+}
+
+/**
+ * Hanging-baseline Y for each stacked line; block centered on node origin.
+ * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string }>} d
+ * @returns {{ yCommon: number | null, yScientific: number, yRank: number | null, hasCommon: boolean, hasRank: boolean }}
+ */
+function labelStackHangYs(d) {
+  const hasCommon = !!(d.data.commonName && String(d.data.commonName).trim());
+  const hasRank = !!(d.data.rank && String(d.data.rank).trim());
+  const nameBlock = hasCommon ? LABEL_FONT_MAIN + LABEL_LINE_GAP + LABEL_FONT_MAIN : LABEL_FONT_MAIN;
+  const total = nameBlock + (hasRank ? LABEL_LINE_GAP + LABEL_FONT_RANK : 0);
   const yTop = -total / 2;
-  if (!hasRankLine) return { yMain: yTop, yRank: null };
-  return { yMain: yTop, yRank: yTop + LABEL_FONT_MAIN + LABEL_LINE_GAP };
+  const yCommon = hasCommon ? yTop : null;
+  const yScientific = hasCommon ? yTop + LABEL_FONT_MAIN + LABEL_LINE_GAP : yTop;
+  const yRank = hasRank ? yTop + nameBlock + LABEL_LINE_GAP : null;
+  return { yCommon, yScientific, yRank, hasCommon, hasRank };
 }
 
 /**
  * Text-only width estimate (px), before cell padding and pill clamp.
- * @param {import("d3").HierarchyPointNode<{ label: string; rank?: string }>} d
+ * @param {import("d3").HierarchyPointNode<{ commonName?: string; scientificName?: string; rank?: string }>} d
  */
 function estimateTextBlockWidthPx(d) {
-  const main = labelDisplayMain(d);
-  const rank = labelDisplayRank(d);
-  const wChars = Math.max(main.length, rank ? rank.length : 0);
+  const cap = 36;
+  const common = d.data.commonName ? truncateLabel(String(d.data.commonName), cap) : "";
+  const sci = truncateLabel(String(d.data.scientificName || ""), cap);
+  const rank = d.data.rank ? truncateLabel(String(d.data.rank), 22) : "";
+  const wChars = Math.max(common.length, sci.length, rank.length);
   return Math.min(wChars * LABEL_CHAR_PX + 18, 300);
 }
 
@@ -601,6 +645,7 @@ function trieNodeToData(node, taxonById) {
   const tid = node.taxonId;
   const t = tid >= 0 ? taxonById.get(tid) : null;
   const kids = [...node.children.values()].sort((a, b) => compareTrieChildren(taxonById, a, b));
+  const { common: commonName, scientific: scientificName } = taxonCommonScientificStrings(t, tid);
   const label =
     tid < 0 ? "Shared ancestry" : t ? taxonDisplayName(t) : `Taxon ${tid}`;
   const rank = tid < 0 ? "" : t && t.rank ? String(t.rank) : "";
@@ -608,6 +653,8 @@ function trieNodeToData(node, taxonById) {
   return {
     taxonId: tid,
     label,
+    commonName,
+    scientificName,
     rank,
     href,
     children: kids.length ? kids.map((k) => trieNodeToData(k, taxonById)) : undefined,
@@ -915,15 +962,17 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     const hh = nodeHalfH(d);
     const expandable = Boolean(d.children || d._children);
     const hasHref = Boolean(d.data.href && String(d.data.href).length > 1);
-    const fullLine = d.data.rank ? `${d.data.label} · ${d.data.rank}` : d.data.label;
-    g.append("title").text(fullLine);
+    const titlePlain = taxonNodeTitlePlain(d);
+    g.append("title").text(titlePlain);
 
     const tw = expandable ? TOGGLE_STRIP_W : 0;
     const iconReserve = hasHref ? APP_LINK_ICON_RESERVE : 0;
     const innerW = Math.max(16, 2 * hw - tw - 12 - iconReserve);
     const innerTx = tw > 0 ? TOGGLE_STRIP_W / 2 : 0;
-    const main = labelDisplayMainInCell(d, innerW);
+    const common = labelDisplayCommonInCell(d, innerW);
+    const sci = labelDisplayScientificInCell(d, innerW);
     const rank = labelDisplayRankInCell(d, innerW);
+    const ys = labelStackHangYs(d);
 
     const branchTone = expandable ? "#cfe8d9" : "#d8f3dc";
     const strokeTone = expandable ? "#2d6a4f" : "#40916c";
@@ -960,43 +1009,42 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
 
     const labelG = g.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${innerTx},0)`);
 
-    if (rank) {
-      const { yMain, yRank: yR } = labelHangLineYsForRank(true);
+    if (ys.hasCommon && common) {
       labelG
         .append("text")
         .attr("class", "tree-node-label")
-        .attr("fill", "#1a2e1a")
         .attr("x", 0)
-        .attr("y", yMain)
+        .attr("y", /** @type {number} */ (ys.yCommon))
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "hanging")
-        .text(main);
+        .text(common);
+    }
+
+    labelG
+      .append("text")
+      .attr("class", ys.hasCommon && common ? "tree-node-scientific" : "tree-node-label")
+      .attr("x", 0)
+      .attr("y", ys.yScientific)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "hanging")
+      .text(sci || String(d.data.scientificName || d.data.label || "").trim());
+
+    if (ys.hasRank && rank && ys.yRank != null) {
       labelG
         .append("text")
         .attr("class", "tree-node-rank")
         .attr("x", 0)
-        .attr("y", /** @type {number} */ (yR))
+        .attr("y", ys.yRank)
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "hanging")
         .text(rank);
-    } else {
-      const { yMain } = labelHangLineYsForRank(false);
-      labelG
-        .append("text")
-        .attr("class", "tree-node-label")
-        .attr("fill", "#1a2e1a")
-        .attr("x", 0)
-        .attr("y", yMain)
-        .attr("text-anchor", "middle")
-        .attr("dominant-baseline", "hanging")
-        .text(main);
     }
 
     if (hasHref) {
       const hit = 22;
       const ax = hw - hit - 1;
       const ay = -hh + 1;
-      const tipRaw = fullLine.length > 80 ? `${fullLine.slice(0, 77)}…` : fullLine;
+      const tipRaw = titlePlain.length > 80 ? `${titlePlain.slice(0, 77)}…` : titlePlain;
       const tipName = tipRaw.replace(/"/g, "'");
       const linkA = g
         .append("a")
