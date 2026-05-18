@@ -20,8 +20,8 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `npx serve explorer -l ${PORT} --no-request-logging`,
-    url: BASE_URL,
+    command: `npx serve . -l ${PORT} --no-request-logging`,
+    url: `${BASE_URL}/explorer/`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

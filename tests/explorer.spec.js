@@ -7,7 +7,7 @@ const SEED_QUERY =
 
 test.describe("explorer", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto(`/?${SEED_QUERY}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/explorer/?${SEED_QUERY}`, { waitUntil: "domcontentloaded" });
     await expect(page.locator(".view-tabs")).toBeVisible();
     await page.waitForFunction(() => window.__EXPLORER_BOOT__ != null, { timeout: 60_000 });
     await page.evaluate(() => window.__EXPLORER_BOOT__);
@@ -56,7 +56,7 @@ test.describe("explorer", () => {
         return id;
       };
     });
-    await page.goto(`/?${SEED_QUERY}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/explorer/?${SEED_QUERY}`, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => window.__EXPLORER_BOOT__ != null, { timeout: 60_000 });
     await page.evaluate(() => window.__EXPLORER_BOOT__);
     await context.grantPermissions(["geolocation"], { origin: page.url() });

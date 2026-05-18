@@ -18,31 +18,49 @@ body.taxon-tree-page .site-header {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 1rem max(0px, env(safe-area-inset-left, 0px)) 2.5rem max(0px, env(safe-area-inset-right, 0px));
+  padding: 1rem 0 2.5rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-@media (min-width: 900px) {
-  .tree-main {
-    flex-direction: row;
-    align-items: stretch;
-  }
+.tree-main > .tree-panel:first-child {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 52rem;
+  margin-left: max(1rem, env(safe-area-inset-left, 0px));
+  margin-right: max(1rem, env(safe-area-inset-right, 0px));
+}
 
-  .tree-main > .tree-panel:first-child {
-    flex: 0 0 min(300px, 22vw);
-    max-width: min(360px, 32vw);
-    position: sticky;
-    top: 0.5rem;
-    align-self: flex-start;
-  }
+.tree-panel--viz {
+  width: 100%;
+  max-width: none;
+  align-self: stretch;
+  margin: 0;
+  padding: 1rem 0 1.25rem;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+}
 
-  .tree-main > .tree-panel--viz {
-    flex: 1 1 0;
-    min-width: 0;
-    width: 100%;
-  }
+.tree-panel--viz .tree-h2,
+.tree-panel--viz .error-banner,
+.tree-panel--viz .tree-viz-toolbar,
+.tree-panel--viz .tree-hint,
+.tree-panel--viz .tree-footnote {
+  margin-left: max(1rem, env(safe-area-inset-left, 0px));
+  margin-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+.tree-panel--viz .tree-viz-root {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.tree-panel--viz .tree-svg-wrap {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
 }
 
 .tree-h2 {
