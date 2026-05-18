@@ -26,67 +26,85 @@
       </p>
     </header>
 
-    <main class="tree-main">
-      <section class="tree-panel" aria-labelledby="tree-add-heading">
-        <h2 id="tree-add-heading" class="tree-h2">Species on the tree</h2>
+    <main class="tree-main tree-main--tabs">
+      <div class="tree-tablist" role="tablist" aria-label="Tree page sections">
+        <label class="tree-tab-btn" for="tree-tab-setup">
+          <input type="radio" name="tree-page-tab" id="tree-tab-setup" value="setup" checked />
+          Setup
+        </label>
+        <label class="tree-tab-btn" for="tree-tab-canvas">
+          <input type="radio" name="tree-page-tab" id="tree-tab-canvas" value="canvas" />
+          Tree canvas
+        </label>
+      </div>
 
-        <div class="tree-field">
-          <label for="tree-taxon-search">Search iNaturalist</label>
-          <input
-            id="tree-taxon-search"
-            type="search"
-            autocomplete="off"
-            placeholder="Type a scientific or common name…"
-            aria-autocomplete="list"
-            aria-controls="tree-taxon-suggestions"
-            aria-expanded="false"
-          />
-          <ul id="tree-taxon-suggestions" class="tree-suggestions" role="listbox" hidden></ul>
-        </div>
+      <div class="tree-tab-panel tree-tab-panel--setup" role="tabpanel" id="tree-tab-panel-setup" aria-labelledby="tree-tab-setup">
+        <section class="tree-panel" aria-labelledby="tree-add-heading">
+          <h2 id="tree-add-heading" class="tree-h2">Species on the tree</h2>
+          <p id="tree-error" class="error-banner" role="alert" hidden></p>
 
-        <div class="tree-field">
-          <label for="tree-user-login">Observer username (for bulk import)</label>
-          <input
-            id="tree-user-login"
-            type="text"
-            autocapitalize="none"
-            autocomplete="username"
-            spellcheck="false"
-            placeholder="iNaturalist login"
-          />
-        </div>
+          <div class="tree-field">
+            <label for="tree-taxon-search">Search iNaturalist</label>
+            <input
+              id="tree-taxon-search"
+              type="search"
+              autocomplete="off"
+              placeholder="Type a scientific or common name…"
+              aria-autocomplete="list"
+              aria-controls="tree-taxon-suggestions"
+              aria-expanded="false"
+            />
+            <ul id="tree-taxon-suggestions" class="tree-suggestions" role="listbox" hidden></ul>
+          </div>
 
-        <div class="tree-actions">
-          <button type="button" id="btn-add-my-species" class="btn">Add my observed species</button>
-          <button type="button" id="btn-clear-tree" class="btn secondary">Clear list</button>
-        </div>
-        <p id="tree-bulk-status" class="tree-status" role="status" aria-live="polite"></p>
+          <div class="tree-field">
+            <label for="tree-user-login">Observer username (for bulk import)</label>
+            <input
+              id="tree-user-login"
+              type="text"
+              autocapitalize="none"
+              autocomplete="username"
+              spellcheck="false"
+              placeholder="iNaturalist login"
+            />
+          </div>
 
-        <div class="tree-selected-box" aria-label="Selected species list">
-          <div id="tree-selected-chips" class="tree-chips"></div>
-        </div>
-      </section>
+          <div class="tree-actions">
+            <button type="button" id="btn-add-my-species" class="btn">Add my observed species</button>
+            <button type="button" id="btn-clear-tree" class="btn secondary">Clear list</button>
+          </div>
+          <p id="tree-bulk-status" class="tree-status" role="status" aria-live="polite"></p>
 
-      <section class="tree-panel tree-panel--viz" aria-labelledby="tree-viz-heading">
-        <h2 id="tree-viz-heading" class="tree-h2">Tree</h2>
-        <p id="tree-error" class="error-banner" role="alert" hidden></p>
-        <div id="tree-viz-root" class="tree-viz-root"></div>
-        <p class="tree-hint">
-          Large branches start folded when a node covers more than five of your selected species (the top-level taxon stays expanded).
-          Scroll or pinch to zoom; drag the canvas to pan. The tree shows principal ranks only (domain, kingdom, phylum, class, order,
-          family, genus, species, plus the root-of-life node); your selected species tip is always included. Each taxon is drawn as a pill with the name inside; spacing follows pill size so
-          labels do not overlap. Click the left strip of a branch pill to fold or unfold. Double-click an internal node to zoom its subtree.
-          Hover a pill for the full name. Purple labels along
-          branches are TimeTree MRCA ages when both sides map to NCBI ids (via Open Tree TNRS).
-        </p>
-        <p class="tree-footnote">
-          Branch geometry follows iNaturalist taxonomy, not branch lengths. Divergence times are median MRCA estimates from the
-          <a href="https://timetree.org/">TimeTree of Life</a> database (Kumar et al.), using NCBI taxonomy ids resolved with the
-          <a href="https://tree.opentreeoflife.org/">Open Tree of Life</a> TNRS service. If your browser blocks cross-origin access to
-          TimeTree, the app may load those JSON responses through a public CORS relay (allorigins.win). Data from
-          <a href="https://www.inaturalist.org/">iNaturalist</a>.
-        </p>
-      </section>
+          <div class="tree-selected-box" aria-label="Selected species list">
+            <div id="tree-selected-chips" class="tree-chips"></div>
+          </div>
+        </section>
+
+        <section class="tree-panel tree-panel--help" aria-label="Tree documentation">
+          <p class="tree-hint">
+            Large branches start folded when a node covers more than five of your selected species (the top-level taxon stays expanded).
+            Scroll or pinch to zoom; drag the canvas to pan. The tree shows principal ranks only (domain, kingdom, phylum, class, order,
+            family, genus, species, plus the root-of-life node); your selected species tip is always included. Each taxon is drawn as a pill with the name inside; spacing follows pill size so
+            labels do not overlap. Click the left strip of a branch pill to fold or unfold. Double-click an internal node to zoom its subtree.
+            Hover a pill for the full name. Purple labels along
+            branches are TimeTree MRCA ages when both sides map to NCBI ids (via Open Tree TNRS).
+          </p>
+          <p class="tree-footnote">
+            Branch geometry follows iNaturalist taxonomy, not branch lengths. Divergence times are median MRCA estimates from the
+            <a href="https://timetree.org/">TimeTree of Life</a> database (Kumar et al.), using NCBI taxonomy ids resolved with the
+            <a href="https://tree.opentreeoflife.org/">Open Tree of Life</a> TNRS service. If your browser blocks cross-origin access to
+            TimeTree, the app may load those JSON responses through a public CORS relay (allorigins.win). Data from
+            <a href="https://www.inaturalist.org/">iNaturalist</a>.
+          </p>
+        </section>
+      </div>
+
+      <div class="tree-tab-panel tree-tab-panel--canvas" role="tabpanel" id="tree-tab-panel-canvas" aria-labelledby="tree-tab-canvas">
+        <section class="tree-panel tree-panel--viz" aria-labelledby="tree-viz-heading">
+          <h2 id="tree-viz-heading" class="tree-h2">Tree</h2>
+          <div id="tree-viz-root" class="tree-viz-root"></div>
+        </section>
+      </div>
     </main>
 
     <script src="app.js" type="module"></script>

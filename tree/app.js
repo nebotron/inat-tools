@@ -679,6 +679,34 @@ function parseTaxaQuery(q) {
   return [...new Set(ids)];
 }
 
+function selectTreeCanvasTab() {
+  const canvas = document.getElementById("tree-tab-canvas");
+  const setup = document.getElementById("tree-tab-setup");
+  if (canvas instanceof HTMLInputElement && setup instanceof HTMLInputElement) {
+    canvas.checked = true;
+    setup.checked = false;
+  }
+}
+
+function isTreeCanvasTabActive() {
+  const canvas = document.getElementById("tree-tab-canvas");
+  return canvas instanceof HTMLInputElement && canvas.checked;
+}
+
+function onTreeTabVisibilityChange() {
+  if (!isTreeCanvasTabActive() || !el.viz) return;
+  if (!tipIds.size) {
+    el.viz.innerHTML = `<p class="tree-empty">Add one or more species to see a merged taxonomic tree.</p>`;
+    return;
+  }
+  if (!pendingHierarchy) {
+    void refreshTree();
+    return;
+  }
+  const hadSvg = Boolean(el.viz.querySelector("svg.tree-viz-svg"));
+  mountD3Tree(el.viz, pendingHierarchy, taxonById, { preserveZoom: hadSvg });
+}
+
 // ── App state ─────────────────────────────────────────────────────────────
 
 const el = {
@@ -697,6 +725,9 @@ const el = {
 const taxonById = new Map();
 /** Selected leaf taxa (typically species) */
 const tipIds = new Set();
+
+/** Built hierarchy for the current selection; used to mount when the Tree canvas tab becomes visible. */
+let pendingHierarchy = null;
 
 let searchDebounce = null;
 let suggestHighlight = -1;
@@ -1050,6 +1081,7 @@ async function refreshTree() {
   showError("");
   if (!el.viz) return;
   if (!tipIds.size) {
+    pendingHierarchy = null;
     el.viz.innerHTML = `<p class="tree-empty">Add one or more species to see a merged taxonomic tree.</p>`;
     return;
   }
@@ -1059,6 +1091,7 @@ async function refreshTree() {
     for (const tid of tipIds) {
       if (!taxonById.has(tid)) {
         showError(`Could not load taxon ${tid}.`);
+        pendingHierarchy = null;
         el.viz.innerHTML = "";
         return;
       }
@@ -1079,8 +1112,14 @@ async function refreshTree() {
     const hRoot = d3.hierarchy(data, (d) => d.children);
     collapseWideSubtreesByDefault(hRoot, 5);
 
-    mountD3Tree(el.viz, hRoot, taxonById);
+    pendingHierarchy = hRoot;
+    if (isTreeCanvasTabActive()) {
+      mountD3Tree(el.viz, hRoot, taxonById);
+    } else {
+      el.viz.innerHTML = `<p class="tree-empty tree-empty--tab">Open the <strong>Tree canvas</strong> tab to view the cladogram.</p>`;
+    }
   } catch (e) {
+    pendingHierarchy = null;
     const msg = e instanceof Error ? e.message : "Something went wrong.";
     showError(msg);
     el.viz.innerHTML = "";
@@ -1137,6 +1176,7 @@ async function loadInitialFromUrl() {
   const loginHint = u.searchParams.get("user_login") || u.searchParams.get("user");
   if (el.userLogin && loginHint) el.userLogin.value = loginHint;
   const ids = parseTaxaQuery(u.searchParams);
+  if (ids.length) selectTreeCanvasTab();
   if (!ids.length) return;
   try {
     await fetchTaxaByIds(taxonById, ids);
@@ -1262,6 +1302,9 @@ el.btnClear?.addEventListener("click", () => {
   void refreshTree();
   syncUrlSoon();
 });
+
+document.getElementById("tree-tab-setup")?.addEventListener("change", onTreeTabVisibilityChange);
+document.getElementById("tree-tab-canvas")?.addEventListener("change", onTreeTabVisibilityChange);
 
 void loadInitialFromUrl().then(() => {
   if (!tipIds.size && el.viz) {
