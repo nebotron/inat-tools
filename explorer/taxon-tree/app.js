@@ -230,7 +230,9 @@ async function applyDivergenceLabels(svgEl, hRoot, taxonById, mountGen) {
     const sy = s.py;
     const tx = t.px;
     const ty = t.py;
-    const mid = (sy + ty) / 2;
+    const syOut = sy + nodeHalfH(s);
+    const tyIn = ty - nodeHalfH(t);
+    const mid = (syOut + tyIn) / 2;
     const cx = (sx + tx) / 2;
     const cy = mid - 10;
 
