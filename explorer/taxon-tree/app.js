@@ -24,6 +24,11 @@ const NODE_MIN_W = 80;
 const NODE_MAX_W = 300;
 /** Left strip width on branch nodes for fold/unfold hit target (px). */
 const TOGGLE_STRIP_W = 18;
+/** Space reserved on the right of the pill for the “open in app” control (px). */
+const APP_LINK_ICON_RESERVE = 24;
+/** “Open in new” style path, viewBox 0 0 24 24 (scaled when drawn). */
+const APP_LINK_ICON_PATH =
+  "M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3h7v7h-2V5.41l-9.83 9.83-1.41-1.41L17.59 5H14V3z";
 /** Extra vertical slack inside the pill vs measured text. */
 const LABEL_VPAD = 3;
 
@@ -440,12 +445,17 @@ function taxonDisplayName(taxon) {
   return cn || nm || `Taxon ${taxon.id ?? ""}`;
 }
 
+/** Same deep link as the observation explorer: opens the taxon in the iNaturalist mobile app when installed. */
+function taxonAppHrefForId(id) {
+  const sid = id != null ? String(id).trim() : "";
+  if (!sid) return "https://www.inaturalist.org/";
+  return `inaturalist://taxa/${sid}`;
+}
+
 /** @param {object | null} taxon */
 function taxonHref(taxon) {
   if (!taxon || taxon.id == null) return "https://www.inaturalist.org/";
-  const id = String(taxon.id).trim();
-  if (!id) return "https://www.inaturalist.org/";
-  return `https://www.inaturalist.org/taxa/${id}`;
+  return taxonAppHrefForId(taxon.id);
 }
 
 /**
@@ -594,7 +604,7 @@ function trieNodeToData(node, taxonById) {
   const label =
     tid < 0 ? "Shared ancestry" : t ? taxonDisplayName(t) : `Taxon ${tid}`;
   const rank = tid < 0 ? "" : t && t.rank ? String(t.rank) : "";
-  const href = tid < 0 ? "" : t ? taxonHref(t) : `https://www.inaturalist.org/taxa/${tid}`;
+  const href = tid < 0 ? "" : t ? taxonHref(t) : taxonAppHrefForId(tid);
   return {
     taxonId: tid,
     label,
@@ -904,7 +914,8 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
     g.append("title").text(fullLine);
 
     const tw = expandable ? TOGGLE_STRIP_W : 0;
-    const innerW = Math.max(16, 2 * hw - tw - 12);
+    const iconReserve = hasHref ? APP_LINK_ICON_RESERVE : 0;
+    const innerW = Math.max(16, 2 * hw - tw - 12 - iconReserve);
     const innerTx = tw > 0 ? TOGGLE_STRIP_W / 2 : 0;
     const main = labelDisplayMainInCell(d, innerW);
     const rank = labelDisplayRankInCell(d, innerW);
@@ -942,23 +953,7 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         });
     }
 
-    const linkParent = hasHref
-      ? g.append("a").attr("href", d.data.href).attr("target", "_blank").attr("rel", "noopener noreferrer")
-      : g;
-
-    if (!expandable && hasHref) {
-      linkParent
-        .append("rect")
-        .attr("class", "tree-node-hit-fill")
-        .attr("x", -hw)
-        .attr("y", -hh)
-        .attr("width", 2 * hw)
-        .attr("height", 2 * hh)
-        .attr("fill", "transparent")
-        .style("cursor", "pointer");
-    }
-
-    const labelG = linkParent.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${innerTx},0)`);
+    const labelG = g.append("g").attr("class", "tree-node-label-wrap").attr("transform", `translate(${innerTx},0)`);
 
     if (rank) {
       const { yMain, yRank: yR } = labelHangLineYsForRank(true);
@@ -990,6 +985,36 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
         .attr("text-anchor", "middle")
         .attr("dominant-baseline", "hanging")
         .text(main);
+    }
+
+    if (hasHref) {
+      const hit = 22;
+      const ax = hw - hit - 1;
+      const ay = -hh + 1;
+      const tipRaw = fullLine.length > 80 ? `${fullLine.slice(0, 77)}…` : fullLine;
+      const tipName = tipRaw.replace(/"/g, "'");
+      const linkA = g
+        .append("a")
+        .attr("class", "tree-node-app-link")
+        .attr("href", d.data.href)
+        .attr("aria-label", `Open ${tipName} in the iNaturalist app`)
+        .attr("title", "Open in iNaturalist app");
+      linkA
+        .append("rect")
+        .attr("class", "tree-node-app-link-hit")
+        .attr("x", ax)
+        .attr("y", ay)
+        .attr("width", hit)
+        .attr("height", hit)
+        .attr("rx", 5)
+        .attr("ry", 5)
+        .attr("fill", "transparent");
+      linkA
+        .append("path")
+        .attr("class", "tree-node-app-link-icon")
+        .attr("d", APP_LINK_ICON_PATH)
+        .attr("transform", `translate(${ax + 4},${ay + 4}) scale(0.55)`)
+        .attr("fill", strokeTone);
     }
   });
 

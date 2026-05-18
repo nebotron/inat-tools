@@ -268,8 +268,21 @@ body.taxon-tree-page .site-header {
   pointer-events: none;
 }
 
-.tree-node a > .tree-node-label-wrap {
-  pointer-events: auto;
+.tree-node-app-link {
+  cursor: pointer;
+}
+
+.tree-node-app-link:hover .tree-node-app-link-icon {
+  fill: #1b4332;
+}
+
+.tree-node-app-link:focus {
+  outline: none;
+}
+
+.tree-node-app-link:focus .tree-node-app-link-hit {
+  stroke: #2d6a4f;
+  stroke-width: 1.5;
 }
 
 .tree-node-label {
@@ -287,17 +300,6 @@ body.taxon-tree-page .site-header {
   dominant-baseline: hanging;
   text-anchor: middle;
   pointer-events: none;
-}
-
-.tree-node a .tree-node-label,
-.tree-node a .tree-node-rank {
-  pointer-events: auto;
-  cursor: pointer;
-}
-
-.tree-node a .tree-node-label {
-  text-decoration: underline;
-  text-decoration-color: rgba(45, 106, 79, 0.35);
 }
 
 .tree-hint {
