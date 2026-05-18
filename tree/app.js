@@ -906,7 +906,8 @@ function mountD3Tree(host, hRoot, taxonById, opts) {
 
   const zoom = d3
     .zoom()
-    .scaleExtent([0.08, 14])
+    /** Min keeps the full tree reachable when zoomed out; max is effectively uncapped for scroll/pinch zoom-in. */
+    .scaleExtent([0.08, 1e6])
     .on("zoom", (ev) => {
       innerG.attr("transform", ev.transform);
     });
