@@ -10,6 +10,17 @@ import * as cocoSsd from "https://esm.sh/@tensorflow-models/coco-ssd@2.2.3?deps=
 import JSZip from "https://esm.sh/jszip@3.10.1";
 import exifr from "https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.esm.mjs";
 import piexif from "https://esm.sh/piexifjs@1.0.4";
+import {
+  parseInatApiTokenPaste,
+  persistParsedInatApiJwt,
+  clearStoredInatApiJwt,
+  getStoredInatApiJwt,
+  fetchUsersMeWithStoredJwt,
+  inatApiJwtAuthorizationValue,
+  formatInatHttpErrorForDisplay,
+  validateInatJwtFormat,
+  inatFetch,
+} from "../lib/inat-api-client.js";
 
 /** Real `fetch` before any temporary patching; bare `fetch()` inside our wrapper would recurse into `window.fetch`. */
 const nativeFetch = globalThis.fetch.bind(globalThis);
@@ -213,8 +224,21 @@ const pageSetup = document.getElementById("page-setup");
 const pageCrop = document.getElementById("page-crop");
 const pageExport = document.getElementById("page-export");
 const btnStartOver = document.getElementById("btn-start-over");
+const inatUploadSection = document.getElementById("inat-upload-section");
+const inatUploadStatus = document.getElementById("inat-upload-status");
+const inatUploadTokenField = document.getElementById("inat-upload-token-field");
+const inatUploadToken = document.getElementById("inat-upload-token");
+const btnInatUploadTokenApply = document.getElementById("btn-inat-upload-token-apply");
+const btnInatUploadTokenClear = document.getElementById("btn-inat-upload-token-clear");
+const inatUploadSpecies = document.getElementById("inat-upload-species");
+const inatUploadNotes = document.getElementById("inat-upload-notes");
+const inatUploadProgress = document.getElementById("inat-upload-progress");
+const btnInatUploadObs = document.getElementById("btn-inat-upload-obs");
 /** Set while the crop review toolbar is mounted (progress lives in `.crop-toolbar__progress`). */
 let cropToolbarProgressEl = null;
+/** `GET /users/me` succeeded with stored JWT — enables Upload to iNaturalist. */
+let inatUploadAuthOk = false;
+let inatUploadInProgress = false;
 
 const PREVIEW_MAX_EDGE = 720;
 const PREVIEW_MAX_EDGE_IOS = 520;
@@ -693,6 +717,7 @@ function setCurrentPage(name) {
   if (pageSetup) pageSetup.hidden = name !== "setup";
   if (pageCrop) pageCrop.hidden = name !== "crop";
   if (pageExport) pageExport.hidden = name !== "export";
+  if (name === "export") void refreshInatUploadAuthUi();
 }
 
 /**
@@ -1965,6 +1990,7 @@ function updateCropExportActionsVisibility() {
   const onExportPage = pageExport && !pageExport.hidden;
   const show = onExportPage && workItems.length > 0 && isCropReviewFinished();
   if (cropExportBar) cropExportBar.hidden = !show;
+  if (inatUploadSection) inatUploadSection.hidden = !show;
 }
 
 function updateSharePrepUiDisplay() {
@@ -2028,9 +2054,272 @@ function updateButtons() {
         ? "Nothing to share — use Download ZIP"
         : "Share JPEGs only";
   }
+  if (btnInatUploadObs) {
+    btnInatUploadObs.disabled = !zipReady || !inatUploadAuthOk || inatUploadInProgress;
+  }
   updateCropExportActionsVisibility();
   updateSharePrepUiDisplay();
   if (workItems.length) schedulePersistSession();
+}
+
+function setInatUploadStatusVariant(variant) {
+  if (!inatUploadStatus) return;
+  inatUploadStatus.classList.remove("inat-upload-status--ok", "inat-upload-status--error", "inat-upload-status--neutral");
+  if (variant === "ok") inatUploadStatus.classList.add("inat-upload-status--ok");
+  else if (variant === "error") inatUploadStatus.classList.add("inat-upload-status--error");
+  else inatUploadStatus.classList.add("inat-upload-status--neutral");
+}
+
+async function refreshInatUploadAuthUi() {
+  if (!inatUploadStatus || !inatUploadTokenField) return;
+  inatUploadAuthOk = false;
+  updateButtons();
+  const jwt = getStoredInatApiJwt();
+  if (!jwt) {
+    inatUploadTokenField.hidden = false;
+    inatUploadStatus.textContent =
+      "No API token saved. Paste the JSON or a raw JWT from iNaturalist (same storage as the observation browser), then Apply.";
+    setInatUploadStatusVariant("neutral");
+    updateButtons();
+    return;
+  }
+  const format = validateInatJwtFormat(jwt);
+  if (!format.ok) {
+    inatUploadTokenField.hidden = false;
+    inatUploadStatus.textContent = `Stored token failed the format check: ${format.error} Clear it and paste again.`;
+    setInatUploadStatusVariant("error");
+    updateButtons();
+    return;
+  }
+  let res;
+  try {
+    res = await fetchUsersMeWithStoredJwt();
+  } catch {
+    inatUploadStatus.textContent = "Could not reach iNaturalist to verify the saved token.";
+    setInatUploadStatusVariant("error");
+    inatUploadTokenField.hidden = false;
+    updateButtons();
+    return;
+  }
+  if (!res.ok) {
+    const detail = await formatInatHttpErrorForDisplay(res);
+    inatUploadStatus.textContent = `Token not accepted: ${detail} Try a fresh token from iNaturalist.`;
+    setInatUploadStatusVariant("error");
+    inatUploadTokenField.hidden = false;
+    updateButtons();
+    return;
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    inatUploadStatus.textContent = "Unexpected response while verifying the token.";
+    setInatUploadStatusVariant("error");
+    inatUploadTokenField.hidden = false;
+    updateButtons();
+    return;
+  }
+  const u = data && Array.isArray(data.results) ? data.results[0] : null;
+  const login = u && typeof u.login === "string" ? u.login.trim() : "";
+  inatUploadAuthOk = true;
+  inatUploadTokenField.hidden = true;
+  if (inatUploadToken) inatUploadToken.value = "";
+  inatUploadStatus.textContent = login
+    ? `Signed in as ${login}. You can upload observations below.`
+    : "Signed in. You can upload observations below.";
+  setInatUploadStatusVariant("ok");
+  updateButtons();
+}
+
+/** @param {{ dtStr?: string, lat?: number, lon?: number, lastModified?: number }} meta */
+function observedOnStringFromMeta(meta) {
+  const lm = meta && typeof meta.lastModified === "number" && Number.isFinite(meta.lastModified) ? meta.lastModified : Date.now();
+  const d = new Date(lm);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 19).replace("T", " ");
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  return `${y}-${mo}-${day} ${h}:${mi}:${s}`;
+}
+
+/** @param {any} data */
+function observationIdFromCreateJson(data) {
+  if (!data || typeof data !== "object") return null;
+  if (typeof data.id === "number" && data.id > 0) return Math.floor(data.id);
+  if (typeof data.id === "string" && /^\d+$/.test(data.id)) return parseInt(data.id, 10);
+  if (Array.isArray(data) && data.length) {
+    const x = data[0];
+    if (x && typeof x.id === "number" && x.id > 0) return Math.floor(x.id);
+    if (x && typeof x.id === "string" && /^\d+$/.test(x.id)) return parseInt(x.id, 10);
+  }
+  const r = data.results;
+  if (Array.isArray(r) && r.length) {
+    const x = r[0];
+    if (x && typeof x.id === "number" && x.id > 0) return Math.floor(x.id);
+  }
+  return null;
+}
+
+/**
+ * Build JPEG + original source pairs for iNat upload (same order as ZIP export).
+ * @param {(info: { phase: string, index: number, total: number, label?: string }) => void} [onProgress]
+ * @returns {Promise<{ jpegFile: File, sourceFile: File }[]>}
+ */
+async function ensureJpegPairsForInatUpload(onProgress) {
+  const built = await buildExportFilesListForZip(onProgress, "iNaturalist");
+  const pairs = [];
+  const n = built.files.length;
+  for (let i = 0; i < n; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 0));
+    const f = built.files[i];
+    const src = built.sourceFiles[i];
+    const mime = (f.type || "").toLowerCase();
+    const nameLooksJpeg = /\.jpe?g$/i.test(f.name || "");
+    const isJpegMime = mime === "image/jpeg" || mime === "image/jpg";
+    let jpegFile;
+    if (isJpegMime || (nameLooksJpeg && mime.startsWith("image/"))) {
+      const name = nameLooksJpeg ? exportFilenameWithJpgExt(f.name) : `${stripFileExtension(f.name)}.jpg`;
+      jpegFile = new File([f], name, { type: "image/jpeg", lastModified: f.lastModified });
+    } else if (src) {
+      const jpegBlob = await encodeFullImageToJpegBlobForShare(src);
+      jpegFile = new File([jpegBlob], `${stripFileExtension(f.name)}.jpg`, {
+        type: "image/jpeg",
+        lastModified: f.lastModified,
+      });
+    } else {
+      continue;
+    }
+    pairs.push({ jpegFile, sourceFile: src || f });
+    if (onProgress) onProgress({ phase: "inat", index: i + 1, total: n, label: `Prepare ${i + 1} / ${n}` });
+  }
+  return pairs;
+}
+
+async function attachPhotoToInatObservation(obsId, jpegFile) {
+  const fd = new FormData();
+  fd.append("file", jpegFile, jpegFile.name || "photo.jpg");
+  fd.append("observation_photo[observation_id]", String(obsId));
+  return inatFetch("observation_photos", { method: "POST", auth: true, body: fd });
+}
+
+async function createInatObservationForPhoto(jpegFile, sourceFile, speciesGuess, userNotes) {
+  const meta = await extractMetaForEmbedding(sourceFile);
+  const observedOn = observedOnStringFromMeta(meta);
+  const guess = (speciesGuess || "").trim() || "Unknown";
+  const notesTrim = (userNotes || "").trim();
+  const baseDesc =
+    (notesTrim ? `${notesTrim}\n\n` : "") + "Uploaded from Subject square crop (browser).";
+  /** @type {Record<string, unknown>} */
+  const obs = {
+    species_guess: guess,
+    description: baseDesc,
+    observed_on_string: observedOn,
+    geoprivacy: "open",
+  };
+  if (
+    typeof meta.lat === "number" &&
+    typeof meta.lon === "number" &&
+    Number.isFinite(meta.lat) &&
+    Number.isFinite(meta.lon)
+  ) {
+    obs.latitude = meta.lat;
+    obs.longitude = meta.lon;
+  }
+  const res = await inatFetch("observations", {
+    method: "POST",
+    auth: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ observation: obs }),
+  });
+  if (!res.ok) {
+    const detail = await formatInatHttpErrorForDisplay(res);
+    throw new Error(`Could not create observation: ${detail}`);
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error("Could not parse observation create response.");
+  }
+  const id = observationIdFromCreateJson(data);
+  if (!id) throw new Error("Observation created but the response did not include an id.");
+  const photoRes = await attachPhotoToInatObservation(id, jpegFile);
+  if (!photoRes.ok) {
+    const d = await formatInatHttpErrorForDisplay(photoRes);
+    throw new Error(`Observation ${id} was created but the photo upload failed: ${d}`);
+  }
+  return id;
+}
+
+async function runInatObservationUpload() {
+  clearError();
+  if (!inatApiJwtAuthorizationValue() || !inatUploadAuthOk) {
+    showError("Apply a valid API token first.");
+    return;
+  }
+  const speciesGuess = inatUploadSpecies ? inatUploadSpecies.value : "";
+  const userNotes = inatUploadNotes ? inatUploadNotes.value : "";
+  const n = workItems.length;
+  if (!n) return;
+  const confirmMsg =
+    n > 12
+      ? `Create ${n} separate observations on iNaturalist? This uses many API calls.`
+      : `Create ${n} observation(s) on iNaturalist (one per photo)?`;
+  if (!window.confirm(confirmMsg)) return;
+
+  inatUploadInProgress = true;
+  updateButtons();
+  if (inatUploadProgress) {
+    inatUploadProgress.hidden = false;
+    inatUploadProgress.textContent = "Preparing files…";
+  }
+  let ok = 0;
+  const links = [];
+  try {
+    const pairs = await ensureJpegPairsForInatUpload((info) => {
+      if (inatUploadProgress && info && info.label) inatUploadProgress.textContent = info.label;
+    });
+    if (!pairs.length) {
+      showError("Nothing to upload — export encoding produced no JPEGs.");
+      return;
+    }
+    for (let i = 0; i < pairs.length; i++) {
+      const { jpegFile, sourceFile } = pairs[i];
+      if (i > 0) await new Promise((r) => setTimeout(r, 350));
+      if (inatUploadProgress) {
+        inatUploadProgress.textContent = `Uploading ${i + 1} / ${pairs.length}…`;
+      }
+      try {
+        const id = await createInatObservationForPhoto(jpegFile, sourceFile, speciesGuess, userNotes);
+        ok++;
+        links.push(`https://www.inaturalist.org/observations/${id}`);
+      } catch (e) {
+        const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+        showError(`${jpegFile.name}: ${msg}`);
+        break;
+      }
+    }
+    if (ok > 0 && inatUploadProgress) {
+      inatUploadProgress.textContent =
+        ok === pairs.length
+          ? `Done. ${ok} observation(s) created.`
+          : `Stopped after ${ok} of ${pairs.length}. Open the last error above.`;
+    }
+    if (ok > 0 && links.length && ok === pairs.length) {
+      const open = window.confirm(`${ok} observation(s) created. Open the first one on iNaturalist?`);
+      if (open) window.open(links[0], "_blank", "noopener,noreferrer");
+    }
+  } catch (e) {
+    console.error(e);
+    const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+    showError(`Upload failed: ${msg}`);
+  } finally {
+    inatUploadInProgress = false;
+    updateButtons();
+  }
 }
 
 /**
@@ -3442,6 +3731,7 @@ fileInput.addEventListener("change", async () => {
   clearCropState();
   if (batchProgress) { batchProgress.hidden = true; batchProgress.textContent = ""; }
   if (cropExportBar) cropExportBar.hidden = true;
+  if (inatUploadSection) inatUploadSection.hidden = true;
   previewGeneration++;
   releaseBatchResources();
     try {
@@ -3806,6 +4096,40 @@ if (btnShareInat) {
       .finally(() => {
         updateButtons();
       });
+  });
+}
+
+if (btnInatUploadTokenApply && inatUploadToken) {
+  btnInatUploadTokenApply.addEventListener("click", () => {
+    clearError();
+    const pasted = inatUploadToken.value;
+    const parsed = parseInatApiTokenPaste(pasted);
+    if (parsed.error || !parsed.token) {
+      showError(parsed.error || "Could not read token.");
+      return;
+    }
+    const saved = persistParsedInatApiJwt(parsed.token);
+    if (!saved.ok) {
+      showError(saved.error || "Could not save token.");
+      return;
+    }
+    inatUploadToken.value = "";
+    void refreshInatUploadAuthUi();
+  });
+}
+
+if (btnInatUploadTokenClear) {
+  btnInatUploadTokenClear.addEventListener("click", () => {
+    clearError();
+    clearStoredInatApiJwt();
+    if (inatUploadToken) inatUploadToken.value = "";
+    void refreshInatUploadAuthUi();
+  });
+}
+
+if (btnInatUploadObs) {
+  btnInatUploadObs.addEventListener("click", () => {
+    void runInatObservationUpload();
   });
 }
 

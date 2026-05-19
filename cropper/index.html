@@ -14,7 +14,7 @@
     <title>Square crop</title>
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
-    <link rel="stylesheet" href="./styles.css?v=persistwarn1" />
+    <link rel="stylesheet" href="./styles.css?v=inatupl1" />
   </head>
   <body class="app-body-fit">
     <div
@@ -129,11 +129,51 @@
                 <div id="zip-download-fill" class="progress__fill"></div>
               </div>
             </div>
+            <section id="inat-upload-section" class="inat-upload-section" hidden aria-labelledby="inat-upload-heading">
+              <h3 id="inat-upload-heading" class="inat-upload-heading">Post to iNaturalist</h3>
+              <p class="inat-upload-lede muted">
+                Optional: create one observation per exported JPEG. Uses the same API token as the
+                <a href="../explorer/">observation browser</a> on this device (from
+                <a href="https://www.inaturalist.org/users/api_token" rel="noopener noreferrer">your API token page</a>).
+              </p>
+              <p id="inat-upload-status" class="inat-upload-status" role="status" aria-live="polite"></p>
+              <div id="inat-upload-token-field" class="inat-upload-token-field">
+                <label for="inat-upload-token" class="inat-upload-label">Token (JSON or JWT)</label>
+                <textarea
+                  id="inat-upload-token"
+                  class="inat-upload-token"
+                  rows="3"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder='{"api_token":"eyJ..."} or eyJ...'
+                ></textarea>
+                <div class="inat-upload-token-actions">
+                  <button type="button" id="btn-inat-upload-token-apply" class="btn secondary">Apply token</button>
+                  <button type="button" id="btn-inat-upload-token-clear" class="btn secondary">Clear token</button>
+                </div>
+              </div>
+              <div class="inat-upload-form-grid">
+                <label for="inat-upload-species" class="inat-upload-label">What did you see? (optional)</label>
+                <input
+                  type="text"
+                  id="inat-upload-species"
+                  class="inat-upload-input"
+                  maxlength="200"
+                  placeholder="Species guess — leave blank for Unknown"
+                />
+                <label for="inat-upload-notes" class="inat-upload-label">Notes (optional)</label>
+                <textarea id="inat-upload-notes" class="inat-upload-notes" rows="2" maxlength="2000" placeholder="Habitat, context…"></textarea>
+              </div>
+              <p id="inat-upload-progress" class="inat-upload-progress muted" hidden></p>
+              <button type="button" id="btn-inat-upload-obs" class="btn secondary" disabled>
+                Upload to iNaturalist (one observation per photo)
+              </button>
+            </section>
           </div>
         </section>
       </div>
     </main>
 
-    <script src="./app.js?v=perfpan1" type="module"></script>
+    <script src="./app.js?v=inatupl1" type="module"></script>
   </body>
 </html>

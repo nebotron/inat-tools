@@ -1235,3 +1235,99 @@ body.app-body-fit .app-page--crop .crop-review-done {
   flex: 1 1 100%;
   line-height: 1.35;
 }
+
+.inat-upload-section {
+  margin-top: 0.75rem;
+  padding: 0.65rem max(1rem, env(safe-area-inset-left, 0px)) 0.75rem max(1rem, env(safe-area-inset-right, 0px));
+  border-top: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.inat-upload-heading {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.inat-upload-lede {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.inat-upload-lede a {
+  color: var(--accent);
+}
+
+.inat-upload-status {
+  margin: 0 0 0.55rem;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.inat-upload-status--neutral {
+  color: var(--muted);
+}
+
+.inat-upload-status--ok {
+  color: #86efac;
+}
+
+.inat-upload-status--error {
+  color: var(--danger);
+}
+
+.inat-upload-token-field {
+  margin-bottom: 0.65rem;
+}
+
+.inat-upload-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: #e2e8f0;
+}
+
+.inat-upload-token {
+  width: 100%;
+  min-height: 4rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  resize: vertical;
+}
+
+.inat-upload-token-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.4rem;
+}
+
+.inat-upload-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
+}
+
+.inat-upload-input,
+.inat-upload-notes {
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.inat-upload-progress {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+}
