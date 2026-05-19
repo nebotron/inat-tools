@@ -239,6 +239,9 @@ const inatUploadProgress = document.getElementById("inat-upload-progress");
 const btnInatUploadObs = document.getElementById("btn-inat-upload-obs");
 /** Set while the crop review toolbar is mounted (progress lives in `.crop-toolbar__progress`). */
 let cropToolbarProgressEl = null;
+/** `GET /users/me` succeeded with stored JWT — enables Upload to iNaturalist. */
+let inatUploadAuthOk = false;
+let inatUploadInProgress = false;
 /** `true` after photo index `i` (0-based): next photo starts a new observation. Length = photos − 1. */
 let inatGroupSplitAfter = [];
 let inatTaxonSuggestDebounce = 0;
