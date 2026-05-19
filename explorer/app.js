@@ -2154,16 +2154,17 @@ function speciesMetaParts(row, obsTaxonById, kcData) {
 }
 
 /**
- * Taxon to agree with: community taxon when present, otherwise the observation’s displayed taxon.
+ * Taxon to agree with: same as the observation card title (`obs.taxon`), falling back to
+ * `community_taxon_id` only when the observation has no taxon object (e.g. coarse guess only).
  * @param {object | null | undefined} obs
  * @returns {number | null}
  */
 function agreeTargetTaxonIdForObservation(obs) {
   if (!obs || typeof obs !== "object") return null;
-  const cid = obs.community_taxon_id != null ? Number(obs.community_taxon_id) : NaN;
-  if (Number.isFinite(cid) && cid > 0) return cid;
   const tid = obs.taxon && obs.taxon.id != null ? Number(obs.taxon.id) : NaN;
-  return Number.isFinite(tid) && tid > 0 ? tid : null;
+  if (Number.isFinite(tid) && tid > 0) return tid;
+  const cid = obs.community_taxon_id != null ? Number(obs.community_taxon_id) : NaN;
+  return Number.isFinite(cid) && cid > 0 ? cid : null;
 }
 
 /**
@@ -2201,7 +2202,7 @@ function observationAgreeButtonHtml(obs) {
   if (userHasCurrentIdentificationAtTaxon(obs, meId, taxonId)) return "";
   const oid = obs && obs.id != null ? Number(obs.id) : NaN;
   if (!Number.isFinite(oid) || oid <= 0) return "";
-  return `<button type="button" class="card-agree" aria-label="Agree with this observation on iNaturalist" title="Agree (posts your identification at the current taxon)" data-agree-obs-id="${Math.floor(
+  return `<button type="button" class="card-agree" aria-label="Agree with this observation on iNaturalist" title="Agree (posts your identification at the taxon shown on this card)" data-agree-obs-id="${Math.floor(
     oid
   )}" data-agree-taxon-id="${taxonId}"><i class="fa fa-thumbs-o-up" aria-hidden="true"></i></button>`;
 }
@@ -2285,7 +2286,7 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
   }
   if (
     !window.confirm(
-      "Agree with this observation on iNaturalist?\n\nThis posts your identification at the current taxon—the same as tapping Agree on the website."
+      "Agree with this observation on iNaturalist?\n\nThis posts your identification at the taxon shown on this card (the observation taxon), matching the title above."
     )
   ) {
     return;
