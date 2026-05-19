@@ -2677,12 +2677,6 @@ function renderInatPhotoGroupingStrip() {
     card.className = "inat-group-card";
     card.dataset.groupIdx = String(g);
 
-    const speciesLab = document.createElement("label");
-    speciesLab.className = "inat-upload-label";
-    speciesLab.textContent = "Species (optional)";
-    speciesLab.setAttribute("for", `inat-group-species-${g}`);
-    card.appendChild(speciesLab);
-
     const speciesField = document.createElement("div");
     speciesField.className = "inat-species-field";
     const hid = document.createElement("input");
@@ -2698,6 +2692,7 @@ function renderInatPhotoGroupingStrip() {
     inp.maxLength = 200;
     inp.autocomplete = "off";
     inp.placeholder = "Search iNaturalist taxa, or leave blank for Unknown";
+    inp.setAttribute("aria-label", "Species search (optional)");
     inp.setAttribute("aria-autocomplete", "list");
     inp.setAttribute("aria-expanded", "false");
     inp.value = grp.species || "";

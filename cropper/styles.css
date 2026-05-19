@@ -1347,6 +1347,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
 
 .inat-species-field {
   width: 100%;
+  margin-bottom: 0.35rem;
 }
 
 .inat-species-wrap {
@@ -1357,7 +1358,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
 .inat-species-row {
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 0.45rem;
   width: 100%;
 }
@@ -1365,15 +1366,33 @@ body.app-body-fit .app-page--crop .crop-review-done {
 .inat-species-row .inat-species-wrap {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.inat-group-cv-btn {
+.inat-species-row .inat-group-species {
   flex: 0 0 auto;
-  margin-top: 0;
-  padding: 0.45rem 0.55rem;
-  font-size: 0.82rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.inat-species-row .inat-group-cv-btn.btn {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  min-height: 0;
+  height: auto;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0.65rem;
+  padding-right: 0.65rem;
+  font-size: 0.9rem;
   font-weight: 650;
   white-space: nowrap;
+  box-sizing: border-box;
 }
 
 .inat-group-cv-btn[aria-busy="true"] {
@@ -1452,8 +1471,8 @@ body.app-body-fit .app-page--crop .crop-review-done {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  padding: 0.2rem;
+  gap: 0;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: rgba(15, 23, 42, 0.5);
@@ -1463,43 +1482,39 @@ body.app-body-fit .app-page--crop .crop-review-done {
   flex: 1 1 200px;
   min-width: min(100%, 160px);
   max-width: 100%;
-  padding: 0.35rem 0.3rem;
+  padding: 0;
   border-radius: 10px;
   border: 1px solid rgba(71, 85, 105, 0.55);
   background: rgba(15, 23, 42, 0.65);
-}
-
-.inat-group-card .inat-upload-label {
-  margin-top: 0.05rem;
 }
 
 .inat-group-drop {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 0.2rem;
+  gap: 0;
   min-height: 0;
-  margin-top: 0.3rem;
-  padding: 0.15rem;
-  border-radius: 8px;
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  background: rgba(2, 6, 23, 0.35);
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
   transition: outline-color 0.12s ease-out, background 0.12s ease-out;
 }
 
 .inat-group-drop--over {
   outline: 2px solid var(--accent-dim);
-  outline-offset: 1px;
-  background: rgba(14, 165, 233, 0.1);
+  outline-offset: 0;
+  background: rgba(14, 165, 233, 0.08);
 }
 
 .inat-dnd-tile {
   flex: 0 0 auto;
-  border-radius: 6px;
+  border-radius: 0;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: none;
   transition: transform 0.12s ease-out, opacity 0.12s ease-out;
 }
 
@@ -1519,7 +1534,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
 .inat-dnd-tile__thumb {
   width: 104px;
   height: 104px;
-  border-radius: 6px;
+  border-radius: 0;
   overflow: hidden;
   background: #020617;
   display: flex;
