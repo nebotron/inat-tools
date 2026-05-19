@@ -2370,16 +2370,22 @@ function buildCardImageBlockFromUrls(urls) {
     const u = escapeHtml(urls[0]);
     return `<img class="card-photo" src="${u}" alt="" loading="lazy" decoding="async" />`;
   }
-  const imgs = urls
+  const n = urls.length;
+  const dotsHtml = urls
     .map(
-      (raw, i) =>
-        `<img class="card-photo" src="${escapeHtml(raw)}" alt="" loading="${i === 0 ? "eager" : "lazy"}" decoding="async" />`
+      (_, i) =>
+        `<span class="card-media-carousel__dot${i === 0 ? " card-media-carousel__dot--active" : ""}" data-dot-index="${i}" aria-hidden="true"></span>`
     )
     .join("");
-  const dots = urls
-    .map((_, i) => `<span class="card-media-carousel__dot${i === 0 ? " card-media-carousel__dot--active" : ""}"></span>`)
+  const slidesHtml = urls
+    .map((raw, slideIndex) => {
+      const u = escapeHtml(raw);
+      return `<div class="card-media-carousel__slide"><img class="card-photo" src="${u}" alt="" loading="${
+        slideIndex === 0 ? "eager" : "lazy"
+      }" decoding="async" /><div class="card-media-carousel__dots" aria-hidden="true">${dotsHtml}</div></div>`;
+    })
     .join("");
-  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${imgs}<div class="card-media-carousel__dots" aria-hidden="true">${dots}</div></div>`;
+  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${slidesHtml}</div>`;
 }
 
 /**
@@ -2390,16 +2396,15 @@ function wireObservationCardPhotoCarousel(card) {
   const root = card.querySelector(".card-media-carousel");
   const anchor = card.querySelector("a.card-link");
   if (!root || !anchor) return;
-  const dots = [...root.querySelectorAll(".card-media-carousel__dot")];
-  const imgs = [...root.querySelectorAll(":scope > .card-photo")];
-  if (dots.length < 2 || imgs.length !== dots.length) return;
+  const slides = root.querySelectorAll(":scope > .card-media-carousel__slide");
+  const n = slides.length;
+  if (n < 2) return;
 
   const pageW = () => (root.clientWidth > 0 ? root.clientWidth : 1);
 
   /** Index of the slide whose center is nearest the viewport center (stable with scroll-snap + subpixels). */
   const slideIndexFromScroll = () => {
     const w = pageW();
-    const n = dots.length;
     if (w <= 0 || n < 1) return 0;
     const x = root.scrollLeft + w * 0.5;
     return Math.min(n - 1, Math.max(0, Math.floor(x / w)));
@@ -2412,10 +2417,12 @@ function wireObservationCardPhotoCarousel(card) {
 
   const syncDots = () => {
     const idx = slideIndexFromScroll();
-    for (let i = 0; i < dots.length; i += 1) {
-      dots[i].classList.toggle("card-media-carousel__dot--active", i === idx);
-    }
-    root.setAttribute("aria-label", `Observation photos, ${idx + 1} of ${dots.length}`);
+    root.querySelectorAll(".card-media-carousel__dot").forEach((el) => {
+      const di = el.getAttribute("data-dot-index");
+      const i = di != null ? Number(di) : NaN;
+      el.classList.toggle("card-media-carousel__dot--active", Number.isFinite(i) && i === idx);
+    });
+    root.setAttribute("aria-label", `Observation photos, ${idx + 1} of ${n}`);
   };
 
   let scrollRaf = 0;
