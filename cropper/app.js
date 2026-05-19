@@ -2767,7 +2767,6 @@ async function runInatObservationUpload() {
     inatUploadProgress.textContent = "Uploading…";
   }
   let ok = 0;
-  const links = [];
   try {
     for (let gi = 0; gi < nonemptyGroups.length; gi++) {
       const grp = nonemptyGroups[gi];
@@ -2798,7 +2797,6 @@ async function runInatObservationUpload() {
           Number.isFinite(taxonIdNum) && taxonIdNum > 0 ? taxonIdNum : NaN
         );
         ok++;
-        links.push(`https://www.inaturalist.org/observations/${id}`);
       } catch (e) {
         const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
         showError(`Observation ${gi + 1}: ${msg}`);
@@ -2810,10 +2808,6 @@ async function runInatObservationUpload() {
         ok === nonemptyGroups.length
           ? `Done. ${ok} observation(s) created.`
           : `Stopped after ${ok} of ${nonemptyGroups.length}. See error above.`;
-    }
-    if (ok > 0 && links.length && ok === nonemptyGroups.length) {
-      const open = window.confirm(`${ok} observation(s) created. Open the first one on iNaturalist?`);
-      if (open) window.open(links[0], "_blank", "noopener,noreferrer");
     }
   } catch (e) {
     console.error(e);
