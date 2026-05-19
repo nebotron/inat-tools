@@ -2386,6 +2386,7 @@ function userHasCurrentIdentificationAtTaxon(obs, userId, taxonId) {
 
 /**
  * HTML for the observation-card Agree control, or empty string when not applicable.
+ * Uses Font Awesome 4 `fa-thumbs-o-up` / `fa-thumbs-up` like iNaturalist web (`activity_item.jsx`).
  * @param {object | null | undefined} obs
  */
 function observationAgreeButtonHtml(obs) {
@@ -2399,9 +2400,9 @@ function observationAgreeButtonHtml(obs) {
   if (userHasCurrentIdentificationAtTaxon(obs, meId, taxonId)) return "";
   const oid = obs && obs.id != null ? Number(obs.id) : NaN;
   if (!Number.isFinite(oid) || oid <= 0) return "";
-  return `<button type="button" class="card-agree" aria-label="Agree with this observation on iNaturalist" title="Agree (posts your identification at this taxon)" data-agree-obs-id="${Math.floor(
+  return `<button type="button" class="card-agree" aria-label="Agree with this observation on iNaturalist" title="Agree (posts your identification at the current taxon)" data-agree-obs-id="${Math.floor(
     oid
-  )}" data-agree-taxon-id="${taxonId}">Agree</button>`;
+  )}" data-agree-taxon-id="${taxonId}"><i class="fa fa-thumbs-o-up" aria-hidden="true"></i></button>`;
 }
 
 function renderInatApiAuthStatusEl(message, variant = "neutral") {
@@ -2481,9 +2482,16 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     window.alert("Paste and apply an API token under Filters first.");
     return;
   }
+  if (
+    !window.confirm(
+      "Agree with this observation on iNaturalist?\n\nThis posts your identification at the current taxon—the same as tapping Agree on the website."
+    )
+  ) {
+    return;
+  }
+  const prevHtml = button.innerHTML;
   button.disabled = true;
-  const prevLabel = button.textContent;
-  button.textContent = "…";
+  button.innerHTML = '<i class="fa fa-spinner fa-spin" aria-hidden="true"></i>';
   try {
     const res = await inatFetch("identifications", {
       method: "POST",
@@ -2495,16 +2503,16 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
       const detail = await formatInatHttpErrorForDisplay(res);
       window.alert(`Could not agree. ${detail}`);
       button.disabled = false;
-      button.textContent = prevLabel;
+      button.innerHTML = prevHtml;
       return;
     }
-    button.textContent = "Agreed";
+    button.innerHTML = '<i class="fa fa-thumbs-up" aria-hidden="true"></i>';
     button.setAttribute("aria-label", "You agreed with this observation");
     button.setAttribute("title", "You agreed");
   } catch (e) {
     window.alert(e && e.message ? e.message : "Network error while agreeing.");
     button.disabled = false;
-    button.textContent = prevLabel;
+    button.innerHTML = prevHtml;
   }
 }
 

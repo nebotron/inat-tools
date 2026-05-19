@@ -573,18 +573,25 @@ main {
   top: 0.4rem;
   left: 0.4rem;
   z-index: 2;
-  max-width: calc(100% - 5rem);
-  padding: 0.28rem 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
-  font-size: 0.78rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
+  font-size: 1rem;
+  line-height: 1;
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.card-agree .fa {
+  pointer-events: none;
 }
 
 .card-agree:hover:not(:disabled) {
