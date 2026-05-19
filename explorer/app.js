@@ -2398,20 +2398,40 @@ function wireObservationCardPhotoCarousel(card) {
   const anchor = card.querySelector("a.card-link");
   if (!root || !anchor) return;
   const dots = [...root.querySelectorAll(".card-media-carousel__dot")];
-  if (dots.length < 2) return;
+  const imgs = [...root.querySelectorAll(":scope > .card-photo")];
+  if (dots.length < 2 || imgs.length !== dots.length) return;
 
   const pageW = () => (root.clientWidth > 0 ? root.clientWidth : 1);
+
+  /** Index of the slide whose center is nearest the viewport center (stable with scroll-snap + subpixels). */
+  const slideIndexFromScroll = () => {
+    const w = pageW();
+    const n = dots.length;
+    if (w <= 0 || n < 1) return 0;
+    const x = root.scrollLeft + w * 0.5;
+    return Math.min(n - 1, Math.max(0, Math.floor(x / w)));
+  };
+
   let blockNavUntil = 0;
   const blockNav = (ms = 480) => {
     blockNavUntil = Math.max(blockNavUntil, Date.now() + ms);
   };
 
   const syncDots = () => {
-    const idx = Math.min(dots.length - 1, Math.max(0, Math.round(root.scrollLeft / pageW())));
+    const idx = slideIndexFromScroll();
     for (let i = 0; i < dots.length; i += 1) {
       dots[i].classList.toggle("card-media-carousel__dot--active", i === idx);
     }
     root.setAttribute("aria-label", `Observation photos, ${idx + 1} of ${dots.length}`);
+  };
+
+  let scrollRaf = 0;
+  const scheduleSyncDots = () => {
+    if (scrollRaf) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = 0;
+      syncDots();
+    });
   };
 
   let scrollAtPointerDown = 0;
@@ -2436,7 +2456,7 @@ function wireObservationCardPhotoCarousel(card) {
       const dx = e.clientX - pointerDownX;
       const ds = Math.abs(root.scrollLeft - scrollAtPointerDown);
       if (Math.abs(dx) > 18 || ds > 6) blockNav();
-      requestAnimationFrame(syncDots);
+      scheduleSyncDots();
     },
     { passive: true }
   );
@@ -2447,10 +2467,14 @@ function wireObservationCardPhotoCarousel(card) {
   root.addEventListener(
     "scroll",
     () => {
-      requestAnimationFrame(syncDots);
+      scheduleSyncDots();
     },
     { passive: true }
   );
+
+  root.addEventListener("scrollend", () => {
+    scheduleSyncDots();
+  });
 
   anchor.addEventListener(
     "click",
@@ -2475,12 +2499,12 @@ function wireObservationCardPhotoCarousel(card) {
   });
 
   try {
-    const ro = new ResizeObserver(() => syncDots());
+    const ro = new ResizeObserver(() => scheduleSyncDots());
     ro.observe(root);
   } catch {
     /* ignore */
   }
-  requestAnimationFrame(syncDots);
+  scheduleSyncDots();
 }
 
 function renderCard({

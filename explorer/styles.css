@@ -663,23 +663,29 @@ main {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0.32rem;
+  gap: 0.35rem;
   padding: 0.2rem 0.45rem;
   pointer-events: none;
 }
 
 .card-media-carousel__dot {
-  width: 0.38rem;
-  height: 0.38rem;
+  flex-shrink: 0;
+  width: 0.4rem;
+  height: 0.4rem;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.38);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
-  transition: transform 0.12s ease, background 0.12s ease;
+  transition: width 0.18s ease, height 0.18s ease, border-radius 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
 
+/* Elongated “pill” shows which photo is in view (matches carousel scroll position). */
 .card-media-carousel__dot--active {
-  background: rgba(255, 255, 255, 0.95);
-  transform: scale(1.28);
+  width: 1.05rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  transform: none;
 }
 
 .card .no-photo {
