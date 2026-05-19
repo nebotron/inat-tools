@@ -620,6 +620,67 @@ main {
   display: block;
 }
 
+/* Multi-photo observation cards: horizontal swipe / scroll-snap */
+.card-media-carousel {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  width: 100%;
+  height: 100%;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  outline: none;
+}
+
+.card-media-carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.card-media-carousel > .card-photo {
+  flex: 0 0 100%;
+  min-width: 100%;
+  max-width: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+.card-media-carousel__dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.35rem;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.2rem 0.45rem;
+  pointer-events: none;
+}
+
+.card-media-carousel__dot {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.card-media-carousel__dot--active {
+  background: rgba(255, 255, 255, 0.95);
+  transform: scale(1.28);
+}
+
 .card .no-photo {
   width: 100%;
   height: 100%;

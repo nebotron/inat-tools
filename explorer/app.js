@@ -551,6 +551,18 @@ function observationCardPhotoDisplayUrl(rawUrl) {
   return originalPhotoUrl(trimmed);
 }
 
+/** Original-size display URLs for each observation photo, in API order. */
+function observationPhotoDisplayUrlsFromObs(obs) {
+  const photos = obs && Array.isArray(obs.photos) ? obs.photos : [];
+  const out = [];
+  for (const p of photos) {
+    if (!p || !p.url) continue;
+    const u = observationCardPhotoDisplayUrl(p.url);
+    if (u) out.push(u);
+  }
+  return out;
+}
+
 /** How many card images after the last visible one to warm via `Image()` while scrolling. */
 const GRID_CARD_IMAGE_PRELOAD_AHEAD = 5;
 
@@ -2318,10 +2330,123 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
   }
 }
 
+function buildCardImageBlockFromUrls(urls) {
+  if (!urls.length) return `<div class="no-photo">No photo</div>`;
+  if (urls.length === 1) {
+    const u = escapeHtml(urls[0]);
+    return `<img class="card-photo" src="${u}" alt="" loading="lazy" decoding="async" />`;
+  }
+  const imgs = urls
+    .map(
+      (raw, i) =>
+        `<img class="card-photo" src="${escapeHtml(raw)}" alt="" loading="${i === 0 ? "eager" : "lazy"}" decoding="async" />`
+    )
+    .join("");
+  const dots = urls
+    .map((_, i) => `<span class="card-media-carousel__dot${i === 0 ? " card-media-carousel__dot--active" : ""}"></span>`)
+    .join("");
+  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${imgs}<div class="card-media-carousel__dots" aria-hidden="true">${dots}</div></div>`;
+}
+
+/**
+ * Horizontal photo carousel: scroll-snap + swipe; suppresses card link navigation after a swipe.
+ * @param {HTMLElement} card
+ */
+function wireObservationCardPhotoCarousel(card) {
+  const root = card.querySelector(".card-media-carousel");
+  const anchor = card.querySelector("a.card-link");
+  if (!root || !anchor) return;
+  const dots = [...root.querySelectorAll(".card-media-carousel__dot")];
+  if (dots.length < 2) return;
+
+  const pageW = () => (root.clientWidth > 0 ? root.clientWidth : 1);
+  let blockNavUntil = 0;
+  const blockNav = (ms = 480) => {
+    blockNavUntil = Math.max(blockNavUntil, Date.now() + ms);
+  };
+
+  const syncDots = () => {
+    const idx = Math.min(dots.length - 1, Math.max(0, Math.round(root.scrollLeft / pageW())));
+    for (let i = 0; i < dots.length; i += 1) {
+      dots[i].classList.toggle("card-media-carousel__dot--active", i === idx);
+    }
+    root.setAttribute("aria-label", `Observation photos, ${idx + 1} of ${dots.length}`);
+  };
+
+  let scrollAtPointerDown = 0;
+  let pointerDownX = 0;
+  let pointerActive = false;
+
+  root.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      pointerActive = true;
+      pointerDownX = e.clientX;
+      scrollAtPointerDown = root.scrollLeft;
+    },
+    { passive: true }
+  );
+  root.addEventListener(
+    "pointerup",
+    (e) => {
+      if (!pointerActive) return;
+      pointerActive = false;
+      const dx = e.clientX - pointerDownX;
+      const ds = Math.abs(root.scrollLeft - scrollAtPointerDown);
+      if (Math.abs(dx) > 18 || ds > 6) blockNav();
+      requestAnimationFrame(syncDots);
+    },
+    { passive: true }
+  );
+  root.addEventListener("pointercancel", () => {
+    pointerActive = false;
+  });
+
+  root.addEventListener(
+    "scroll",
+    () => {
+      requestAnimationFrame(syncDots);
+    },
+    { passive: true }
+  );
+
+  anchor.addEventListener(
+    "click",
+    (e) => {
+      if (Date.now() < blockNavUntil) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    },
+    true
+  );
+
+  root.tabIndex = 0;
+  root.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      root.scrollBy({ left: -pageW(), behavior: "smooth" });
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      root.scrollBy({ left: pageW(), behavior: "smooth" });
+    }
+  });
+
+  try {
+    const ro = new ResizeObserver(() => syncDots());
+    ro.observe(root);
+  } catch {
+    /* ignore */
+  }
+  requestAnimationFrame(syncDots);
+}
+
 function renderCard({
   href,
   name,
   imageUrl,
+  imageUrls = null,
   metaLines = [],
   metaParts = null,
   onClick,
@@ -2335,21 +2460,25 @@ function renderCard({
   if (Number.isFinite(oid) && oid > 0) {
     card.dataset.obsId = String(Math.floor(oid));
   }
+  const urls =
+    imageUrls != null && Array.isArray(imageUrls) && imageUrls.length > 0
+      ? imageUrls.filter((u) => typeof u === "string" && u.trim())
+      : imageUrl
+        ? [imageUrl]
+        : [];
   const metaBlock = metaParts != null
     ? metaParts.join("")
     : metaLines.length
       ? metaLines.map((line) => `<p class="card-meta-line">${escapeHtml(line)}</p>`).join("")
       : "";
   const saveBtn =
-    saveObservation && imageUrl
+    saveObservation && urls.length > 0
       ? `<button type="button" class="card-save-photo" aria-label="Share or save all photos with observation location and time" title="Share / save all photos (embeds GPS and observed time in JPEGs)">
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
         </button>`
       : "";
   const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
-  const imgBlock = imageUrl
-    ? `<img class="card-photo" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" decoding="async" />`
-    : `<div class="no-photo">No photo</div>`;
+  const imgBlock = buildCardImageBlockFromUrls(urls);
   if (onClick) {
     card.innerHTML = `
       <a href="${href}" class="card-link" role="button" style="cursor:pointer">
@@ -2384,6 +2513,9 @@ function renderCard({
       e.stopPropagation();
       void saveObservationPhotoWithExif(saveObservation);
     });
+  }
+  if (urls.length > 1) {
+    wireObservationCardPhotoCarousel(card);
   }
   return card;
 }
@@ -2457,12 +2589,14 @@ async function runObservationSearch(reset) {
         if (!Number.isFinite(oid) || obsSeenIds.has(oid)) continue;
         obsSeenIds.add(oid);
         const name = obs.taxon?.preferred_common_name || obs.taxon?.name || obs.species_guess || "Unknown";
-        const imageUrl = observationCardPhotoDisplayUrl(obs.photos?.[0]?.url);
+        const photoUrls = observationPhotoDisplayUrlsFromObs(obs);
+        const imageUrl = photoUrls[0] || "";
         frag.appendChild(
           renderCard({
             href: `https://www.inaturalist.org/observations/${obs.id}`,
             name,
             imageUrl,
+            imageUrls: photoUrls.length > 1 ? photoUrls : null,
             metaParts: observationMetaHtmlParts(obs, kcData),
             saveObservation: obs,
             observationId: oid,
