@@ -14,7 +14,7 @@
     <title>Square crop</title>
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
-    <link rel="stylesheet" href="./styles.css?v=inatupl1" />
+    <link rel="stylesheet" href="./styles.css?v=inatgroup1" />
   </head>
   <body class="app-body-fit">
     <div
@@ -132,7 +132,7 @@
             <section id="inat-upload-section" class="inat-upload-section" hidden aria-labelledby="inat-upload-heading">
               <h3 id="inat-upload-heading" class="inat-upload-heading">Post to iNaturalist</h3>
               <p class="inat-upload-lede muted">
-                Optional: create one observation per exported JPEG. Uses the same API token as the
+                Optional: upload cropped JPEGs to iNaturalist. Uses the same API token as the
                 <a href="../explorer/">observation browser</a> on this device (from
                 <a href="https://www.inaturalist.org/users/api_token" rel="noopener noreferrer">your API token page</a>).
               </p>
@@ -153,20 +153,36 @@
                 </div>
               </div>
               <div class="inat-upload-form-grid">
-                <label for="inat-upload-species" class="inat-upload-label">What did you see? (optional)</label>
-                <input
-                  type="text"
-                  id="inat-upload-species"
-                  class="inat-upload-input"
-                  maxlength="200"
-                  placeholder="Species guess — leave blank for Unknown"
-                />
-                <label for="inat-upload-notes" class="inat-upload-label">Notes (optional)</label>
-                <textarea id="inat-upload-notes" class="inat-upload-notes" rows="2" maxlength="2000" placeholder="Habitat, context…"></textarea>
+                <label for="inat-upload-species" class="inat-upload-label">Species (optional)</label>
+                <div class="inat-species-field">
+                  <input type="hidden" id="inat-upload-taxon-id" value="" />
+                  <div class="inat-species-wrap">
+                    <input
+                      type="text"
+                      id="inat-upload-species"
+                      class="inat-upload-input"
+                      maxlength="200"
+                      autocomplete="off"
+                      placeholder="Type to search iNaturalist taxa, or leave blank for Unknown"
+                      aria-autocomplete="list"
+                      aria-controls="inat-upload-species-suggest"
+                      aria-expanded="false"
+                    />
+                    <ul id="inat-upload-species-suggest" class="inat-species-suggest" role="listbox" hidden></ul>
+                  </div>
+                </div>
+              </div>
+              <div id="inat-upload-grouping" class="inat-upload-grouping" hidden>
+                <h4 class="inat-upload-subheading">Group photos into observations</h4>
+                <p class="inat-upload-grouping-hint muted">
+                  All photos start in one observation. Turn on “Start new observation after this” between rows to split
+                  the batch into multiple observations (order matches your ZIP).
+                </p>
+                <div id="inat-upload-grouping-strip" class="inat-upload-grouping-strip" role="list"></div>
               </div>
               <p id="inat-upload-progress" class="inat-upload-progress muted" hidden></p>
               <button type="button" id="btn-inat-upload-obs" class="btn secondary" disabled>
-                Upload to iNaturalist (one observation per photo)
+                Upload to iNaturalist
               </button>
             </section>
           </div>
@@ -174,6 +190,6 @@
       </div>
     </main>
 
-    <script src="./app.js?v=inatupl1" type="module"></script>
+    <script src="./app.js?v=inatgroup1" type="module"></script>
   </body>
 </html>
