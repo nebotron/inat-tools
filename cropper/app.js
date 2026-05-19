@@ -233,7 +233,10 @@ const btnInatUploadTokenClear = document.getElementById("btn-inat-upload-token-c
 const btnInatAddObservationGroup = document.getElementById("btn-inat-add-observation-group");
 const inatUploadGrouping = document.getElementById("inat-upload-grouping");
 const inatUploadGroupingStrip = document.getElementById("inat-upload-grouping-strip");
-const inatUploadProgress = document.getElementById("inat-upload-progress");
+const inatUploadProgressWrap = document.getElementById("inat-upload-progress-wrap");
+const inatUploadProgressLine = document.getElementById("inat-upload-progress-line");
+const inatUploadProgressBar = document.getElementById("inat-upload-progress-bar");
+const inatUploadProgressFill = document.getElementById("inat-upload-progress-fill");
 const btnInatUploadObs = document.getElementById("btn-inat-upload-obs");
 /** Set while the crop review toolbar is mounted (progress lives in `.crop-toolbar__progress`). */
 let cropToolbarProgressEl = null;
@@ -255,6 +258,37 @@ let inatSpeciesSelectingProgrammatic = false;
 let inatUploadGroupingDelegated = false;
 /** Drop zone currently highlighted during an in-flight photo drag. */
 let inatDnDDropHighlightEl = null;
+
+function resetInatUploadProgressUi() {
+  if (inatUploadProgressWrap) inatUploadProgressWrap.hidden = true;
+  if (inatUploadProgressBar) {
+    inatUploadProgressBar.hidden = true;
+    inatUploadProgressBar.setAttribute("aria-valuenow", "0");
+    inatUploadProgressBar.setAttribute("aria-valuetext", "0%");
+  }
+  if (inatUploadProgressFill) inatUploadProgressFill.style.width = "0%";
+  if (inatUploadProgressLine) inatUploadProgressLine.textContent = "";
+}
+
+function showInatUploadProgressUi() {
+  if (inatUploadProgressWrap) inatUploadProgressWrap.hidden = false;
+  if (inatUploadProgressBar) inatUploadProgressBar.hidden = false;
+}
+
+/**
+ * @param {number} fraction 0..1
+ * @param {string} labelText
+ */
+function setInatUploadProgressUi(fraction, labelText) {
+  const clamped = Math.max(0, Math.min(1, fraction));
+  const pct = Math.round(clamped * 100);
+  if (inatUploadProgressLine) inatUploadProgressLine.textContent = labelText;
+  if (inatUploadProgressFill) inatUploadProgressFill.style.width = `${pct}%`;
+  if (inatUploadProgressBar) {
+    inatUploadProgressBar.setAttribute("aria-valuenow", String(pct));
+    inatUploadProgressBar.setAttribute("aria-valuetext", `${pct}%`);
+  }
+}
 
 const PREVIEW_MAX_EDGE = 720;
 const PREVIEW_MAX_EDGE_IOS = 520;
@@ -2649,7 +2683,10 @@ async function attachPhotoToInatObservation(obsId, jpegFile) {
   return inatFetch("observation_photos", { method: "POST", auth: true, body: fd });
 }
 
-async function createInatObservationForGroup(jpegFiles, sourceFiles, speciesGuessText, taxonIdNum) {
+/**
+ * @param {(m: { kind: "observation_created" } | { kind: "photo_uploaded"; index: number; total: number }) => void} [onMilestone]
+ */
+async function createInatObservationForGroup(jpegFiles, sourceFiles, speciesGuessText, taxonIdNum, onMilestone) {
   if (!jpegFiles.length) throw new Error("Empty photo group.");
   const source0 = sourceFiles[0] || jpegFiles[0];
   const meta = await extractMetaForEmbedding(source0);
@@ -2692,12 +2729,16 @@ async function createInatObservationForGroup(jpegFiles, sourceFiles, speciesGues
   }
   const id = observationIdFromCreateJson(data);
   if (!id) throw new Error("Observation created but the response did not include an id.");
+  if (typeof onMilestone === "function") onMilestone({ kind: "observation_created" });
   for (let i = 0; i < jpegFiles.length; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, 220));
     const photoRes = await attachPhotoToInatObservation(id, jpegFiles[i]);
     if (!photoRes.ok) {
       const d = await formatInatHttpErrorForDisplay(photoRes);
       throw new Error(`Observation ${id}: photo ${i + 1} upload failed: ${d}`);
+    }
+    if (typeof onMilestone === "function") {
+      onMilestone({ kind: "photo_uploaded", index: i + 1, total: jpegFiles.length });
     }
   }
   return id;
@@ -2714,29 +2755,35 @@ async function runInatObservationUpload() {
 
   validateInatUploadGroupsOrInit();
 
-  if (inatUploadProgress) {
-    inatUploadProgress.hidden = false;
-    inatUploadProgress.textContent = "Preparing files…";
-  }
+  const PREPARE_PORTION = 0.42;
+  const prepareStepsTotal = Math.max(1, 2 * n);
+  let prepareStepsDone = 0;
+
+  showInatUploadProgressUi();
+  setInatUploadProgressUi(0, "Preparing files…");
+
   let pairs;
   try {
     pairs = await ensureJpegPairsForInatUpload((info) => {
-      if (inatUploadProgress && info && info.label) inatUploadProgress.textContent = info.label;
+      prepareStepsDone += 1;
+      const label = info && info.label ? info.label : "Preparing…";
+      const frac = (prepareStepsDone / prepareStepsTotal) * PREPARE_PORTION;
+      setInatUploadProgressUi(frac, label);
     });
   } catch (e) {
     console.error(e);
-    if (inatUploadProgress) inatUploadProgress.hidden = true;
+    resetInatUploadProgressUi();
     const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
     showError(`Prepare failed: ${msg}`);
     return;
   }
   if (!pairs.length) {
-    if (inatUploadProgress) inatUploadProgress.hidden = true;
+    resetInatUploadProgressUi();
     showError("Nothing to upload — export encoding produced no JPEGs.");
     return;
   }
   if (pairs.length !== n) {
-    if (inatUploadProgress) inatUploadProgress.hidden = true;
+    resetInatUploadProgressUi();
     showError(
       "Cannot upload: some photos failed export preparation. Fix or remove the failed items, then try again."
     );
@@ -2745,10 +2792,13 @@ async function runInatObservationUpload() {
 
   const nonemptyGroups = inatUploadGroups.filter((g) => g && g.indices && g.indices.length > 0);
   if (!nonemptyGroups.length) {
-    if (inatUploadProgress) inatUploadProgress.hidden = true;
+    resetInatUploadProgressUi();
     showError("Each observation needs at least one photo. Drag photos into the observation cards.");
     return;
   }
+
+  prepareStepsDone = prepareStepsTotal;
+  setInatUploadProgressUi(PREPARE_PORTION, "Files ready — confirm upload.");
 
   const totalPhotos = nonemptyGroups.reduce((sum, g) => sum + g.indices.length, 0);
   const confirmMsg =
@@ -2756,63 +2806,89 @@ async function runInatObservationUpload() {
       ? `Create ${nonemptyGroups.length} observation(s) from ${totalPhotos} photo(s) on iNaturalist?`
       : `Create ${nonemptyGroups.length} observation(s) on iNaturalist?`;
   if (!window.confirm(confirmMsg)) {
-    if (inatUploadProgress) inatUploadProgress.hidden = true;
+    resetInatUploadProgressUi();
     return;
+  }
+
+  const uploadStepsTotal = nonemptyGroups.reduce((sum, g) => sum + 1 + g.indices.length, 0);
+  let uploadStepsDone = 0;
+
+  function paintUploadProgress(label) {
+    const u = uploadStepsTotal ? uploadStepsDone / uploadStepsTotal : 1;
+    const frac = PREPARE_PORTION + Math.min(1, u) * (1 - PREPARE_PORTION);
+    setInatUploadProgressUi(Math.min(1, frac), label);
   }
 
   inatUploadInProgress = true;
   updateButtons();
-  if (inatUploadProgress) {
-    inatUploadProgress.hidden = false;
-    inatUploadProgress.textContent = "Uploading…";
-  }
+  paintUploadProgress("Uploading to iNaturalist…");
+
   let ok = 0;
   try {
     for (let gi = 0; gi < nonemptyGroups.length; gi++) {
       const grp = nonemptyGroups[gi];
       if (gi > 0) await new Promise((r) => setTimeout(r, 400));
-      if (inatUploadProgress) {
-        inatUploadProgress.textContent = `Uploading observation ${gi + 1} / ${nonemptyGroups.length} (${grp.indices.length} photo(s))…`;
-      }
+      paintUploadProgress(`Observation ${gi + 1} of ${nonemptyGroups.length}: preparing…`);
       const jpegs = [];
       const sources = [];
       for (const ix of grp.indices) {
         const p = pairs[ix];
         if (!p) {
           showError(`Missing prepared file for photo ${ix + 1}. Try preparing again.`);
+          resetInatUploadProgressUi();
           break;
         }
         jpegs.push(p.jpegFile);
         sources.push(p.sourceFile);
       }
-      if (jpegs.length !== grp.indices.length) break;
+      if (jpegs.length !== grp.indices.length) {
+        resetInatUploadProgressUi();
+        break;
+      }
       const speciesGuess = (grp.species || "").trim();
       const taxonRaw = (grp.taxonId || "").trim();
       const taxonIdNum = taxonRaw ? parseInt(taxonRaw, 10) : NaN;
       try {
-        const id = await createInatObservationForGroup(
+        await createInatObservationForGroup(
           jpegs,
           sources,
           speciesGuess,
-          Number.isFinite(taxonIdNum) && taxonIdNum > 0 ? taxonIdNum : NaN
+          Number.isFinite(taxonIdNum) && taxonIdNum > 0 ? taxonIdNum : NaN,
+          (m) => {
+            uploadStepsDone += 1;
+            if (m.kind === "observation_created") {
+              paintUploadProgress(
+                `Observation ${gi + 1} of ${nonemptyGroups.length}: created — adding photos…`
+              );
+            } else {
+              paintUploadProgress(
+                `Observation ${gi + 1} of ${nonemptyGroups.length}: photo ${m.index} / ${m.total}`
+              );
+            }
+          }
         );
         ok++;
       } catch (e) {
         const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
         showError(`Observation ${gi + 1}: ${msg}`);
+        resetInatUploadProgressUi();
         break;
       }
     }
-    if (ok > 0 && inatUploadProgress) {
-      inatUploadProgress.textContent =
+    if (ok > 0) {
+      const doneMsg =
         ok === nonemptyGroups.length
           ? `Done. ${ok} observation(s) created.`
           : `Stopped after ${ok} of ${nonemptyGroups.length}. See error above.`;
+      const uDone = uploadStepsTotal ? uploadStepsDone / uploadStepsTotal : 1;
+      const frac = PREPARE_PORTION + Math.min(1, uDone) * (1 - PREPARE_PORTION);
+      setInatUploadProgressUi(Math.min(1, frac), doneMsg);
     }
   } catch (e) {
     console.error(e);
     const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
     showError(`Upload failed: ${msg}`);
+    resetInatUploadProgressUi();
   } finally {
     inatUploadInProgress = false;
     updateButtons();

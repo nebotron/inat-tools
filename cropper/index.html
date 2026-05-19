@@ -14,7 +14,7 @@
     <title>Square crop</title>
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
-    <link rel="stylesheet" href="./styles.css?v=inatfull1" />
+    <link rel="stylesheet" href="./styles.css?v=inatprog1" />
   </head>
   <body class="app-body-fit">
     <div
@@ -165,7 +165,26 @@
                 </p>
                 <div id="inat-upload-grouping-strip" class="inat-upload-grouping-strip" role="list"></div>
               </div>
-              <p id="inat-upload-progress" class="inat-upload-progress muted" hidden></p>
+              <div id="inat-upload-progress-wrap" class="inat-upload-progress-wrap" hidden>
+                <p
+                  id="inat-upload-progress-line"
+                  class="inat-upload-progress-line muted"
+                  role="status"
+                  aria-live="polite"
+                ></p>
+                <div
+                  id="inat-upload-progress-bar"
+                  class="progress inat-upload-progress-bar"
+                  role="progressbar"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow="0"
+                  aria-valuetext="0%"
+                  hidden
+                >
+                  <div id="inat-upload-progress-fill" class="progress__fill"></div>
+                </div>
+              </div>
               <button type="button" id="btn-inat-upload-obs" class="btn secondary" disabled>
                 Upload to iNaturalist
               </button>
@@ -175,6 +194,6 @@
       </div>
     </main>
 
-    <script src="./app.js?v=inatfull2" type="module"></script>
+    <script src="./app.js?v=inatprog1" type="module"></script>
   </body>
 </html>
