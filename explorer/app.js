@@ -2337,13 +2337,6 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     window.alert("Paste and apply an API token under Filters first.");
     return;
   }
-  if (
-    !window.confirm(
-      "Agree with this observation on iNaturalist?\n\nThis posts your identification at the taxon shown on this card (the observation taxon), matching the title above."
-    )
-  ) {
-    return;
-  }
   const prevHtml = button.innerHTML;
   button.disabled = true;
   button.innerHTML = '<i class="fa fa-spinner fa-spin" aria-hidden="true"></i>';
