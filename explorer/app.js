@@ -300,6 +300,9 @@ let unobsDebounce = null;
 /** Debounce URL updates from the Filters tab (no iNaturalist list/map API calls until a result tab is opened). */
 let urlSyncDebounce = null;
 let obsScrollSaveDebounce = null;
+/** `requestAnimationFrame` ids for coalescing grid image preloads on scroll. */
+let obsGridImagePreloadRaf = 0;
+let speciesGridImagePreloadRaf = 0;
 let taxonHighlight = -1;
 let placeHighlight = -1;
 let unobsHighlight = -1;
@@ -546,6 +549,88 @@ function observationCardPhotoDisplayUrl(rawUrl) {
   const trimmed = rawUrl.trim();
   if (!trimmed) return "";
   return originalPhotoUrl(trimmed);
+}
+
+/** How many card images after the last visible one to warm via `Image()` while scrolling. */
+const GRID_CARD_IMAGE_PRELOAD_AHEAD = 5;
+
+/** URLs already assigned to `Image().src` for scroll-ahead preloading (bounded). */
+const gridCardImagePreloadSeen = new Set();
+
+function clearGridCardImagePreloadSeen() {
+  gridCardImagePreloadSeen.clear();
+}
+
+function noteGridCardImagePreloadUrl(url) {
+  gridCardImagePreloadSeen.add(url);
+  if (gridCardImagePreloadSeen.size > 800) {
+    const tail = [...gridCardImagePreloadSeen].slice(-400);
+    gridCardImagePreloadSeen.clear();
+    for (const u of tail) gridCardImagePreloadSeen.add(u);
+  }
+}
+
+function clientRectsIntersect(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+/**
+ * After the last grid photo intersecting `scrollRoot`, start loading the next `ahead` `img.card-photo` URLs
+ * (browser cache + decode warm-up for originals already used as `src`).
+ * @param {Element} scrollRoot
+ * @param {ParentNode} gridRoot
+ * @param {number} [ahead]
+ */
+function preloadUpcomingGridCardImages(scrollRoot, gridRoot, ahead = GRID_CARD_IMAGE_PRELOAD_AHEAD) {
+  if (!scrollRoot || !gridRoot) return;
+  const imgs = gridRoot.querySelectorAll("img.card-photo");
+  if (!imgs.length) return;
+  const rootRect = scrollRoot.getBoundingClientRect();
+  let lastIntersecting = -1;
+  for (let i = 0; i < imgs.length; i += 1) {
+    const ir = imgs[i].getBoundingClientRect();
+    if (clientRectsIntersect(rootRect, ir)) lastIntersecting = i;
+  }
+  let n = 0;
+  for (let j = lastIntersecting + 1; j < imgs.length && n < ahead; j += 1) {
+    const url = imgs[j].getAttribute("src");
+    if (!url || url.startsWith("data:")) continue;
+    n += 1;
+    if (gridCardImagePreloadSeen.has(url)) continue;
+    noteGridCardImagePreloadUrl(url);
+    const pre = new Image();
+    pre.decoding = "async";
+    pre.src = url;
+  }
+}
+
+function scheduleObsGridImagePreloads() {
+  if (!el.panelObs || !el.resultsGrid) return;
+  if (obsGridImagePreloadRaf) return;
+  obsGridImagePreloadRaf = requestAnimationFrame(() => {
+    obsGridImagePreloadRaf = 0;
+    preloadUpcomingGridCardImages(el.panelObs, el.resultsGrid);
+  });
+}
+
+function scheduleSpeciesGridImagePreloads() {
+  if (!el.panelSpecies || !el.speciesGrid) return;
+  if (speciesGridImagePreloadRaf) return;
+  speciesGridImagePreloadRaf = requestAnimationFrame(() => {
+    speciesGridImagePreloadRaf = 0;
+    preloadUpcomingGridCardImages(el.panelSpecies, el.speciesGrid);
+  });
+}
+
+function wireSpeciesGridScrollImagePreload() {
+  if (!el.panelSpecies) return;
+  el.panelSpecies.addEventListener(
+    "scroll",
+    () => {
+      scheduleSpeciesGridImagePreloads();
+    },
+    { passive: true }
+  );
 }
 
 function extensionFromPhotoUrl(url) {
@@ -2315,6 +2400,7 @@ async function runObservationSearch(reset) {
       totalSpecies = 0;
       obsHasMore = false;
       obsCardCount = 0;
+      clearGridCardImagePreloadSeen();
       el.resultsGrid.innerHTML = "";
     }
 
@@ -2385,6 +2471,9 @@ async function runObservationSearch(reset) {
         iterAppended += 1;
       }
       el.resultsGrid.appendChild(frag);
+      queueMicrotask(() => {
+        scheduleObsGridImagePreloads();
+      });
       obsCardCount += iterAppended;
       lastIterAppended = iterAppended;
 
@@ -2433,6 +2522,7 @@ async function runSpeciesSearch(reset) {
       totalObs = 0;
       speciesHasMore = false;
       speciesCardCount = 0;
+      clearGridCardImagePreloadSeen();
       el.speciesGrid.innerHTML = "";
     }
 
@@ -2482,6 +2572,9 @@ async function runSpeciesSearch(reset) {
       }));
     }
     el.speciesGrid.appendChild(frag);
+    queueMicrotask(() => {
+      scheduleSpeciesGridImagePreloads();
+    });
     speciesCardCount += results.length;
 
     const loaded = speciesCardCount;
@@ -3575,6 +3668,7 @@ function wireObservationScrollMemory() {
   el.panelObs.addEventListener(
     "scroll",
     () => {
+      scheduleObsGridImagePreloads();
       if (currentView !== "observations") return;
       scheduleObsScrollMemorySave();
     },
@@ -3798,6 +3892,7 @@ function wireButtons() {
     el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
       x.checked = false;
     });
+    clearGridCardImagePreloadSeen();
     el.resultsGrid.innerHTML = "";
     el.speciesGrid.innerHTML = "";
     obsCardCount = 0;
@@ -4029,6 +4124,7 @@ async function boot() {
   wireTabs();
   wireInfiniteScroll();
   wireObservationScrollMemory();
+  wireSpeciesGridScrollImagePreload();
   wireObservationAgreeClicks();
   wireFilterExtras();
   wireExplorerApiAuth();
