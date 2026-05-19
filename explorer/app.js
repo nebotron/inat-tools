@@ -2370,7 +2370,6 @@ function buildCardImageBlockFromUrls(urls) {
     const u = escapeHtml(urls[0]);
     return `<img class="card-photo" src="${u}" alt="" loading="lazy" decoding="async" />`;
   }
-  const n = urls.length;
   const dotsHtml = urls
     .map(
       (_, i) =>
@@ -2382,10 +2381,10 @@ function buildCardImageBlockFromUrls(urls) {
       const u = escapeHtml(raw);
       return `<div class="card-media-carousel__slide"><img class="card-photo" src="${u}" alt="" loading="${
         slideIndex === 0 ? "eager" : "lazy"
-      }" decoding="async" /><div class="card-media-carousel__dots" aria-hidden="true">${dotsHtml}</div></div>`;
+      }" decoding="async" /></div>`;
     })
     .join("");
-  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${slidesHtml}</div>`;
+  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${slidesHtml}<div class="card-media-carousel__dots" aria-hidden="true">${dotsHtml}</div></div>`;
 }
 
 /**
@@ -2417,7 +2416,9 @@ function wireObservationCardPhotoCarousel(card) {
 
   const syncDots = () => {
     const idx = slideIndexFromScroll();
-    root.querySelectorAll(".card-media-carousel__dot").forEach((el) => {
+    const dotRow = root.querySelector(":scope > .card-media-carousel__dots");
+    if (!dotRow) return;
+    dotRow.querySelectorAll(".card-media-carousel__dot").forEach((el) => {
       const di = el.getAttribute("data-dot-index");
       const i = di != null ? Number(di) : NaN;
       el.classList.toggle("card-media-carousel__dot--active", Number.isFinite(i) && i === idx);

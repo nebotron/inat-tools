@@ -659,12 +659,13 @@ main {
   display: block;
 }
 
-.card-media-carousel__slide .card-media-carousel__dots {
+/* One pager row, fixed to the carousel viewport (scrollport), not duplicated per slide */
+.card-media-carousel > .card-media-carousel__dots {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0.35rem;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   justify-content: center;
   align-items: center;
