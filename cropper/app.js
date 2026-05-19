@@ -253,6 +253,8 @@ let inatSpeciesSuggestActiveCard = null;
 let inatSpeciesSuggestHighlight = -1;
 let inatSpeciesSelectingProgrammatic = false;
 let inatUploadGroupingDelegated = false;
+/** Drop zone currently highlighted during an in-flight photo drag. */
+let inatDnDDropHighlightEl = null;
 
 const PREVIEW_MAX_EDGE = 720;
 const PREVIEW_MAX_EDGE_IOS = 520;
@@ -659,6 +661,7 @@ function clearCropState() {
   inatUploadGroups = [];
   inatUploadGroupsInitializedForN = -1;
   hideAllInatGroupSpeciesSuggests();
+  clearInatDnDDropHighlight();
 }
 
 function invalidateShareSheetPrep() {
@@ -2193,11 +2196,19 @@ function initInatUploadGroups() {
     inatUploadGroupsInitializedForN = -1;
     return;
   }
-  inatUploadGroups = [{ indices: [...Array(n).keys()], species: "", taxonId: "" }];
+  /** One iNaturalist observation per photo until the user merges cards by drag-and-drop. */
+  inatUploadGroups = Array.from({ length: n }, (_, i) => ({
+    indices: [i],
+    species: "",
+    taxonId: "",
+  }));
   inatUploadGroupsInitializedForN = n;
 }
 
-/** Ensure every index 0..n-1 appears exactly once; otherwise reset. */
+/**
+ * Ensure every index 0..n-1 appears exactly once across groups; empty `indices` allowed (extra drop target).
+ * Otherwise reset.
+ */
 function validateInatUploadGroupsOrInit() {
   const n = workItems.length;
   if (n <= 0) {
@@ -2234,30 +2245,11 @@ function normalizeInatUploadGroupsRemoveEmpty() {
   if (inatUploadGroups.length === 0) initInatUploadGroups();
 }
 
-/** Peel one photo into a new observation card; keeps a full partition of indices so validation still passes. */
+/** Append an empty card as an extra drop target (photos stay assigned until dragged here). */
 function addInatObservationGroupFromUi() {
   clearError();
   validateInatUploadGroupsOrInit();
-  const total = workItems.length;
-  if (total < 2) {
-    showError("Add at least two photos before splitting into multiple observations.");
-    return;
-  }
-  let srcG = -1;
-  for (let g = inatUploadGroups.length - 1; g >= 0; g--) {
-    if (inatUploadGroups[g].indices.length >= 2) {
-      srcG = g;
-      break;
-    }
-  }
-  if (srcG < 0) {
-    showError(
-      "To add another observation, move a photo onto a card that already has two or more photos, then try again."
-    );
-    return;
-  }
-  const ix = inatUploadGroups[srcG].indices.pop();
-  inatUploadGroups.push({ indices: [ix], species: "", taxonId: "" });
+  inatUploadGroups.push({ indices: [], species: "", taxonId: "" });
   hideAllInatGroupSpeciesSuggests();
   renderInatPhotoGroupingStrip();
 }
@@ -2382,6 +2374,23 @@ function scheduleInatSpeciesAutocompleteQuery(card, q) {
   }, 280);
 }
 
+function clearInatDnDDropHighlight() {
+  if (inatDnDDropHighlightEl) {
+    try {
+      inatDnDDropHighlightEl.classList.remove("inat-group-drop--over");
+    } catch {
+      /* ignore */
+    }
+  }
+  inatDnDDropHighlightEl = null;
+  if (inatUploadGroupingStrip) {
+    for (const el of inatUploadGroupingStrip.querySelectorAll(".inat-group-drop--over")) {
+      el.classList.remove("inat-group-drop--over");
+    }
+    inatUploadGroupingStrip.classList.remove("inat-upload-grouping-strip--dnd");
+  }
+}
+
 function wireInatUploadGroupingDelegated() {
   if (inatUploadGroupingDelegated || !inatUploadGroupingStrip) return;
   inatUploadGroupingDelegated = true;
@@ -2433,24 +2442,44 @@ function wireInatUploadGroupingDelegated() {
     e.dataTransfer.setData("text/plain", String(idx));
     e.dataTransfer.effectAllowed = "move";
     tile.classList.add("inat-dnd-tile--dragging");
+    inatUploadGroupingStrip.classList.add("inat-upload-grouping-strip--dnd");
+    try {
+      const ghostImg = tile.querySelector("img");
+      if (ghostImg instanceof HTMLImageElement && ghostImg.complete && ghostImg.naturalWidth > 0) {
+        const ox = Math.floor(Math.min(56, ghostImg.naturalWidth) / 2);
+        const oy = Math.floor(Math.min(56, ghostImg.naturalHeight) / 2);
+        e.dataTransfer.setDragImage(ghostImg, ox, oy);
+      }
+    } catch {
+      /* setDragImage unsupported or failed */
+    }
   });
 
   inatUploadGroupingStrip.addEventListener("dragend", (e) => {
     const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
     if (tile) tile.classList.remove("inat-dnd-tile--dragging");
+    clearInatDnDDropHighlight();
   });
 
   inatUploadGroupingStrip.addEventListener("dragover", (e) => {
-    const drop = e.target && "closest" in e.target ? e.target.closest(".inat-group-drop") : null;
-    if (!drop) return;
+    if (!(e instanceof DragEvent) || !e.dataTransfer) return;
+    const t = e.target;
+    if (!(t instanceof Node) || !inatUploadGroupingStrip.contains(t)) return;
     e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = "move";
+    const drop = "closest" in t ? t.closest(".inat-group-drop") : null;
+    if (inatDnDDropHighlightEl !== drop) {
+      if (inatDnDDropHighlightEl) inatDnDDropHighlightEl.classList.remove("inat-group-drop--over");
+      inatDnDDropHighlightEl = drop;
+      if (drop) drop.classList.add("inat-group-drop--over");
+    }
   });
 
   inatUploadGroupingStrip.addEventListener("drop", (e) => {
     const drop = e.target && "closest" in e.target ? e.target.closest(".inat-group-drop") : null;
     if (!drop || !(e instanceof DragEvent) || !e.dataTransfer) return;
     e.preventDefault();
+    clearInatDnDDropHighlight();
     const photoIdx = parseInt(e.dataTransfer.getData("application/x-inat-photo-idx") || e.dataTransfer.getData("text/plain") || "", 10);
     if (!Number.isFinite(photoIdx)) return;
     const card = drop.closest(".inat-group-card");
@@ -2472,7 +2501,7 @@ function wireInatUploadGroupingDelegated() {
 
     const overTile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
     let insertBefore = null;
-    if (overTile && overTile !== e.target) {
+    if (overTile) {
       const cand = parseInt(overTile.dataset.photoIdx || "", 10);
       if (Number.isFinite(cand) && cand !== photoIdx) insertBefore = cand;
     }
@@ -2493,11 +2522,13 @@ function renderInatPhotoGroupingStrip() {
   if (!n || !isCropReviewFinished()) {
     inatUploadGrouping.hidden = true;
     inatUploadGroupingStrip.replaceChildren();
+    clearInatDnDDropHighlight();
     return;
   }
   validateInatUploadGroupsOrInit();
   inatUploadGrouping.hidden = false;
   hideAllInatGroupSpeciesSuggests();
+  clearInatDnDDropHighlight();
   inatUploadGroupingStrip.replaceChildren();
 
   for (let g = 0; g < inatUploadGroups.length; g++) {
@@ -2505,14 +2536,6 @@ function renderInatPhotoGroupingStrip() {
     const card = document.createElement("section");
     card.className = "inat-group-card";
     card.dataset.groupIdx = String(g);
-
-    const head = document.createElement("div");
-    head.className = "inat-group-card__head";
-    const title = document.createElement("div");
-    title.className = "inat-group-card__title";
-    title.textContent = `Observation ${g + 1}`;
-    head.appendChild(title);
-    card.appendChild(head);
 
     const speciesLab = document.createElement("label");
     speciesLab.className = "inat-upload-label";
@@ -2550,7 +2573,7 @@ function renderInatPhotoGroupingStrip() {
 
     const drop = document.createElement("div");
     drop.className = "inat-group-drop";
-    drop.setAttribute("aria-label", `Photos for observation ${g + 1}`);
+    drop.setAttribute("aria-label", "Photo thumbnails — drag between cards to regroup");
     for (const ix of grp.indices) {
       if (ix < 0 || ix >= workItems.length) continue;
       const file = workItems[ix];
