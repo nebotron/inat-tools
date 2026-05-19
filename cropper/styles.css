@@ -1075,6 +1075,13 @@ body.app-body-fit .app-page--crop .crop-review-done {
   backface-visibility: hidden;
 }
 
+/** Inner wrapper: may apply `scale(>1)` when the photo would exceed `CROP_VIEWPORT_MAX_DISPLAY_EDGE` CSS px. */
+.crop-image-layer__scaler {
+  position: relative;
+  transform-origin: 0 0;
+  backface-visibility: hidden;
+}
+
 .crop-editor--fixed-viewport .crop-image-layer img,
 .crop-editor--fixed-viewport .crop-image-layer canvas.crop-preview-canvas {
   display: block;

@@ -83,6 +83,10 @@ function isCoarsePointerPrimaryInput() {
   return cachedCoarsePointer;
 }
 
+function cropEditorBitmapDrawMaxEdge() {
+  return isIOSOrIPadOS() ? CROP_EDITOR_BITMAP_DRAW_MAX_EDGE_IOS : CROP_EDITOR_BITMAP_DRAW_MAX_EDGE;
+}
+
 function schedulePersistSession() {
   if (typeof indexedDB === "undefined") return;
   if (!sessionPersistDirty) return;
@@ -216,6 +220,17 @@ const PREVIEW_MAX_EDGE = 720;
 const PREVIEW_MAX_EDGE_IOS = 520;
 /** Run COCO-SSD on a downscaled copy so large photos do not spike WebGL / RAM. Bboxes are mapped back to full resolution. */
 const DETECTION_MAX_EDGE = 1280;
+/**
+ * Max CSS pixel edge for the live crop image layer. Above this, the bitmap is kept smaller and scaled up with
+ * `transform: scale` so pan/zoom stays on a bounded compositor surface (full-res CSS sizes are brutal on large photos).
+ */
+const CROP_VIEWPORT_MAX_DISPLAY_EDGE = 4096;
+/**
+ * When painting a prefetched `ImageBitmap` into the editor canvas, cap the longest edge so we do not allocate
+ * a full 40–60MP canvas while still mapping layout in full-resolution crop coordinates.
+ */
+const CROP_EDITOR_BITMAP_DRAW_MAX_EDGE = 3072;
+const CROP_EDITOR_BITMAP_DRAW_MAX_EDGE_IOS = 2048;
 
 /** @type {Awaited<ReturnType<typeof cocoSsd.load>> | null} */
 let model = null;
@@ -2583,10 +2598,23 @@ function buildCropEditor(file, state, manualNote, options) {
     cropPreviewBitmapByKey.delete(key);
     const c = document.createElement("canvas");
     c.className = "crop-preview-canvas";
-    c.width = preBm.width;
-    c.height = preBm.height;
+    const bmMax = Math.max(preBm.width, preBm.height);
+    const drawMax = cropEditorBitmapDrawMaxEdge();
+    let dw = preBm.width;
+    let dh = preBm.height;
+    if (bmMax > drawMax) {
+      const s = drawMax / bmMax;
+      dw = Math.max(1, Math.round(preBm.width * s));
+      dh = Math.max(1, Math.round(preBm.height * s));
+    }
+    c.width = dw;
+    c.height = dh;
     const pctx = c.getContext("2d", { willReadFrequently: false });
-    if (pctx) pctx.drawImage(preBm, 0, 0);
+    if (pctx) {
+      pctx.imageSmoothingEnabled = true;
+      pctx.imageSmoothingQuality = "high";
+      pctx.drawImage(preBm, 0, 0, dw, dh);
+    }
     try {
       preBm.close();
     } catch { /* ignore */ }
@@ -2649,11 +2677,15 @@ function buildCropEditor(file, state, manualNote, options) {
   const imageLayer = document.createElement("div");
   imageLayer.className = "crop-image-layer";
 
+  const imageScaler = document.createElement("div");
+  imageScaler.className = "crop-image-layer__scaler";
+
   const frameEl = document.createElement("div");
   frameEl.className = "crop-viewport__frame";
   frameEl.setAttribute("aria-hidden", "true");
 
-  imageLayer.appendChild(img);
+  imageScaler.appendChild(img);
+  imageLayer.appendChild(imageScaler);
   viewport.appendChild(imageLayer);
   viewport.appendChild(frameEl);
   editorWrap.appendChild(viewport);
@@ -2684,6 +2716,7 @@ function buildCropEditor(file, state, manualNote, options) {
 
   attachCropInteractionGuards(viewport);
   attachCropInteractionGuards(imageLayer);
+  attachCropInteractionGuards(imageScaler);
 
   if (!minimalChrome) {
     if (state.noDetectionCrop) {
@@ -2793,6 +2826,7 @@ function buildCropEditor(file, state, manualNote, options) {
   /** Skip redundant style writes when transform/size unchanged (fewer style recalcs during pan/zoom). */
   let lastLayoutImgW = NaN;
   let lastLayoutImgH = NaN;
+  let lastLayoutCap = NaN;
   let lastLayoutOx = NaN;
   let lastLayoutOy = NaN;
 
@@ -2830,13 +2864,27 @@ function buildCropEditor(file, state, manualNote, options) {
       const vw = viewport.clientWidth;
       if (vw <= 0 || !state.side) return;
       const contentScale = vw / state.side;
-      const imgW = state.w * contentScale;
-      const imgH = state.h * contentScale;
-      if (imgW !== lastLayoutImgW || imgH !== lastLayoutImgH) {
-        lastLayoutImgW = imgW;
-        lastLayoutImgH = imgH;
-        img.style.width = `${imgW}px`;
-        img.style.height = `${imgH}px`;
+      const uncW = state.w * contentScale;
+      const uncH = state.h * contentScale;
+      const uncMax = Math.max(uncW, uncH);
+      let cap = 1;
+      if (uncMax > CROP_VIEWPORT_MAX_DISPLAY_EDGE) {
+        cap = CROP_VIEWPORT_MAX_DISPLAY_EDGE / uncMax;
+      }
+      const setW = Math.round(uncW * cap);
+      const setH = Math.round(uncH * cap);
+      if (setW !== lastLayoutImgW || setH !== lastLayoutImgH || cap !== lastLayoutCap) {
+        lastLayoutImgW = setW;
+        lastLayoutImgH = setH;
+        lastLayoutCap = cap;
+        img.style.width = `${setW}px`;
+        img.style.height = `${setH}px`;
+        if (cap < 1) {
+          const inv = 1 / cap;
+          imageScaler.style.transform = `scale(${inv})`;
+        } else {
+          imageScaler.style.transform = "";
+        }
       }
       const oxSrc = panLayoutFloat ? panLayoutFloat.left : state.left;
       const oySrc = panLayoutFloat ? panLayoutFloat.top : state.top;
