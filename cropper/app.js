@@ -98,6 +98,87 @@ function cropEditorBitmapDrawMaxEdge() {
   return isIOSOrIPadOS() ? CROP_EDITOR_BITMAP_DRAW_MAX_EDGE_IOS : CROP_EDITOR_BITMAP_DRAW_MAX_EDGE;
 }
 
+/**
+ * Try to read pixel dimensions from container metadata only (no full decode).
+ * @param {File} file
+ * @returns {Promise<{ w: number, h: number } | null>}
+ */
+async function tryGetImagePixelSizeFromFile(file) {
+  try {
+    const ex = await exifr.parse(file, { ifd0: true, mergeOutput: true });
+    if (!ex || typeof ex !== "object") return null;
+    const w = ex.ImageWidth ?? ex.width;
+    const h = ex.ImageLength ?? ex.ImageHeight ?? ex.height;
+    const iw = typeof w === "number" && Number.isFinite(w) && w > 0 ? Math.round(w) : null;
+    const ih = typeof h === "number" && Number.isFinite(h) && h > 0 ? Math.round(h) : null;
+    if (iw && ih) return { w: iw, h: ih };
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/**
+ * Decode a still image to an `ImageBitmap` capped by longest edge (reduces RAM/GPU vs full-res prefetch).
+ * @param {File} file
+ */
+async function createCappedImageBitmapForCropPreview(file) {
+  const cap = cropEditorBitmapDrawMaxEdge();
+  let dims = null;
+  try {
+    dims = await tryGetImagePixelSizeFromFile(file);
+  } catch {
+    dims = null;
+  }
+  if (dims && dims.w > 0 && dims.h > 0) {
+    const m = Math.max(dims.w, dims.h);
+    if (m <= cap) return await createImageBitmap(file);
+    const s = cap / m;
+    const rw = Math.max(1, Math.round(dims.w * s));
+    const rh = Math.max(1, Math.round(dims.h * s));
+    return await createImageBitmap(file, { resizeWidth: rw, resizeHeight: rh });
+  }
+  const bm = await createImageBitmap(file);
+  const mx = Math.max(bm.width, bm.height);
+  if (mx <= cap) return bm;
+  const s = cap / mx;
+  const rw = Math.max(1, Math.round(bm.width * s));
+  const rh = Math.max(1, Math.round(bm.height * s));
+  const out = await createImageBitmap(bm, 0, 0, bm.width, bm.height, { resizeWidth: rw, resizeHeight: rh });
+  bm.close();
+  return out;
+}
+
+/**
+ * @param {CanvasImageSource} source
+ * @param {number} maxEdge
+ * @param {"low" | "medium" | "high"} [smoothing]
+ * @returns {HTMLCanvasElement}
+ */
+function paintCropPreviewCanvasFromSource(source, maxEdge, smoothing = "medium") {
+  const sw = source instanceof HTMLImageElement ? source.naturalWidth : source.width;
+  const sh = source instanceof HTMLImageElement ? source.naturalHeight : source.height;
+  if (!sw || !sh) throw new Error("Missing image dimensions for crop preview.");
+  const bmMax = Math.max(sw, sh);
+  let dw = sw;
+  let dh = sh;
+  if (bmMax > maxEdge) {
+    const s = maxEdge / bmMax;
+    dw = Math.max(1, Math.round(sw * s));
+    dh = Math.max(1, Math.round(sh * s));
+  }
+  const c = document.createElement("canvas");
+  c.className = "crop-preview-canvas";
+  c.width = dw;
+  c.height = dh;
+  const pctx = c.getContext("2d", { willReadFrequently: false, alpha: false });
+  if (!pctx) throw new Error("Could not get 2d context for crop preview.");
+  pctx.imageSmoothingEnabled = true;
+  pctx.imageSmoothingQuality = smoothing;
+  pctx.drawImage(source, 0, 0, dw, dh);
+  return c;
+}
+
 function schedulePersistSession() {
   if (typeof indexedDB === "undefined") return;
   if (!sessionPersistDirty) return;
@@ -298,13 +379,13 @@ const DETECTION_MAX_EDGE = 1280;
  * Max CSS pixel edge for the live crop image layer. Above this, the bitmap is kept smaller and scaled up with
  * `transform: scale` so pan/zoom stays on a bounded compositor surface (full-res CSS sizes are brutal on large photos).
  */
-const CROP_VIEWPORT_MAX_DISPLAY_EDGE = 4096;
+const CROP_VIEWPORT_MAX_DISPLAY_EDGE = isIOSOrIPadOS() ? 1920 : 2560;
 /**
  * When painting a prefetched `ImageBitmap` into the editor canvas, cap the longest edge so we do not allocate
  * a full 40–60MP canvas while still mapping layout in full-resolution crop coordinates.
  */
-const CROP_EDITOR_BITMAP_DRAW_MAX_EDGE = 3072;
-const CROP_EDITOR_BITMAP_DRAW_MAX_EDGE_IOS = 2048;
+const CROP_EDITOR_BITMAP_DRAW_MAX_EDGE = 2816;
+const CROP_EDITOR_BITMAP_DRAW_MAX_EDGE_IOS = 1920;
 
 /** @type {Awaited<ReturnType<typeof cocoSsd.load>> | null} */
 let model = null;
@@ -1726,7 +1807,7 @@ function warmCropPreviewBitmap(file, prefetchToken) {
     warmImageDecodeProbe(file);
     return;
   }
-  void createImageBitmap(file)
+  void createCappedImageBitmapForCropPreview(file)
     .then((bm) => {
       if (prefetchToken !== cropPreviewPrefetchToken) {
         try {
@@ -3569,24 +3650,33 @@ function buildCropEditor(file, state, manualNote, options) {
   const preBm = cropPreviewBitmapByKey.get(key);
   if (preBm) {
     cropPreviewBitmapByKey.delete(key);
-    const c = document.createElement("canvas");
-    c.className = "crop-preview-canvas";
-    const bmMax = Math.max(preBm.width, preBm.height);
-    const drawMax = cropEditorBitmapDrawMaxEdge();
-    let dw = preBm.width;
-    let dh = preBm.height;
-    if (bmMax > drawMax) {
-      const s = drawMax / bmMax;
-      dw = Math.max(1, Math.round(preBm.width * s));
-      dh = Math.max(1, Math.round(preBm.height * s));
+    let c = null;
+    try {
+      c = paintCropPreviewCanvasFromSource(preBm, cropEditorBitmapDrawMaxEdge(), "medium");
+    } catch {
+      c = null;
     }
-    c.width = dw;
-    c.height = dh;
-    const pctx = c.getContext("2d", { willReadFrequently: false });
-    if (pctx) {
-      pctx.imageSmoothingEnabled = true;
-      pctx.imageSmoothingQuality = "high";
-      pctx.drawImage(preBm, 0, 0, dw, dh);
+    if (!c) {
+      const fallback = document.createElement("canvas");
+      fallback.className = "crop-preview-canvas";
+      const bmMax = Math.max(preBm.width, preBm.height);
+      const drawMax = cropEditorBitmapDrawMaxEdge();
+      let dw = preBm.width;
+      let dh = preBm.height;
+      if (bmMax > drawMax) {
+        const s = drawMax / bmMax;
+        dw = Math.max(1, Math.round(preBm.width * s));
+        dh = Math.max(1, Math.round(preBm.height * s));
+      }
+      fallback.width = dw;
+      fallback.height = dh;
+      const pctx = fallback.getContext("2d", { willReadFrequently: false, alpha: false });
+      if (pctx) {
+        pctx.imageSmoothingEnabled = true;
+        pctx.imageSmoothingQuality = "medium";
+        pctx.drawImage(preBm, 0, 0, dw, dh);
+      }
+      c = fallback;
     }
     try {
       preBm.close();
@@ -3876,10 +3966,36 @@ function buildCropEditor(file, state, manualNote, options) {
     });
   }
 
+  function blockImageChrome(ev) {
+    ev.preventDefault();
+  }
+
+  /** Once `<img>` pixels are decoded, replace with a capped canvas so pan/zoom is not compositing a 40–60MP layer. */
+  function normalizeLoadedCropImageToCappedCanvasIfNeeded() {
+    if (img.tagName !== "IMG") return;
+    const im = /** @type {HTMLImageElement} */ (img);
+    const nw = im.naturalWidth;
+    const nh = im.naturalHeight;
+    if (!nw || !nh) return;
+    const maxEdge = cropEditorBitmapDrawMaxEdge();
+    if (Math.max(nw, nh) <= maxEdge) return;
+    try {
+      const c = paintCropPreviewCanvasFromSource(im, maxEdge, "medium");
+      const p = im.parentNode;
+      if (p) p.replaceChild(c, im);
+      img = c;
+      img.addEventListener("contextmenu", blockImageChrome, { signal: cropUiSignal });
+      img.addEventListener("dragstart", blockImageChrome, { signal: cropUiSignal });
+    } catch {
+      /* keep full-resolution surface */
+    }
+  }
+
   if (img.tagName === "IMG") {
     img.addEventListener(
       "load",
       () => {
+        normalizeLoadedCropImageToCappedCanvasIfNeeded();
         syncFixedViewportLayout();
         syncZoomSliderFromState();
       },
@@ -3907,11 +4023,18 @@ function buildCropEditor(file, state, manualNote, options) {
     }
   });
 
-  function blockImageChrome(ev) {
-    ev.preventDefault();
-  }
   img.addEventListener("contextmenu", blockImageChrome, { signal: cropUiSignal });
   img.addEventListener("dragstart", blockImageChrome, { signal: cropUiSignal });
+  if (img.tagName === "IMG") {
+    queueMicrotask(() => {
+      if (cropUiSignal.aborted) return;
+      if (img.tagName === "IMG" && img.complete && img.naturalWidth > 0) {
+        normalizeLoadedCropImageToCappedCanvasIfNeeded();
+      }
+      syncFixedViewportLayout();
+      syncZoomSliderFromState();
+    });
+  }
 
   /** @type {Map<number, { x: number, y: number }>} */
   const activePtrs = new Map();
