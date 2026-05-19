@@ -527,6 +527,10 @@ async function fetchPlacesForAutocomplete(query) {
  * Navigate explicitly from a tap/click so the destination URL matches this card.
  * Relying on default anchor navigation alone can mis-resolve universal
  * links to the iNaturalist app (opening the previous observation).
+ *
+ * Observation pages: open in a **new tab** using **http** so Android App Links
+ * (https-only) and iOS universal links are less likely to capture the tap;
+ * use the in-app button for the native iNaturalist app.
  */
 function navigateFromCardClick(e, url) {
   if (e.defaultPrevented) return;
@@ -534,7 +538,44 @@ function navigateFromCardClick(e, url) {
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   e.stopPropagation();
+  if (typeof url === "string" && /inaturalist\.org\/observations\/\d+/i.test(url)) {
+    const browserTapUrl = url.replace(/^https:\/\//i, "http://");
+    try {
+      window.open(browserTapUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    return;
+  }
   window.location.assign(url);
+}
+
+/** Canonical HTTPS observation URL on www.inaturalist.org (matches grid card `href`). */
+function inatObservationWebUrl(obsId) {
+  const id = Math.floor(Number(obsId));
+  if (!Number.isFinite(id) || id <= 0) return "";
+  return `https://www.inaturalist.org/observations/${id}`;
+}
+
+/**
+ * Open this observation in the installed iNaturalist mobile app when possible.
+ * Android: Chrome intent URL targeting `org.inaturalist.android` with HTTPS fallback.
+ * Else: same HTTPS URL (iOS universal link opens the app when enabled).
+ * @param {number | string} obsId
+ */
+function openInatObservationInMobileApp(obsId) {
+  const httpsUrl = inatObservationWebUrl(obsId);
+  if (!httpsUrl) return;
+  const ua = navigator.userAgent || "";
+  if (/Android/i.test(ua)) {
+    const id = Math.floor(Number(obsId));
+    const fb = encodeURIComponent(httpsUrl);
+    window.location.assign(
+      `intent://www.inaturalist.org/observations/${id}#Intent;scheme=https;package=org.inaturalist.android;S.browser_fallback_url=${fb};end`
+    );
+    return;
+  }
+  window.location.assign(httpsUrl);
 }
 
 /** Full-size URL from an iNaturalist photo `url` field (CDN supports square, thumb, small, medium, large, original). */
@@ -2450,8 +2491,8 @@ function renderCard({
   metaLines = [],
   metaParts = null,
   onClick,
-  saveObservation,
   observationId,
+  inatAppObservationId = null,
   agreeObservation = null,
 }) {
   const card = document.createElement("article");
@@ -2471,11 +2512,12 @@ function renderCard({
     : metaLines.length
       ? metaLines.map((line) => `<p class="card-meta-line">${escapeHtml(line)}</p>`).join("")
       : "";
-  const saveBtn =
-    saveObservation && urls.length > 0
-      ? `<button type="button" class="card-save-photo" aria-label="Share or save all photos with observation location and time" title="Share / save all photos (embeds GPS and observed time in JPEGs)">
-          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
-        </button>`
+  const appObsId = inatAppObservationId != null ? Number(inatAppObservationId) : NaN;
+  const openAppBtn =
+    Number.isFinite(appObsId) && appObsId > 0
+      ? `<button type="button" class="card-open-inat-app" data-inat-app-obs-id="${Math.floor(
+          appObsId
+        )}" aria-label="Open this observation in the iNaturalist mobile app" title="Open in iNaturalist app (installed app)"><i class="fa fa-mobile" aria-hidden="true"></i></button>`
       : "";
   const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
   const imgBlock = buildCardImageBlockFromUrls(urls);
@@ -2485,7 +2527,7 @@ function renderCard({
         ${imgBlock}
       </a>
       ${agreeBtn}
-      ${saveBtn}
+      ${openAppBtn}
       <div class="card-bottom">
         ${metaBlock}
         <p class="card-title-overlay">${escapeHtml(name)}</p>
@@ -2498,7 +2540,7 @@ function renderCard({
         ${imgBlock}
       </a>
       ${agreeBtn}
-      ${saveBtn}
+      ${openAppBtn}
       <div class="card-bottom">
         ${metaBlock}
         <p class="card-title-overlay">${escapeHtml(name)}</p>
@@ -2506,12 +2548,15 @@ function renderCard({
     `;
     card.querySelector("a.card-link").addEventListener("click", (e) => navigateFromCardClick(e, href));
   }
-  const saveEl = card.querySelector(".card-save-photo");
-  if (saveEl && saveObservation) {
-    saveEl.addEventListener("click", (e) => {
+  const openAppEl = card.querySelector(".card-open-inat-app");
+  if (openAppEl) {
+    openAppEl.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      void saveObservationPhotoWithExif(saveObservation);
+      const raw = openAppEl.getAttribute("data-inat-app-obs-id");
+      const id = raw != null ? Number(raw) : NaN;
+      if (!Number.isFinite(id) || id <= 0) return;
+      openInatObservationInMobileApp(id);
     });
   }
   if (urls.length > 1) {
@@ -2598,8 +2643,8 @@ async function runObservationSearch(reset) {
             imageUrl,
             imageUrls: photoUrls.length > 1 ? photoUrls : null,
             metaParts: observationMetaHtmlParts(obs, kcData),
-            saveObservation: obs,
             observationId: oid,
+            inatAppObservationId: oid,
             agreeObservation: obs,
           })
         );

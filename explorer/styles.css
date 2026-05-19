@@ -486,7 +486,7 @@ main {
   text-decoration: none;
 }
 
-.card-save-photo {
+.card-open-inat-app {
   position: absolute;
   top: 0.4rem;
   right: 0.4rem;
@@ -506,14 +506,15 @@ main {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
-.card-save-photo:hover {
+.card-open-inat-app:hover {
   background: rgba(27, 67, 50, 0.92);
   border-color: rgba(200, 245, 220, 0.6);
   color: #e8f5e9;
 }
 
-.card-save-photo svg {
-  display: block;
+.card-open-inat-app .fa {
+  pointer-events: none;
+  font-size: 1.12rem;
 }
 
 .inat-api-auth-fieldset .inat-api-auth-hint {
