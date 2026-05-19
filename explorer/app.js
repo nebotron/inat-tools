@@ -1,6 +1,80 @@
 const API = "https://api.inaturalist.org/v1";
 const OBS_PER_PAGE = 60;
 
+/** Browser-local storage key for the iNaturalist API JWT (from https://www.inaturalist.org/users/api_token). */
+const INAT_API_JWT_STORAGE_KEY = "inatExplorerApiJwt";
+
+/** Set by `refreshInatAuthUser`; used for Agree UI on observation cards. */
+let inatAuthUser = null;
+
+function getStoredInatApiJwt() {
+  try {
+    const raw = localStorage.getItem(INAT_API_JWT_STORAGE_KEY);
+    return raw == null ? "" : String(raw).trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Normalize pasted token: trim and strip a leading `Bearer` scheme if present.
+ * The iNaturalist v1 API expects the raw JWT in `Authorization` (no `Bearer` prefix).
+ * @param {string} raw
+ */
+function normalizeInatApiJwtInput(raw) {
+  let t = String(raw || "").trim();
+  if (!t) return "";
+  if (/^bearer\s+/i.test(t)) t = t.replace(/^bearer\s+/i, "").trim();
+  return t;
+}
+
+function setStoredInatApiJwtFromUserInput(raw) {
+  const v = normalizeInatApiJwtInput(raw);
+  try {
+    if (v) localStorage.setItem(INAT_API_JWT_STORAGE_KEY, v);
+    else localStorage.removeItem(INAT_API_JWT_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearStoredInatApiJwt() {
+  try {
+    localStorage.removeItem(INAT_API_JWT_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Value for the `Authorization` request header when using a stored JWT. */
+function inatApiJwtAuthorizationValue() {
+  const v = getStoredInatApiJwt();
+  return v ? normalizeInatApiJwtInput(v) : "";
+}
+
+/**
+ * Fetch from api.inaturalist.org with `cache: "no-store"` and a unique query param so browsers and
+ * intermediaries do not return stale JSON or tiles after Refresh or bfcache restore.
+ * @param {string} pathAndQuery Path under /v1/, e.g. `observations?taxon_id=1&per_page=20` or `taxa/48561`
+ * @param {{ method?: string, body?: BodyInit | null, headers?: Record<string, string>, auth?: boolean }} [options]
+ */
+function inatFetch(pathAndQuery, options = {}) {
+  const trimmed = pathAndQuery.replace(/^\//, "");
+  const u = new URL(trimmed, `${API}/`);
+  u.searchParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
+  /** @type {RequestInit} */
+  const init = { cache: "no-store" };
+  if (options.method) init.method = options.method;
+  if (options.body != null) init.body = options.body;
+  const headers = { ...(options.headers || {}) };
+  if (options.auth) {
+    const authVal = inatApiJwtAuthorizationValue();
+    if (authVal) headers.Authorization = authVal;
+  }
+  if (Object.keys(headers).length) init.headers = headers;
+  return fetch(u.href, init);
+}
+
 const OBS_SCROLL_SESSION_ID = "inatExplorerObsScrollId";
 const OBS_SCROLL_SESSION_TOP = "inatExplorerObsScrollTop";
 
@@ -13,18 +87,6 @@ const EVIDENCE_OF_PRESENCE_TERM_VALUE = {
   nest: 35,
   feather: 23,
 };
-
-/**
- * Fetch from api.inaturalist.org with `cache: "no-store"` and a unique query param so browsers and
- * intermediaries do not return stale JSON or tiles after Refresh or bfcache restore.
- * @param {string} pathAndQuery Path under /v1/, e.g. `observations?taxon_id=1&per_page=20` or `taxa/48561`
- */
-function inatFetch(pathAndQuery) {
-  const trimmed = pathAndQuery.replace(/^\//, "");
-  const u = new URL(trimmed, `${API}/`);
-  u.searchParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
-  return fetch(u.href, { cache: "no-store" });
-}
 
 /** Taxon page on iNaturalist (HTTPS works in every browser; some mobile setups still open the native app). */
 function inaturalistTaxonWebUrl(taxonId) {
@@ -217,6 +279,10 @@ const el = {
   btnClearPlace: document.getElementById("btn-clear-place"),
   userLogin: document.getElementById("user-login"),
   unobservedInput: document.getElementById("unobserved-input"),
+  inatApiToken: document.getElementById("inat-api-token"),
+  btnInatApiTokenApply: document.getElementById("btn-inat-api-token-apply"),
+  btnInatApiTokenClear: document.getElementById("btn-inat-api-token-clear"),
+  inatApiAuthStatus: document.getElementById("inat-api-auth-status"),
   radiusKm: document.getElementById("radius-km"),
   nearbyControls: document.getElementById("nearby-controls"),
   lat: document.getElementById("lat"),
@@ -1457,7 +1523,7 @@ async function inatFetchWithRetry(pathAndQuery, opts = {}) {
   const retries = opts.retries ?? 4;
   let res = null;
   for (let attempt = 0; attempt < retries; attempt += 1) {
-    res = await inatFetch(pathAndQuery);
+    res = await inatFetch(pathAndQuery, opts);
     if (res.ok) return res;
     const retry = res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504;
     if (retry && attempt < retries - 1) {
@@ -2057,7 +2123,166 @@ function speciesMetaParts(row, obsTaxonById, kcData) {
   return parts;
 }
 
-function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, onClick, saveObservation, observationId }) {
+/**
+ * Taxon to agree with: community taxon when present, otherwise the observation’s displayed taxon.
+ * @param {object | null | undefined} obs
+ * @returns {number | null}
+ */
+function agreeTargetTaxonIdForObservation(obs) {
+  if (!obs || typeof obs !== "object") return null;
+  const cid = obs.community_taxon_id != null ? Number(obs.community_taxon_id) : NaN;
+  if (Number.isFinite(cid) && cid > 0) return cid;
+  const tid = obs.taxon && obs.taxon.id != null ? Number(obs.taxon.id) : NaN;
+  return Number.isFinite(tid) && tid > 0 ? tid : null;
+}
+
+/**
+ * @param {object | null | undefined} obs
+ * @param {number} userId
+ * @param {number} taxonId
+ */
+function userHasCurrentIdentificationAtTaxon(obs, userId, taxonId) {
+  if (!obs || !Number.isFinite(userId) || userId <= 0 || !Number.isFinite(taxonId) || taxonId <= 0) return false;
+  const rows = obs.identifications;
+  if (!Array.isArray(rows)) return false;
+  for (const row of rows) {
+    if (!row || !row.current || row.hidden) continue;
+    const uid = row.user && row.user.id != null ? Number(row.user.id) : NaN;
+    if (uid !== userId) continue;
+    const t = row.taxon_id != null ? Number(row.taxon_id) : NaN;
+    if (t === taxonId) return true;
+  }
+  return false;
+}
+
+/**
+ * HTML for the observation-card Agree control, or empty string when not applicable.
+ * @param {object | null | undefined} obs
+ */
+function observationAgreeButtonHtml(obs) {
+  if (!inatAuthUser || inatAuthUser.id == null) return "";
+  const meId = Number(inatAuthUser.id);
+  if (!Number.isFinite(meId) || meId <= 0) return "";
+  const ownerId = obs && obs.user && obs.user.id != null ? Number(obs.user.id) : NaN;
+  if (Number.isFinite(ownerId) && ownerId === meId) return "";
+  const taxonId = agreeTargetTaxonIdForObservation(obs);
+  if (taxonId == null) return "";
+  if (userHasCurrentIdentificationAtTaxon(obs, meId, taxonId)) return "";
+  const oid = obs && obs.id != null ? Number(obs.id) : NaN;
+  if (!Number.isFinite(oid) || oid <= 0) return "";
+  return `<button type="button" class="card-agree" aria-label="Agree with this observation on iNaturalist" title="Agree (posts your identification at this taxon)" data-agree-obs-id="${Math.floor(
+    oid
+  )}" data-agree-taxon-id="${taxonId}">Agree</button>`;
+}
+
+function renderInatApiAuthStatusEl(message) {
+  if (el.inatApiAuthStatus) el.inatApiAuthStatus.textContent = message || "";
+}
+
+/** Loads `inatAuthUser` from `GET /users/me` when a JWT is stored; updates the Filters status line. */
+async function refreshInatAuthUser() {
+  const jwt = getStoredInatApiJwt();
+  if (!jwt) {
+    inatAuthUser = null;
+    renderInatApiAuthStatusEl("Not signed in. Paste a JWT to enable Agree on observation cards.");
+    return;
+  }
+  let res;
+  try {
+    res = await inatFetch("users/me", { auth: true });
+  } catch {
+    inatAuthUser = null;
+    renderInatApiAuthStatusEl("Could not reach iNaturalist to verify the saved token.");
+    return;
+  }
+  if (!res.ok) {
+    inatAuthUser = null;
+    renderInatApiAuthStatusEl(`Saved token was rejected (HTTP ${res.status}). Clear it or paste a fresh JWT from iNaturalist.`);
+    return;
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    inatAuthUser = null;
+    renderInatApiAuthStatusEl("Saved token was rejected (invalid response). Clear it or paste a fresh JWT.");
+    return;
+  }
+  const u = data && Array.isArray(data.results) ? data.results[0] : null;
+  inatAuthUser = u && typeof u === "object" ? u : null;
+  const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
+  renderInatApiAuthStatusEl(
+    login
+      ? `Signed in as ${login}. Observation cards show Agree when you have not already identified at that taxon.`
+      : "Signed in. Observation cards show Agree when applicable."
+  );
+}
+
+/**
+ * @param {HTMLButtonElement} button
+ * @param {string} obsIdStr
+ * @param {string} taxonIdStr
+ */
+async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
+  const obsId = Number(obsIdStr);
+  const taxonId = Number(taxonIdStr);
+  if (!Number.isFinite(obsId) || obsId <= 0 || !Number.isFinite(taxonId) || taxonId <= 0) return;
+  if (!inatApiJwtAuthorizationValue()) {
+    window.alert("Paste and apply an API token under Filters first.");
+    return;
+  }
+  button.disabled = true;
+  const prevLabel = button.textContent;
+  button.textContent = "…";
+  try {
+    const res = await inatFetch("identifications", {
+      method: "POST",
+      auth: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identification: { observation_id: Math.floor(obsId), taxon_id: taxonId } }),
+    });
+    let errText = "";
+    if (!res.ok) {
+      try {
+        const j = await res.json();
+        errText =
+          (j && j.error && (j.error.error || j.error.message)) ||
+          (j && j.message) ||
+          (typeof j === "string" ? j : "") ||
+          "";
+      } catch {
+        errText = "";
+      }
+      window.alert(
+        errText && String(errText).trim()
+          ? `Could not agree (${res.status}): ${String(errText).trim()}`
+          : `Could not agree (HTTP ${res.status}).`
+      );
+      button.disabled = false;
+      button.textContent = prevLabel;
+      return;
+    }
+    button.textContent = "Agreed";
+    button.setAttribute("aria-label", "You agreed with this observation");
+    button.setAttribute("title", "You agreed");
+  } catch (e) {
+    window.alert(e && e.message ? e.message : "Network error while agreeing.");
+    button.disabled = false;
+    button.textContent = prevLabel;
+  }
+}
+
+function renderCard({
+  href,
+  name,
+  imageUrl,
+  metaLines = [],
+  metaParts = null,
+  onClick,
+  saveObservation,
+  observationId,
+  agreeObservation = null,
+}) {
   const card = document.createElement("article");
   card.className = "card";
   const oid = observationId != null ? Number(observationId) : NaN;
@@ -2075,12 +2300,14 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
           <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/></svg>
         </button>`
       : "";
+  const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
   const imgBlock = imageUrl ? `<img src="${imageUrl}" alt="" loading="lazy" />` : `<div class="no-photo">No photo</div>`;
   if (onClick) {
     card.innerHTML = `
       <a href="${href}" class="card-link" role="button" style="cursor:pointer">
         ${imgBlock}
       </a>
+      ${agreeBtn}
       ${saveBtn}
       <div class="card-bottom">
         ${metaBlock}
@@ -2093,6 +2320,7 @@ function renderCard({ href, name, imageUrl, metaLines = [], metaParts = null, on
       <a href="${href}" class="card-link" rel="noopener noreferrer">
         ${imgBlock}
       </a>
+      ${agreeBtn}
       ${saveBtn}
       <div class="card-bottom">
         ${metaBlock}
@@ -2189,6 +2417,7 @@ async function runObservationSearch(reset) {
             metaParts: observationMetaHtmlParts(obs, kcData),
             saveObservation: obs,
             observationId: oid,
+            agreeObservation: obs,
           })
         );
         iterAppended += 1;
@@ -3405,6 +3634,46 @@ function wireObservationScrollMemory() {
   }
 }
 
+/** Delegated clicks for observation-card Agree (posts an identification via the iNaturalist API). */
+function wireObservationAgreeClicks() {
+  if (!el.resultsGrid) return;
+  el.resultsGrid.addEventListener("click", (e) => {
+    const raw = e.target && e.target.closest && e.target.closest("button.card-agree");
+    const btn = raw instanceof HTMLButtonElement ? raw : null;
+    if (!btn || btn.disabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const obsId = btn.getAttribute("data-agree-obs-id");
+    const taxonId = btn.getAttribute("data-agree-taxon-id");
+    if (!obsId || !taxonId) return;
+    void submitObservationAgree(btn, obsId, taxonId);
+  });
+}
+
+/** Filters tab: store JWT, verify with `GET /users/me`, refresh observation cards when auth changes. */
+function wireExplorerApiAuth() {
+  if (el.btnInatApiTokenApply && el.inatApiToken) {
+    el.btnInatApiTokenApply.addEventListener("click", () => {
+      setStoredInatApiJwtFromUserInput(el.inatApiToken.value);
+      el.inatApiToken.value = "";
+      void (async () => {
+        await refreshInatAuthUser();
+        refreshResultPanelsIfMetaChanged();
+      })();
+    });
+  }
+  if (el.btnInatApiTokenClear) {
+    el.btnInatApiTokenClear.addEventListener("click", () => {
+      clearStoredInatApiJwt();
+      if (el.inatApiToken) el.inatApiToken.value = "";
+      void (async () => {
+        await refreshInatAuthUser();
+        refreshResultPanelsIfMetaChanged();
+      })();
+    });
+  }
+}
+
 function wireInfiniteScroll() {
   const opts = { rootMargin: "120px" };
   const obsObserver = new IntersectionObserver((entries) => {
@@ -3783,7 +4052,9 @@ async function boot() {
   wireTabs();
   wireInfiniteScroll();
   wireObservationScrollMemory();
+  wireObservationAgreeClicks();
   wireFilterExtras();
+  wireExplorerApiAuth();
   wireButtons();
   if (el.btnRefreshObservations) {
     el.btnRefreshObservations.addEventListener("click", () => {
@@ -3811,6 +4082,7 @@ async function boot() {
     });
   }
 
+  await refreshInatAuthUser();
   await switchView(currentView);
 }
 

@@ -516,6 +516,75 @@ main {
   display: block;
 }
 
+.inat-api-auth-fieldset .inat-api-auth-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.inat-api-auth-fieldset label[for="inat-api-token"] {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.inat-api-token {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.8rem;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  resize: vertical;
+}
+
+.inat-api-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.inat-api-auth-status {
+  margin: 0.55rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.card-agree {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 2;
+  max-width: calc(100% - 5rem);
+  padding: 0.28rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.card-agree:hover:not(:disabled) {
+  background: rgba(27, 67, 50, 0.92);
+  border-color: rgba(200, 245, 220, 0.6);
+  color: #e8f5e9;
+}
+
+.card-agree:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
 .card a:not(.card-link) {
   display: block;
   width: 100%;

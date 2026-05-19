@@ -27,6 +27,12 @@ test.describe("explorer", () => {
     await expect(page).not.toHaveURL(/evidence=/);
   });
 
+  test("API sign-in fieldset is available for JWT and Agree", async ({ page }) => {
+    await expect(page.getByRole("group", { name: /API sign-in/i })).toBeVisible();
+    await expect(page.locator("#inat-api-token")).toBeVisible();
+    await expect(page.locator("#inat-api-auth-status")).toContainText(/not signed in/i);
+  });
+
   test("Stats tab shows cumulative species line chart", async ({ page }) => {
     await page.getByRole("tab", { name: "Stats" }).click();
     await expect(page.locator("#panel-stats")).toBeVisible();
