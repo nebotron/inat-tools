@@ -534,107 +534,18 @@ function navigateFromCardClick(e, url) {
   window.location.assign(url);
 }
 
-function mediumPhotoUrl(url) {
-  if (!url) return "";
-  return url.replace(/\/square\./, "/medium.");
-}
-
-/** Full-size JPEG URL from an iNaturalist photo `url` field. */
+/** Full-size URL from an iNaturalist photo `url` field (CDN supports square, thumb, small, medium, large, original). */
 function originalPhotoUrl(url) {
   if (!url) return "";
-  return url.replace(/\/(square|medium|large|original)\./, "/original.");
+  return url.replace(/\/(square|thumb|small|medium|large|original)\./i, "/original.");
 }
 
-/**
- * Medium preview + original URL for a photo `url` field (typically `…/square.jpg`).
- * @param {string} rawUrl
- * @returns {{ preview: string, full: string } | null}
- */
-function observationPhotoPreviewAndFull(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== "string") return null;
+/** Display URL for grid cards: always the original photo file when `rawUrl` is present. */
+function observationCardPhotoDisplayUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return "";
   const trimmed = rawUrl.trim();
-  if (!trimmed) return null;
-  const preview = mediumPhotoUrl(trimmed);
-  const full = originalPhotoUrl(trimmed);
-  if (!preview || !full) return null;
-  return { preview, full: preview !== full ? full : null };
-}
-
-/** Sentinel map key when using the viewport as the IntersectionObserver root. */
-const CARD_IMAGE_PRELOAD_VIEWPORT = {};
-
-/** @type {Map<object, IntersectionObserver>} */
-const cardImagePreloadObserversByRoot = new Map();
-
-function disconnectCardImagePreloadObserverForRoot(scrollRoot) {
-  const key = scrollRoot == null ? CARD_IMAGE_PRELOAD_VIEWPORT : scrollRoot;
-  const io = cardImagePreloadObserversByRoot.get(key);
-  if (io) {
-    try {
-      io.disconnect();
-    } catch {
-      /* ignore */
-    }
-    cardImagePreloadObserversByRoot.delete(key);
-  }
-}
-
-function upgradeCardImageToFullRes(img) {
-  const full = img.getAttribute("data-full-src");
-  if (!full) return;
-  const loader = new Image();
-  const done = () => {
-    img.removeAttribute("data-full-src");
-    img.classList.remove("card-photo--upgradable");
-  };
-  loader.onload = () => {
-    img.src = full;
-    done();
-  };
-  loader.onerror = () => {
-    done();
-  };
-  loader.src = full;
-}
-
-function ensureCardImagePreloadObserver(scrollRoot) {
-  const key = scrollRoot == null ? CARD_IMAGE_PRELOAD_VIEWPORT : scrollRoot;
-  let io = cardImagePreloadObserversByRoot.get(key);
-  if (io) return io;
-  io = new IntersectionObserver(
-    (entries) => {
-      for (const ent of entries) {
-        if (!ent.isIntersecting) continue;
-        const target = ent.target;
-        const img =
-          target instanceof HTMLImageElement
-            ? target
-            : target.querySelector && target.querySelector("img.card-photo--upgradable[data-full-src]");
-        if (!img || !img.getAttribute("data-full-src")) {
-          io.unobserve(target);
-          continue;
-        }
-        io.unobserve(target);
-        upgradeCardImageToFullRes(img);
-      }
-    },
-    { root: scrollRoot || null, rootMargin: "110% 0px 110% 0px", threshold: 0 }
-  );
-  cardImagePreloadObserversByRoot.set(key, io);
-  return io;
-}
-
-/**
- * Start loading full-resolution images before cards intersect the visible area of `scrollRoot`.
- * @param {Element | null} scrollRoot Scrollable panel (`#panel-observations` / `#panel-species`), or `null` for the viewport
- * @param {ParentNode | null} insertedRoot Fragment or subtree that was just inserted
- */
-function registerCardImagesForFullResPreload(scrollRoot, insertedRoot) {
-  const io = ensureCardImagePreloadObserver(scrollRoot);
-  if (!io || !insertedRoot) return;
-  insertedRoot.querySelectorAll(".card").forEach((card) => {
-    if (card.querySelector("img.card-photo--upgradable[data-full-src]")) io.observe(card);
-  });
+  if (!trimmed) return "";
+  return originalPhotoUrl(trimmed);
 }
 
 function extensionFromPhotoUrl(url) {
@@ -2325,7 +2236,6 @@ function renderCard({
   href,
   name,
   imageUrl,
-  imageFullResUrl = null,
   metaLines = [],
   metaParts = null,
   onClick,
@@ -2351,16 +2261,9 @@ function renderCard({
         </button>`
       : "";
   const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
-  let imgBlock;
-  if (imageUrl && imageFullResUrl && imageFullResUrl !== imageUrl) {
-    imgBlock = `<img class="card-photo card-photo--upgradable" src="${escapeHtml(imageUrl)}" data-full-src="${escapeHtml(
-      imageFullResUrl
-    )}" alt="" decoding="async" />`;
-  } else if (imageUrl) {
-    imgBlock = `<img class="card-photo" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" decoding="async" />`;
-  } else {
-    imgBlock = `<div class="no-photo">No photo</div>`;
-  }
+  const imgBlock = imageUrl
+    ? `<img class="card-photo" src="${escapeHtml(imageUrl)}" alt="" loading="lazy" decoding="async" />`
+    : `<div class="no-photo">No photo</div>`;
   if (onClick) {
     card.innerHTML = `
       <a href="${href}" class="card-link" role="button" style="cursor:pointer">
@@ -2413,7 +2316,6 @@ async function runObservationSearch(reset) {
       obsHasMore = false;
       obsCardCount = 0;
       el.resultsGrid.innerHTML = "";
-      disconnectCardImagePreloadObserverForRoot(el.panelObs);
     }
 
     const metaOptsEarly = getCardMetaOptions();
@@ -2468,15 +2370,12 @@ async function runObservationSearch(reset) {
         if (!Number.isFinite(oid) || obsSeenIds.has(oid)) continue;
         obsSeenIds.add(oid);
         const name = obs.taxon?.preferred_common_name || obs.taxon?.name || obs.species_guess || "Unknown";
-        const pair = obs.photos?.[0]?.url ? observationPhotoPreviewAndFull(obs.photos[0].url) : null;
-        const imageUrl = pair ? pair.preview : obs.photos?.[0]?.url ? mediumPhotoUrl(obs.photos[0].url) : "";
-        const imageFullResUrl = pair ? pair.full : obs.photos?.[0]?.url ? originalPhotoUrl(obs.photos[0].url) : null;
+        const imageUrl = observationCardPhotoDisplayUrl(obs.photos?.[0]?.url);
         frag.appendChild(
           renderCard({
             href: `https://www.inaturalist.org/observations/${obs.id}`,
             name,
             imageUrl,
-            imageFullResUrl,
             metaParts: observationMetaHtmlParts(obs, kcData),
             saveObservation: obs,
             observationId: oid,
@@ -2486,7 +2385,6 @@ async function runObservationSearch(reset) {
         iterAppended += 1;
       }
       el.resultsGrid.appendChild(frag);
-      registerCardImagesForFullResPreload(el.panelObs, frag);
       obsCardCount += iterAppended;
       lastIterAppended = iterAppended;
 
@@ -2536,7 +2434,6 @@ async function runSpeciesSearch(reset) {
       speciesHasMore = false;
       speciesCardCount = 0;
       el.speciesGrid.innerHTML = "";
-      disconnectCardImagePreloadObserverForRoot(el.panelSpecies);
     }
 
     const res = await inatFetch(`observations/species_counts?${(await speciesParams(speciesPage)).toString()}`);
@@ -2575,20 +2472,16 @@ async function runSpeciesSearch(reset) {
       const taxon = row.taxon || {};
       const name = taxon.preferred_common_name || taxon.name || "Unknown";
       const rawPhoto = taxon.default_photo?.url || taxon.default_photo?.medium_url || "";
-      const pair = rawPhoto ? observationPhotoPreviewAndFull(rawPhoto) : null;
-      const imageUrl = pair ? pair.preview : rawPhoto ? mediumPhotoUrl(rawPhoto) : "";
-      const imageFullResUrl = pair ? pair.full : rawPhoto ? originalPhotoUrl(rawPhoto) : null;
+      const imageUrl = observationCardPhotoDisplayUrl(rawPhoto);
       frag.appendChild(renderCard({
         href: `https://www.inaturalist.org/taxa/${taxon.id || ""}`,
         name,
         imageUrl,
-        imageFullResUrl,
         metaParts: speciesMetaParts(row, obsTaxonById, kcData),
         onClick: () => showSpeciesDetail(taxon, row.count),
       }));
     }
     el.speciesGrid.appendChild(frag);
-    registerCardImagesForFullResPreload(el.panelSpecies, frag);
     speciesCardCount += results.length;
 
     const loaded = speciesCardCount;
@@ -3907,8 +3800,6 @@ function wireButtons() {
     });
     el.resultsGrid.innerHTML = "";
     el.speciesGrid.innerHTML = "";
-    disconnectCardImagePreloadObserverForRoot(el.panelObs);
-    disconnectCardImagePreloadObserverForRoot(el.panelSpecies);
     obsCardCount = 0;
     speciesCardCount = 0;
     obsListCursorId = null;
@@ -4059,17 +3950,10 @@ async function showSpeciesDetail(taxon, obsCount) {
   const name = taxon.preferred_common_name || taxon.name || "Unknown";
   const sciName = taxon.name || "";
   const rawHero = taxon.default_photo?.url || taxon.default_photo?.medium_url || "";
-  const heroPair = rawHero ? observationPhotoPreviewAndFull(rawHero) : null;
-  const heroPreview = heroPair ? heroPair.preview : rawHero ? mediumPhotoUrl(rawHero) : "";
-  const heroFull = heroPair && heroPair.full ? heroPair.full : rawHero ? originalPhotoUrl(rawHero) : "";
-  const heroImg =
-    heroPreview && heroFull && heroFull !== heroPreview
-      ? `<img class="detail-hero-photo card-photo card-photo--upgradable" src="${escapeHtml(heroPreview)}" data-full-src="${escapeHtml(
-          heroFull
-        )}" alt="${escapeHtml(name)}" decoding="async" />`
-      : heroPreview
-        ? `<img class="detail-hero-photo card-photo" src="${escapeHtml(heroFull || heroPreview)}" alt="${escapeHtml(name)}" decoding="async" />`
-        : "";
+  const heroUrl = observationCardPhotoDisplayUrl(rawHero);
+  const heroImg = heroUrl
+    ? `<img class="detail-hero-photo card-photo" src="${escapeHtml(heroUrl)}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" />`
+    : "";
   const inatAppUrl = inaturalistTaxonWebUrl(taxon.id);
   const searchUrl = buildSearchUrlWithSpecies(taxon.id, taxon.preferred_common_name || taxon.name);
 
@@ -4096,11 +3980,6 @@ async function showSpeciesDetail(taxon, obsCount) {
       </div>
     </div>
   `;
-
-  queueMicrotask(() => {
-    const hi = el.detailContent.querySelector("img.detail-hero-photo.card-photo--upgradable[data-full-src]");
-    if (hi) upgradeCardImageToFullRes(hi);
-  });
 
   const kcDetail = await ensureKingCountyNoxiousData();
   const hourSampleParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcDetail) });
