@@ -2390,6 +2390,101 @@ function renderInatSpeciesSuggestionsForCard(card, results) {
   inatSpeciesSuggestActiveCard = card;
 }
 
+/** @param {any} data */
+function firstTaxonGuessFromScoreImageJson(data) {
+  const rows = data && Array.isArray(data.results) ? data.results : [];
+  for (const row of rows) {
+    const t = row && row.taxon;
+    if (!t || typeof t !== "object") continue;
+    const id = t.id != null ? Number(t.id) : NaN;
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const sci = typeof t.name === "string" ? t.name.trim() : "";
+    const common = typeof t.preferred_common_name === "string" ? t.preferred_common_name.trim() : "";
+    const label = common || sci || `Taxon ${id}`;
+    return { id: String(id), label };
+  }
+  return null;
+}
+
+/**
+ * POST the image to iNaturalist computer vision; returns top taxon label and id.
+ * @param {File} file
+ */
+async function fetchInatComputervisionFirstGuessForFile(file) {
+  const meta = await extractMetaForEmbedding(file);
+  const fd = new FormData();
+  fd.append("image", file, file.name || "photo.jpg");
+  if (
+    typeof meta.lat === "number" &&
+    typeof meta.lon === "number" &&
+    Number.isFinite(meta.lat) &&
+    Number.isFinite(meta.lon)
+  ) {
+    fd.append("lat", String(meta.lat));
+    fd.append("lng", String(meta.lon));
+  }
+  const res = await inatFetch("computervision/score_image", { method: "POST", auth: true, body: fd });
+  if (!res.ok) {
+    const detail = await formatInatHttpErrorForDisplay(res);
+    throw new Error(detail || `Computer vision failed (${res.status}).`);
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error("Could not parse computer vision response.");
+  }
+  const guess = firstTaxonGuessFromScoreImageJson(data);
+  if (!guess) throw new Error("Computer vision returned no taxon suggestions.");
+  return guess;
+}
+
+/**
+ * @param {HTMLElement} card
+ * @param {HTMLButtonElement} btn
+ * @param {number} g
+ */
+async function handleInatGroupCvClick(card, btn, g) {
+  clearError();
+  if (inatUploadInProgress) {
+    showError("Wait for the current upload to finish, then try again.");
+    return;
+  }
+  if (!inatApiJwtAuthorizationValue() || !inatUploadAuthOk) {
+    showError("Apply a valid API token first.");
+    return;
+  }
+  const grp = inatUploadGroups[g];
+  if (!grp || !grp.indices.length) {
+    showError("Add at least one photo to this card before running computer vision.");
+    return;
+  }
+  const ix = grp.indices[0];
+  const file = workItems[ix];
+  if (!file) return;
+  btn.disabled = true;
+  btn.setAttribute("aria-busy", "true");
+  try {
+    const guess = await fetchInatComputervisionFirstGuessForFile(file);
+    const inp = card.querySelector(".inat-group-species");
+    const hid = card.querySelector(".inat-group-taxon-id");
+    inatSpeciesSelectingProgrammatic = true;
+    if (inp) inp.value = guess.label;
+    if (hid) hid.value = guess.id;
+    inatUploadGroups[g].species = guess.label;
+    inatUploadGroups[g].taxonId = guess.id;
+    inatSpeciesSelectingProgrammatic = false;
+    hideInatGroupSpeciesSuggest(card);
+  } catch (err) {
+    console.error(err);
+    const msg = err && typeof err === "object" && "message" in err ? String(err.message) : String(err);
+    showError(msg);
+  } finally {
+    btn.disabled = false;
+    btn.removeAttribute("aria-busy");
+  }
+}
+
 /** @param {HTMLElement} card */
 function scheduleInatSpeciesAutocompleteQuery(card, q) {
   if (inatSpeciesDebounceTimer) clearTimeout(inatSpeciesDebounceTimer);
@@ -2465,6 +2560,17 @@ function wireInatUploadGroupingDelegated() {
     } else if (e.key === "Escape") {
       hideInatGroupSpeciesSuggest(card);
     }
+  });
+
+  inatUploadGroupingStrip.addEventListener("click", (e) => {
+    const btn = e.target && "closest" in e.target ? e.target.closest(".inat-group-cv-btn") : null;
+    if (!(btn instanceof HTMLButtonElement)) return;
+    e.preventDefault();
+    const card = btn.closest(".inat-group-card");
+    if (!card) return;
+    const g = parseInt(card.dataset.groupIdx || "", 10);
+    if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
+    void handleInatGroupCvClick(card, btn, g);
   });
 
   inatUploadGroupingStrip.addEventListener("dragstart", (e) => {
@@ -2601,8 +2707,18 @@ function renderInatPhotoGroupingStrip() {
     sug.hidden = true;
     wrap.appendChild(inp);
     wrap.appendChild(sug);
+    const speciesRow = document.createElement("div");
+    speciesRow.className = "inat-species-row";
+    speciesRow.appendChild(wrap);
+    const cvBtn = document.createElement("button");
+    cvBtn.type = "button";
+    cvBtn.className = "btn secondary inat-group-cv-btn";
+    cvBtn.textContent = "Vision";
+    cvBtn.title = "Run iNaturalist computer vision on the first photo in this group and fill the top suggestion";
+    cvBtn.setAttribute("aria-label", "Run computer vision for top species suggestion");
+    speciesRow.appendChild(cvBtn);
     speciesField.appendChild(hid);
-    speciesField.appendChild(wrap);
+    speciesField.appendChild(speciesRow);
     card.appendChild(speciesField);
 
     const drop = document.createElement("div");

@@ -1354,6 +1354,33 @@ body.app-body-fit .app-page--crop .crop-review-done {
   width: 100%;
 }
 
+.inat-species-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.inat-species-row .inat-species-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.inat-group-cv-btn {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.inat-group-cv-btn[aria-busy="true"] {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .inat-species-suggest {
   position: absolute;
   left: 0;
