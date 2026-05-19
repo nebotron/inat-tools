@@ -3,6 +3,8 @@ const OBS_PER_PAGE = 60;
 
 /** Browser-local storage key for the iNaturalist API JWT (from https://www.inaturalist.org/users/api_token). */
 const INAT_API_JWT_STORAGE_KEY = "inatExplorerApiJwt";
+/** When set to `"1"`, send `Authorization: Bearer <jwt>` (some environments expect the scheme). */
+const INAT_API_JWT_BEARER_MODE_KEY = "inatExplorerApiJwtUseBearer";
 
 /** Set by `refreshInatAuthUser`; used for Agree UI on observation cards. */
 let inatAuthUser = null;
@@ -18,7 +20,7 @@ function getStoredInatApiJwt() {
 
 /**
  * Normalize pasted token: trim and strip a leading `Bearer` scheme if present.
- * The iNaturalist v1 API expects the raw JWT in `Authorization` (no `Bearer` prefix).
+ * The stored value is always the bare JWT; {@link inatApiJwtAuthorizationValue} may add `Bearer`.
  * @param {string} raw
  */
 function normalizeInatApiJwtInput(raw) {
@@ -33,6 +35,7 @@ function setStoredInatApiJwtFromUserInput(raw) {
   try {
     if (v) localStorage.setItem(INAT_API_JWT_STORAGE_KEY, v);
     else localStorage.removeItem(INAT_API_JWT_STORAGE_KEY);
+    localStorage.removeItem(INAT_API_JWT_BEARER_MODE_KEY);
   } catch {
     /* ignore */
   }
@@ -41,6 +44,7 @@ function setStoredInatApiJwtFromUserInput(raw) {
 function clearStoredInatApiJwt() {
   try {
     localStorage.removeItem(INAT_API_JWT_STORAGE_KEY);
+    localStorage.removeItem(INAT_API_JWT_BEARER_MODE_KEY);
   } catch {
     /* ignore */
   }
@@ -48,8 +52,89 @@ function clearStoredInatApiJwt() {
 
 /** Value for the `Authorization` request header when using a stored JWT. */
 function inatApiJwtAuthorizationValue() {
-  const v = getStoredInatApiJwt();
-  return v ? normalizeInatApiJwtInput(v) : "";
+  const jwt = normalizeInatApiJwtInput(getStoredInatApiJwt());
+  if (!jwt) return "";
+  let useBearer = false;
+  try {
+    useBearer = localStorage.getItem(INAT_API_JWT_BEARER_MODE_KEY) === "1";
+  } catch {
+    useBearer = false;
+  }
+  return useBearer ? `Bearer ${jwt}` : jwt;
+}
+
+/** Typical JWT shape: three dot-separated segments. */
+function looksLikeJwtPayload(token) {
+  const t = String(token || "").trim();
+  return t.split(".").length >= 3;
+}
+
+/**
+ * Read the response body (consumes it) and return a single-line diagnostic for display.
+ * @param {Response} res
+ */
+async function formatInatHttpErrorForDisplay(res) {
+  const status = res.status || 0;
+  let text = "";
+  try {
+    text = await res.text();
+  } catch (err) {
+    const msg = err && typeof err.message === "string" ? err.message : String(err);
+    return `HTTP ${status} (could not read response body: ${msg})`;
+  }
+  const trimmed = text.trim();
+  if (!trimmed) return `HTTP ${status} (empty response body)`;
+  try {
+    return `HTTP ${status}: ${JSON.stringify(JSON.parse(trimmed))}`;
+  } catch {
+    return `HTTP ${status}: ${trimmed}`;
+  }
+}
+
+/**
+ * `GET /users/me` with the stored token; on 401 tries `Bearer <jwt>` once for JWT-shaped tokens
+ * and remembers that mode when it succeeds.
+ * @returns {Promise<Response>}
+ */
+async function fetchUsersMeWithStoredJwt() {
+  let res = await inatFetch("users/me", { auth: true });
+  if (res.ok) return res;
+
+  let useBearer = false;
+  try {
+    useBearer = localStorage.getItem(INAT_API_JWT_BEARER_MODE_KEY) === "1";
+  } catch {
+    useBearer = false;
+  }
+
+  const jwt = normalizeInatApiJwtInput(getStoredInatApiJwt());
+  if (!jwt) return res;
+
+  if (res.status === 401 && useBearer) {
+    const resRaw = await inatFetch("users/me", { headers: { Authorization: jwt } });
+    if (resRaw.ok) {
+      try {
+        localStorage.removeItem(INAT_API_JWT_BEARER_MODE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+    return resRaw;
+  }
+
+  if (res.status === 401 && !useBearer && looksLikeJwtPayload(jwt)) {
+    const resBearer = await inatFetch("users/me", { headers: { Authorization: `Bearer ${jwt}` } });
+    if (resBearer.ok) {
+      try {
+        localStorage.setItem(INAT_API_JWT_BEARER_MODE_KEY, "1");
+      } catch {
+        /* ignore */
+      }
+      return resBearer;
+    }
+    return resBearer;
+  }
+  return res;
 }
 
 /**
@@ -2175,8 +2260,12 @@ function observationAgreeButtonHtml(obs) {
   )}" data-agree-taxon-id="${taxonId}">Agree</button>`;
 }
 
-function renderInatApiAuthStatusEl(message) {
-  if (el.inatApiAuthStatus) el.inatApiAuthStatus.textContent = message || "";
+function renderInatApiAuthStatusEl(message, variant = "neutral") {
+  const stat = el.inatApiAuthStatus;
+  if (!stat) return;
+  stat.textContent = message || "";
+  stat.classList.toggle("inat-api-auth-status--error", variant === "error");
+  stat.classList.toggle("inat-api-auth-status--ok", variant === "ok");
 }
 
 /** Loads `inatAuthUser` from `GET /users/me` when a JWT is stored; updates the Filters status line. */
@@ -2184,20 +2273,24 @@ async function refreshInatAuthUser() {
   const jwt = getStoredInatApiJwt();
   if (!jwt) {
     inatAuthUser = null;
-    renderInatApiAuthStatusEl("Not signed in. Paste a JWT to enable Agree on observation cards.");
+    renderInatApiAuthStatusEl("Not signed in. Paste a JWT to enable Agree on observation cards.", "neutral");
     return;
   }
   let res;
   try {
-    res = await inatFetch("users/me", { auth: true });
+    res = await fetchUsersMeWithStoredJwt();
   } catch {
     inatAuthUser = null;
-    renderInatApiAuthStatusEl("Could not reach iNaturalist to verify the saved token.");
+    renderInatApiAuthStatusEl("Could not reach iNaturalist to verify the saved token.", "error");
     return;
   }
   if (!res.ok) {
     inatAuthUser = null;
-    renderInatApiAuthStatusEl(`Saved token was rejected (HTTP ${res.status}). Clear it or paste a fresh JWT from iNaturalist.`);
+    const detail = await formatInatHttpErrorForDisplay(res);
+    renderInatApiAuthStatusEl(
+      `Saved token was rejected. ${detail} Clear the token or paste a fresh JWT from iNaturalist.`,
+      "error"
+    );
     return;
   }
   let data;
@@ -2205,7 +2298,10 @@ async function refreshInatAuthUser() {
     data = await res.json();
   } catch {
     inatAuthUser = null;
-    renderInatApiAuthStatusEl("Saved token was rejected (invalid response). Clear it or paste a fresh JWT.");
+    renderInatApiAuthStatusEl(
+      "Saved token was rejected (success response was not valid JSON). Clear it or paste a fresh JWT.",
+      "error"
+    );
     return;
   }
   const u = data && Array.isArray(data.results) ? data.results[0] : null;
@@ -2214,7 +2310,8 @@ async function refreshInatAuthUser() {
   renderInatApiAuthStatusEl(
     login
       ? `Signed in as ${login}. Observation cards show Agree when you have not already identified at that taxon.`
-      : "Signed in. Observation cards show Agree when applicable."
+      : "Signed in. Observation cards show Agree when applicable.",
+    "ok"
   );
 }
 
@@ -2241,23 +2338,9 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identification: { observation_id: Math.floor(obsId), taxon_id: taxonId } }),
     });
-    let errText = "";
     if (!res.ok) {
-      try {
-        const j = await res.json();
-        errText =
-          (j && j.error && (j.error.error || j.error.message)) ||
-          (j && j.message) ||
-          (typeof j === "string" ? j : "") ||
-          "";
-      } catch {
-        errText = "";
-      }
-      window.alert(
-        errText && String(errText).trim()
-          ? `Could not agree (${res.status}): ${String(errText).trim()}`
-          : `Could not agree (HTTP ${res.status}).`
-      );
+      const detail = await formatInatHttpErrorForDisplay(res);
+      window.alert(`Could not agree. ${detail}`);
       button.disabled = false;
       button.textContent = prevLabel;
       return;

@@ -553,6 +553,19 @@ main {
   font-size: 0.85rem;
   line-height: 1.4;
   color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.inat-api-auth-status--error {
+  color: #b00020;
+}
+
+.inat-api-auth-status--ok {
+  color: var(--accent, #1b5e20);
 }
 
 .card-agree {
