@@ -19,8 +19,7 @@ function getStoredInatApiJwt() {
 }
 
 /**
- * Normalize pasted token: trim and strip a leading `Bearer` scheme if present.
- * The stored value is always the bare JWT; {@link inatApiJwtAuthorizationValue} may add `Bearer`.
+ * Trim and strip a leading `Bearer` scheme from a pasted or stored token string.
  * @param {string} raw
  */
 function normalizeInatApiJwtInput(raw) {
@@ -30,15 +29,166 @@ function normalizeInatApiJwtInput(raw) {
   return t;
 }
 
-function setStoredInatApiJwtFromUserInput(raw) {
-  const v = normalizeInatApiJwtInput(raw);
+/** Decode one JWT segment from base64url; returns UTF-8 string or `null`. */
+function tryDecodeJwtSegment(segment) {
   try {
-    if (v) localStorage.setItem(INAT_API_JWT_STORAGE_KEY, v);
-    else localStorage.removeItem(INAT_API_JWT_STORAGE_KEY);
+    const s = String(segment);
+    const padLen = (4 - (s.length % 4)) % 4;
+    const pad = "=".repeat(padLen);
+    const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
+    return atob(b64);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Client-side JWT format check: three base64url segments and decodable JSON header with `alg`.
+ * @returns {{ ok: true, token: string } | { ok: false, error: string }}
+ */
+function validateInatJwtFormat(candidate) {
+  let t = String(candidate || "").trim();
+  if (!t) return { ok: false, error: "Token is empty after trimming." };
+  if (/^bearer\s+/i.test(t)) t = t.replace(/^bearer\s+/i, "").trim();
+  const parts = t.split(".");
+  if (parts.length !== 3) {
+    return {
+      ok: false,
+      error: `Not a valid JWT shape (expected three dot-separated segments; found ${parts.length}).`,
+    };
+  }
+  const b64u = /^[A-Za-z0-9_-]+$/;
+  for (let i = 0; i < 3; i += 1) {
+    if (!parts[i]) return { ok: false, error: `JWT segment ${i + 1} is empty.` };
+    if (!b64u.test(parts[i])) {
+      return {
+        ok: false,
+        error: `JWT segment ${i + 1} must use only base64url characters (A–Z a–z 0–9 _ -).`,
+      };
+    }
+  }
+  const headerJson = tryDecodeJwtSegment(parts[0]);
+  if (headerJson == null) {
+    return { ok: false, error: "Could not base64url-decode the JWT header (first segment)." };
+  }
+  let header;
+  try {
+    header = JSON.parse(headerJson);
+  } catch {
+    return { ok: false, error: "JWT header is not valid JSON after decoding." };
+  }
+  if (!header || typeof header !== "object") {
+    return { ok: false, error: "JWT header must decode to a JSON object." };
+  }
+  if (typeof header.alg !== "string" || !header.alg.trim()) {
+    return { ok: false, error: 'Decoded JWT header must include a string "alg" field.' };
+  }
+  return { ok: true, token: t };
+}
+
+/** Typical JWT shape: three dot-separated segments (before full validation). */
+function looksLikeJwtPayload(token) {
+  const t = String(token || "").trim();
+  return t.split(".").length >= 3;
+}
+
+/**
+ * Find the first JWT-shaped string in parsed JSON (iNat token pages often wrap the JWT in JSON).
+ * @param {any} val
+ * @param {number} depth
+ * @returns {string | null}
+ */
+function extractJwtStringFromJsonValue(val, depth = 0) {
+  if (depth > 10) return null;
+
+  if (typeof val === "string") {
+    const s = normalizeInatApiJwtInput(val);
+    if (!s || !looksLikeJwtPayload(s)) return null;
+    return s;
+  }
+
+  if (!val || typeof val !== "object") return null;
+
+  if (Array.isArray(val)) {
+    for (const item of val) {
+      const f = extractJwtStringFromJsonValue(item, depth + 1);
+      if (f) return f;
+    }
+    return null;
+  }
+
+  const PRIORITY_KEYS = ["api_token", "access_token", "token", "jwt", "id_token"];
+  for (const k of PRIORITY_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(val, k)) {
+      const f = extractJwtStringFromJsonValue(val[k], depth + 1);
+      if (f) return f;
+    }
+  }
+
+  const NEST_KEYS = ["credentials", "data", "result", "token_response", "oauth"];
+  for (const k of NEST_KEYS) {
+    if (val[k] != null && typeof val[k] === "object") {
+      const f = extractJwtStringFromJsonValue(val[k], depth + 1);
+      if (f) return f;
+    }
+  }
+
+  for (const k of Object.keys(val)) {
+    if (PRIORITY_KEYS.includes(k) || NEST_KEYS.includes(k)) continue;
+    const f = extractJwtStringFromJsonValue(val[k], depth + 1);
+    if (f) return f;
+  }
+  return null;
+}
+
+/**
+ * Parse Apply-field content: full JSON from the API token page, or a raw JWT string.
+ * @returns {{ token: string, error: null } | { token: null, error: string }}
+ */
+function parseInatApiTokenPaste(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) {
+    return { token: null, error: "Paste the JSON from the API token page or a raw JWT, then Apply." };
+  }
+
+  let candidate = null;
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    let data;
+    try {
+      data = JSON.parse(trimmed);
+    } catch (e) {
+      const msg = e && typeof e.message === "string" ? e.message : String(e);
+      return { token: null, error: `Invalid JSON: ${msg}` };
+    }
+    candidate = extractJwtStringFromJsonValue(data, 0);
+    if (!candidate) {
+      return {
+        token: null,
+        error:
+          "JSON did not contain a JWT string. Expected a field such as api_token, access_token, or token (nested objects like credentials are searched).",
+      };
+    }
+  } else {
+    candidate = trimmed;
+  }
+
+  const v = validateInatJwtFormat(candidate);
+  if (!v.ok) return { token: null, error: v.error };
+  return { token: v.token, error: null };
+}
+
+/** Store a JWT that already passed {@link parseInatApiTokenPaste} / {@link validateInatJwtFormat}. */
+function persistParsedInatApiJwt(canonicalToken) {
+  const v = validateInatJwtFormat(canonicalToken);
+  if (!v.ok) return { ok: false, error: v.error || "Invalid token." };
+  try {
+    localStorage.setItem(INAT_API_JWT_STORAGE_KEY, v.token);
     localStorage.removeItem(INAT_API_JWT_BEARER_MODE_KEY);
   } catch {
-    /* ignore */
+    return { ok: false, error: "Could not save the token (browser storage may be disabled or full)." };
   }
+  return { ok: true };
 }
 
 function clearStoredInatApiJwt() {
@@ -61,12 +211,6 @@ function inatApiJwtAuthorizationValue() {
     useBearer = false;
   }
   return useBearer ? `Bearer ${jwt}` : jwt;
-}
-
-/** Typical JWT shape: three dot-separated segments. */
-function looksLikeJwtPayload(token) {
-  const t = String(token || "").trim();
-  return t.split(".").length >= 3;
 }
 
 /**
@@ -2273,7 +2417,16 @@ async function refreshInatAuthUser() {
   const jwt = getStoredInatApiJwt();
   if (!jwt) {
     inatAuthUser = null;
-    renderInatApiAuthStatusEl("Not signed in. Paste a JWT to enable Agree on observation cards.", "neutral");
+    renderInatApiAuthStatusEl("Not signed in. Paste the API token JSON or a raw JWT, then Apply.", "neutral");
+    return;
+  }
+  const format = validateInatJwtFormat(jwt);
+  if (!format.ok) {
+    inatAuthUser = null;
+    renderInatApiAuthStatusEl(
+      `Stored credential failed the client format check: ${format.error} Clear the token and apply again using the full JSON from the API token page or a valid JWT.`,
+      "error"
+    );
     return;
   }
   let res;
@@ -3737,7 +3890,17 @@ function wireObservationAgreeClicks() {
 function wireExplorerApiAuth() {
   if (el.btnInatApiTokenApply && el.inatApiToken) {
     el.btnInatApiTokenApply.addEventListener("click", () => {
-      setStoredInatApiJwtFromUserInput(el.inatApiToken.value);
+      const pasted = el.inatApiToken.value;
+      const parsed = parseInatApiTokenPaste(pasted);
+      if (parsed.error) {
+        renderInatApiAuthStatusEl(parsed.error, "error");
+        return;
+      }
+      const saved = persistParsedInatApiJwt(parsed.token);
+      if (!saved.ok) {
+        renderInatApiAuthStatusEl(saved.error || "Could not save token.", "error");
+        return;
+      }
       el.inatApiToken.value = "";
       void (async () => {
         await refreshInatAuthUser();
