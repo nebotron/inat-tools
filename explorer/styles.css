@@ -462,26 +462,24 @@ main {
 
 .results-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: 1fr;
   gap: 0;
+  width: 100%;
 }
 
 .card {
   position: relative;
-  aspect-ratio: 1 / 1;
   overflow: hidden;
   border: 0;
-  content-visibility: auto;
-  contain-intrinsic-size: 360px 360px;
+  border-bottom: 1px solid var(--border);
 }
 
 .card a.card-link {
-  position: absolute;
-  inset: 0;
+  position: relative;
   z-index: 0;
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   color: inherit;
   text-decoration: none;
 }
@@ -609,15 +607,15 @@ main {
 .card a:not(.card-link) {
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   color: inherit;
   text-decoration: none;
 }
 
 .card img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  height: auto;
   display: block;
 }
 
@@ -627,12 +625,13 @@ main {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
+  align-items: flex-start;
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
   width: 100%;
-  height: 100%;
+  height: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   outline: none;
@@ -648,15 +647,15 @@ main {
   min-width: 100%;
   max-width: 100%;
   width: 100%;
-  height: 100%;
+  height: auto;
   scroll-snap-align: start;
   scroll-snap-stop: always;
 }
 
 .card-media-carousel__slide .card-photo {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  height: auto;
   display: block;
 }
 
@@ -696,7 +695,7 @@ main {
 
 .card .no-photo {
   width: 100%;
-  height: 100%;
+  min-height: 10rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -886,10 +885,6 @@ img.leaflet-tile.map-heat-tiles {
   padding: 1.2rem 1rem 1.6rem;
   font-size: 0.84rem;
   color: var(--muted);
-}
-
-@media (max-width: 900px) {
-  .results-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 }
 
 /* Species detail page */
@@ -1125,7 +1120,6 @@ img.leaflet-tile.map-heat-tiles {
   .months-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .location-row { flex-direction: column; align-items: stretch; }
   .map-container { min-height: 320px; }
-  .results-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 
   .detail-hero { flex-direction: column; }
   .detail-hero img { width: 100%; height: auto; max-height: 240px; }
