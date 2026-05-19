@@ -230,9 +230,7 @@ const inatUploadTokenField = document.getElementById("inat-upload-token-field");
 const inatUploadToken = document.getElementById("inat-upload-token");
 const btnInatUploadTokenApply = document.getElementById("btn-inat-upload-token-apply");
 const btnInatUploadTokenClear = document.getElementById("btn-inat-upload-token-clear");
-const inatUploadSpecies = document.getElementById("inat-upload-species");
-const inatUploadTaxonId = document.getElementById("inat-upload-taxon-id");
-const inatUploadSpeciesSuggest = document.getElementById("inat-upload-species-suggest");
+const btnInatAddObservationGroup = document.getElementById("btn-inat-add-observation-group");
 const inatUploadGrouping = document.getElementById("inat-upload-grouping");
 const inatUploadGroupingStrip = document.getElementById("inat-upload-grouping-strip");
 const inatUploadProgress = document.getElementById("inat-upload-progress");
@@ -242,11 +240,19 @@ let cropToolbarProgressEl = null;
 /** `GET /users/me` succeeded with stored JWT — enables Upload to iNaturalist. */
 let inatUploadAuthOk = false;
 let inatUploadInProgress = false;
-/** `true` after photo index `i` (0-based): next photo starts a new observation. Length = photos − 1. */
-let inatGroupSplitAfter = [];
-let inatTaxonSuggestDebounce = 0;
-let inatTaxonSuggestHighlight = -1;
+/**
+ * Each observation group: workItem indices (0..n-1) and per-group species / taxon for iNat create.
+ * @type {{ indices: number[], species: string, taxonId: string }[]}
+ */
+let inatUploadGroups = [];
+/** Last `workItems.length` used to build `inatUploadGroups` — mismatch triggers re-init. */
+let inatUploadGroupsInitializedForN = -1;
+let inatSpeciesDebounceTimer = 0;
+/** @type {HTMLElement | null} */
+let inatSpeciesSuggestActiveCard = null;
+let inatSpeciesSuggestHighlight = -1;
 let inatSpeciesSelectingProgrammatic = false;
+let inatUploadGroupingDelegated = false;
 
 const PREVIEW_MAX_EDGE = 720;
 const PREVIEW_MAX_EDGE_IOS = 520;
@@ -650,10 +656,9 @@ function clearCropState() {
   shareSheetBuildTotal = 0;
   setSharePrepProgress(false, 0, "", {});
   clearSessionPersistNotice();
-  inatGroupSplitAfter = [];
-  hideInatSpeciesSuggest();
-  if (inatUploadTaxonId) inatUploadTaxonId.value = "";
-  if (inatUploadSpecies) inatUploadSpecies.value = "";
+  inatUploadGroups = [];
+  inatUploadGroupsInitializedForN = -1;
+  hideAllInatGroupSpeciesSuggests();
 }
 
 function invalidateShareSheetPrep() {
@@ -2181,24 +2186,143 @@ function observationIdFromCreateJson(data) {
   return null;
 }
 
-function hideInatSpeciesSuggest() {
-  if (!inatUploadSpeciesSuggest || !inatUploadSpecies) return;
-  inatUploadSpeciesSuggest.hidden = true;
-  inatUploadSpeciesSuggest.replaceChildren();
-  inatTaxonSuggestHighlight = -1;
-  inatUploadSpecies.setAttribute("aria-expanded", "false");
+function initInatUploadGroups() {
+  const n = workItems.length;
+  if (n <= 0) {
+    inatUploadGroups = [];
+    inatUploadGroupsInitializedForN = -1;
+    return;
+  }
+  inatUploadGroups = [{ indices: [...Array(n).keys()], species: "", taxonId: "" }];
+  inatUploadGroupsInitializedForN = n;
+}
+
+/** Ensure every index 0..n-1 appears exactly once; otherwise reset. */
+function validateInatUploadGroupsOrInit() {
+  const n = workItems.length;
+  if (n <= 0) {
+    inatUploadGroups = [];
+    inatUploadGroupsInitializedForN = -1;
+    return;
+  }
+  if (inatUploadGroupsInitializedForN !== n) {
+    initInatUploadGroups();
+    return;
+  }
+  const seen = new Set();
+  let count = 0;
+  for (const g of inatUploadGroups) {
+    if (!g || !Array.isArray(g.indices)) {
+      initInatUploadGroups();
+      return;
+    }
+    for (const ix of g.indices) {
+      if (!Number.isFinite(ix) || ix < 0 || ix >= n || seen.has(ix)) {
+        initInatUploadGroups();
+        return;
+      }
+      seen.add(ix);
+      count++;
+    }
+  }
+  if (count !== n) initInatUploadGroups();
+}
+
+function normalizeInatUploadGroupsRemoveEmpty() {
+  if (inatUploadGroups.length <= 1) return;
+  inatUploadGroups = inatUploadGroups.filter((g) => g.indices && g.indices.length > 0);
+  if (inatUploadGroups.length === 0) initInatUploadGroups();
+}
+
+/** Peel one photo into a new observation card; keeps a full partition of indices so validation still passes. */
+function addInatObservationGroupFromUi() {
+  clearError();
+  validateInatUploadGroupsOrInit();
+  const total = workItems.length;
+  if (total < 2) {
+    showError("Add at least two photos before splitting into multiple observations.");
+    return;
+  }
+  let srcG = -1;
+  for (let g = inatUploadGroups.length - 1; g >= 0; g--) {
+    if (inatUploadGroups[g].indices.length >= 2) {
+      srcG = g;
+      break;
+    }
+  }
+  if (srcG < 0) {
+    showError(
+      "To add another observation, move a photo onto a card that already has two or more photos, then try again."
+    );
+    return;
+  }
+  const ix = inatUploadGroups[srcG].indices.pop();
+  inatUploadGroups.push({ indices: [ix], species: "", taxonId: "" });
+  hideAllInatGroupSpeciesSuggests();
+  renderInatPhotoGroupingStrip();
 }
 
 /**
+ * @param {number} photoIdx
+ * @param {number} fromG
+ * @param {number} fromPos
+ * @param {number} toG
+ * @param {number | null} insertBeforePhotoIdx
+ */
+function movePhotoBetweenGroups(photoIdx, fromG, fromPos, toG, insertBeforePhotoIdx) {
+  if (!inatUploadGroups[fromG] || !inatUploadGroups[toG]) return;
+  inatUploadGroups[fromG].indices.splice(fromPos, 1);
+  const dest = inatUploadGroups[toG].indices;
+  let insertAt = dest.length;
+  if (insertBeforePhotoIdx != null && insertBeforePhotoIdx !== photoIdx) {
+    const i = dest.indexOf(insertBeforePhotoIdx);
+    if (i >= 0) insertAt = i;
+  }
+  dest.splice(insertAt, 0, photoIdx);
+  normalizeInatUploadGroupsRemoveEmpty();
+}
+
+function hideAllInatGroupSpeciesSuggests() {
+  if (!inatUploadGroupingStrip) return;
+  for (const ul of inatUploadGroupingStrip.querySelectorAll(".inat-group-species-suggest")) {
+    ul.hidden = true;
+    ul.replaceChildren();
+  }
+  for (const inp of inatUploadGroupingStrip.querySelectorAll(".inat-group-species")) {
+    inp.setAttribute("aria-expanded", "false");
+  }
+  inatSpeciesSuggestActiveCard = null;
+  inatSpeciesSuggestHighlight = -1;
+}
+
+/** @param {HTMLElement} card */
+function hideInatGroupSpeciesSuggest(card) {
+  const ul = card.querySelector(".inat-group-species-suggest");
+  const inp = card.querySelector(".inat-group-species");
+  if (ul) {
+    ul.hidden = true;
+    ul.replaceChildren();
+  }
+  if (inp) inp.setAttribute("aria-expanded", "false");
+  if (inatSpeciesSuggestActiveCard === card) {
+    inatSpeciesSuggestActiveCard = null;
+    inatSpeciesSuggestHighlight = -1;
+  }
+}
+
+/**
+ * @param {HTMLElement} card
  * @param {any[]} results
  */
-function renderInatSpeciesSuggestions(results) {
-  if (!inatUploadSpeciesSuggest) return;
-  inatUploadSpeciesSuggest.replaceChildren();
-  inatTaxonSuggestHighlight = -1;
+function renderInatSpeciesSuggestionsForCard(card, results) {
+  const ul = card.querySelector(".inat-group-species-suggest");
+  const inp = card.querySelector(".inat-group-species");
+  if (!ul || !inp) return;
+  ul.replaceChildren();
+  inatSpeciesSuggestHighlight = -1;
   const items = Array.isArray(results) ? results : [];
   if (!items.length) {
-    hideInatSpeciesSuggest();
+    hideInatGroupSpeciesSuggest(card);
     return;
   }
   for (const item of items) {
@@ -2211,7 +2335,6 @@ function renderInatSpeciesSuggestions(results) {
     const li = document.createElement("li");
     li.setAttribute("role", "option");
     li.dataset.taxonId = String(id);
-    li.dataset.label = label;
     li.className = "inat-species-suggest__item";
     const main = document.createElement("div");
     main.className = "inat-species-suggest__main";
@@ -2225,102 +2348,143 @@ function renderInatSpeciesSuggestions(results) {
     }
     li.addEventListener("mousedown", (ev) => {
       ev.preventDefault();
-      if (!inatUploadSpecies || !inatUploadTaxonId) return;
+      const g = parseInt(card.dataset.groupIdx || "", 10);
+      if (!Number.isFinite(g) || g < 0 || !inatUploadGroups[g]) return;
       inatSpeciesSelectingProgrammatic = true;
-      inatUploadSpecies.value = label;
-      inatUploadTaxonId.value = String(id);
+      inp.value = label;
+      inatUploadGroups[g].species = label;
+      inatUploadGroups[g].taxonId = String(id);
       inatSpeciesSelectingProgrammatic = false;
-      hideInatSpeciesSuggest();
+      hideInatGroupSpeciesSuggest(card);
     });
-    inatUploadSpeciesSuggest.appendChild(li);
+    ul.appendChild(li);
   }
-  inatUploadSpeciesSuggest.hidden = false;
-  if (inatUploadSpecies) inatUploadSpecies.setAttribute("aria-expanded", "true");
+  ul.hidden = false;
+  inp.setAttribute("aria-expanded", "true");
+  inatSpeciesSuggestActiveCard = card;
 }
 
-function wireInatSpeciesAutocomplete() {
-  if (!inatUploadSpecies || !inatUploadSpeciesSuggest) return;
-
-  inatUploadSpecies.addEventListener("input", () => {
-    if (!inatSpeciesSelectingProgrammatic && inatUploadTaxonId) inatUploadTaxonId.value = "";
-    if (inatTaxonSuggestDebounce) clearTimeout(inatTaxonSuggestDebounce);
-    const q = inatUploadSpecies.value.trim();
-    if (q.length < 2) {
-      hideInatSpeciesSuggest();
-      return;
+/** @param {HTMLElement} card */
+function scheduleInatSpeciesAutocompleteQuery(card, q) {
+  if (inatSpeciesDebounceTimer) clearTimeout(inatSpeciesDebounceTimer);
+  if (q.length < 2) {
+    hideInatGroupSpeciesSuggest(card);
+    return;
+  }
+  inatSpeciesDebounceTimer = window.setTimeout(async () => {
+    try {
+      const res = await inatFetch(`taxa/autocomplete?q=${encodeURIComponent(q)}&per_page=12`);
+      const data = res.ok ? await res.json() : { results: [] };
+      renderInatSpeciesSuggestionsForCard(card, data.results || []);
+    } catch {
+      hideInatGroupSpeciesSuggest(card);
     }
-    inatTaxonSuggestDebounce = window.setTimeout(async () => {
-      try {
-        const res = await inatFetch(`taxa/autocomplete?q=${encodeURIComponent(q)}&per_page=12`);
-        const data = res.ok ? await res.json() : { results: [] };
-        renderInatSpeciesSuggestions(data.results || []);
-      } catch {
-        hideInatSpeciesSuggest();
-      }
-    }, 280);
+  }, 280);
+}
+
+function wireInatUploadGroupingDelegated() {
+  if (inatUploadGroupingDelegated || !inatUploadGroupingStrip) return;
+  inatUploadGroupingDelegated = true;
+
+  inatUploadGroupingStrip.addEventListener("input", (e) => {
+    const inp = /** @type {HTMLElement | null} */ (e.target && "closest" in e.target ? e.target.closest(".inat-group-species") : null);
+    if (!inp) return;
+    const card = inp.closest(".inat-group-card");
+    if (!card) return;
+    const g = parseInt(card.dataset.groupIdx || "", 10);
+    if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
+    inatUploadGroups[g].species = inp.value;
+    if (!inatSpeciesSelectingProgrammatic) inatUploadGroups[g].taxonId = "";
+    scheduleInatSpeciesAutocompleteQuery(card, inp.value.trim());
   });
 
-  inatUploadSpecies.addEventListener("keydown", (e) => {
-    const items = inatUploadSpeciesSuggest ? inatUploadSpeciesSuggest.querySelectorAll("li") : [];
+  inatUploadGroupingStrip.addEventListener("keydown", (e) => {
+    const inp = document.activeElement;
+    if (!inp || !inp.classList || !inp.classList.contains("inat-group-species")) return;
+    const card = inp.closest(".inat-group-card");
+    if (!card) return;
+    const ul = card.querySelector(".inat-group-species-suggest");
+    if (!ul || ul.hidden) return;
+    const items = ul.querySelectorAll("li");
     if (!items.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      inatTaxonSuggestHighlight = Math.min(inatTaxonSuggestHighlight + 1, items.length - 1);
-      items.forEach((li, i) => li.setAttribute("aria-selected", i === inatTaxonSuggestHighlight ? "true" : "false"));
+      inatSpeciesSuggestHighlight = Math.min(inatSpeciesSuggestHighlight + 1, items.length - 1);
+      items.forEach((li, i) => li.setAttribute("aria-selected", i === inatSpeciesSuggestHighlight ? "true" : "false"));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      inatTaxonSuggestHighlight = Math.max(inatTaxonSuggestHighlight - 1, 0);
-      items.forEach((li, i) => li.setAttribute("aria-selected", i === inatTaxonSuggestHighlight ? "true" : "false"));
-    } else if (e.key === "Enter" && inatTaxonSuggestHighlight >= 0) {
+      inatSpeciesSuggestHighlight = Math.max(inatSpeciesSuggestHighlight - 1, 0);
+      items.forEach((li, i) => li.setAttribute("aria-selected", i === inatSpeciesSuggestHighlight ? "true" : "false"));
+    } else if (e.key === "Enter" && inatSpeciesSuggestHighlight >= 0) {
       e.preventDefault();
-      const li = items[inatTaxonSuggestHighlight];
+      const li = items[inatSpeciesSuggestHighlight];
       if (li) li.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     } else if (e.key === "Escape") {
-      hideInatSpeciesSuggest();
+      hideInatGroupSpeciesSuggest(card);
     }
+  });
+
+  inatUploadGroupingStrip.addEventListener("dragstart", (e) => {
+    const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
+    if (!tile || !(e instanceof DragEvent) || !e.dataTransfer) return;
+    const idx = parseInt(tile.dataset.photoIdx || "", 10);
+    if (!Number.isFinite(idx)) return;
+    e.dataTransfer.setData("application/x-inat-photo-idx", String(idx));
+    e.dataTransfer.setData("text/plain", String(idx));
+    e.dataTransfer.effectAllowed = "move";
+    tile.classList.add("inat-dnd-tile--dragging");
+  });
+
+  inatUploadGroupingStrip.addEventListener("dragend", (e) => {
+    const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
+    if (tile) tile.classList.remove("inat-dnd-tile--dragging");
+  });
+
+  inatUploadGroupingStrip.addEventListener("dragover", (e) => {
+    const drop = e.target && "closest" in e.target ? e.target.closest(".inat-group-drop") : null;
+    if (!drop) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  });
+
+  inatUploadGroupingStrip.addEventListener("drop", (e) => {
+    const drop = e.target && "closest" in e.target ? e.target.closest(".inat-group-drop") : null;
+    if (!drop || !(e instanceof DragEvent) || !e.dataTransfer) return;
+    e.preventDefault();
+    const photoIdx = parseInt(e.dataTransfer.getData("application/x-inat-photo-idx") || e.dataTransfer.getData("text/plain") || "", 10);
+    if (!Number.isFinite(photoIdx)) return;
+    const card = drop.closest(".inat-group-card");
+    if (!card) return;
+    const toG = parseInt(card.dataset.groupIdx || "", 10);
+    if (!Number.isFinite(toG) || !inatUploadGroups[toG]) return;
+
+    let fromG = -1;
+    let fromPos = -1;
+    for (let g = 0; g < inatUploadGroups.length; g++) {
+      const p = inatUploadGroups[g].indices.indexOf(photoIdx);
+      if (p >= 0) {
+        fromG = g;
+        fromPos = p;
+        break;
+      }
+    }
+    if (fromG < 0) return;
+
+    const overTile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
+    let insertBefore = null;
+    if (overTile && overTile !== e.target) {
+      const cand = parseInt(overTile.dataset.photoIdx || "", 10);
+      if (Number.isFinite(cand) && cand !== photoIdx) insertBefore = cand;
+    }
+    movePhotoBetweenGroups(photoIdx, fromG, fromPos, toG, insertBefore);
+    hideAllInatGroupSpeciesSuggests();
+    renderInatPhotoGroupingStrip();
   });
 
   document.addEventListener("click", (e) => {
     const t = /** @type {Node} */ (e.target);
-    if (
-      inatUploadSpecies &&
-      inatUploadSpeciesSuggest &&
-      !inatUploadSpecies.contains(t) &&
-      !inatUploadSpeciesSuggest.contains(t)
-    ) {
-      hideInatSpeciesSuggest();
-    }
+    if (inatUploadGroupingStrip && !inatUploadGroupingStrip.contains(t)) hideAllInatGroupSpeciesSuggests();
   });
-}
-
-function ensureInatSplitArrayLength(photoCount) {
-  if (photoCount <= 1) {
-    inatGroupSplitAfter = [];
-    return;
-  }
-  const need = photoCount - 1;
-  if (inatGroupSplitAfter.length !== need) {
-    inatGroupSplitAfter = new Array(need).fill(false);
-  }
-}
-
-/**
- * @param {{ jpegFile: File, sourceFile: File }[]} pairs
- * @param {boolean[]} splitAfter
- */
-function groupPairsBySplits(pairs, splitAfter) {
-  if (!pairs.length) return [];
-  const groups = [];
-  let cur = [];
-  for (let i = 0; i < pairs.length; i++) {
-    cur.push(pairs[i]);
-    if (i < pairs.length - 1 && splitAfter[i]) {
-      groups.push(cur);
-      cur = [];
-    }
-  }
-  groups.push(cur);
-  return groups;
 }
 
 function renderInatPhotoGroupingStrip() {
@@ -2331,62 +2495,93 @@ function renderInatPhotoGroupingStrip() {
     inatUploadGroupingStrip.replaceChildren();
     return;
   }
+  validateInatUploadGroupsOrInit();
   inatUploadGrouping.hidden = false;
-  ensureInatSplitArrayLength(n);
+  hideAllInatGroupSpeciesSuggests();
   inatUploadGroupingStrip.replaceChildren();
 
-  for (let i = 0; i < n; i++) {
-    const file = workItems[i];
-    const row = document.createElement("div");
-    row.className = "inat-group-row";
+  for (let g = 0; g < inatUploadGroups.length; g++) {
+    const grp = inatUploadGroups[g];
+    const card = document.createElement("section");
+    card.className = "inat-group-card";
+    card.dataset.groupIdx = String(g);
 
-    const thumb = document.createElement("div");
-    thumb.className = "inat-group-row__thumb";
-    const img = document.createElement("img");
-    img.alt = "";
-    img.loading = "lazy";
-    img.draggable = false;
-    try {
-      img.src = getOrCreateFilePreviewUrl(file);
-    } catch {
-      /* ignore */
-    }
-    img.addEventListener("error", () => {
-      thumb.textContent = "◆";
-      thumb.classList.add("inat-group-row__thumb--fallback");
-    });
-    thumb.appendChild(img);
+    const head = document.createElement("div");
+    head.className = "inat-group-card__head";
+    const title = document.createElement("div");
+    title.className = "inat-group-card__title";
+    title.textContent = `Observation ${g + 1}`;
+    head.appendChild(title);
+    card.appendChild(head);
 
-    const meta = document.createElement("div");
-    meta.className = "inat-group-row__meta";
-    const nameEl = document.createElement("div");
-    nameEl.className = "inat-group-row__name";
-    nameEl.textContent = file.name || `Photo ${i + 1}`;
-    meta.appendChild(nameEl);
+    const speciesLab = document.createElement("label");
+    speciesLab.className = "inat-upload-label";
+    speciesLab.textContent = "Species (optional)";
+    speciesLab.setAttribute("for", `inat-group-species-${g}`);
+    card.appendChild(speciesLab);
 
-    row.appendChild(thumb);
-    row.appendChild(meta);
-    inatUploadGroupingStrip.appendChild(row);
+    const speciesField = document.createElement("div");
+    speciesField.className = "inat-species-field";
+    const hid = document.createElement("input");
+    hid.type = "hidden";
+    hid.className = "inat-group-taxon-id";
+    hid.value = grp.taxonId || "";
+    const wrap = document.createElement("div");
+    wrap.className = "inat-species-wrap";
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.id = `inat-group-species-${g}`;
+    inp.className = "inat-upload-input inat-group-species";
+    inp.maxLength = 200;
+    inp.autocomplete = "off";
+    inp.placeholder = "Search iNaturalist taxa, or leave blank for Unknown";
+    inp.setAttribute("aria-autocomplete", "list");
+    inp.setAttribute("aria-expanded", "false");
+    inp.value = grp.species || "";
+    const sug = document.createElement("ul");
+    sug.className = "inat-species-suggest inat-group-species-suggest";
+    sug.setAttribute("role", "listbox");
+    sug.hidden = true;
+    wrap.appendChild(inp);
+    wrap.appendChild(sug);
+    speciesField.appendChild(hid);
+    speciesField.appendChild(wrap);
+    card.appendChild(speciesField);
 
-    if (i < n - 1) {
-      const splitIdx = i;
-      const splitRow = document.createElement("div");
-      splitRow.className = "inat-group-split";
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = `inat-split-toggle${inatGroupSplitAfter[splitIdx] ? " is-on" : ""}`;
-      btn.setAttribute("aria-pressed", inatGroupSplitAfter[splitIdx] ? "true" : "false");
-      btn.textContent = inatGroupSplitAfter[splitIdx]
-        ? "New observation starts after this — tap to join with next photo"
-        : "Tap to start a new observation after this photo";
-      btn.addEventListener("click", () => {
-        inatGroupSplitAfter[splitIdx] = !inatGroupSplitAfter[splitIdx];
-        renderInatPhotoGroupingStrip();
+    const drop = document.createElement("div");
+    drop.className = "inat-group-drop";
+    drop.setAttribute("aria-label", `Photos for observation ${g + 1}`);
+    for (const ix of grp.indices) {
+      if (ix < 0 || ix >= workItems.length) continue;
+      const file = workItems[ix];
+      const tile = document.createElement("div");
+      tile.className = "inat-dnd-tile";
+      tile.draggable = true;
+      tile.dataset.photoIdx = String(ix);
+      const thumb = document.createElement("div");
+      thumb.className = "inat-dnd-tile__thumb";
+      const img = document.createElement("img");
+      img.alt = "";
+      img.loading = "lazy";
+      img.draggable = false;
+      try {
+        img.src = getOrCreateFilePreviewUrl(file);
+      } catch {
+        /* ignore */
+      }
+      img.addEventListener("error", () => {
+        thumb.textContent = "◆";
+        thumb.classList.add("inat-dnd-tile__thumb--fallback");
       });
-      splitRow.appendChild(btn);
-      inatUploadGroupingStrip.appendChild(splitRow);
+      thumb.appendChild(img);
+      tile.appendChild(thumb);
+      drop.appendChild(tile);
     }
+    card.appendChild(drop);
+    inatUploadGroupingStrip.appendChild(card);
   }
+
+  wireInatUploadGroupingDelegated();
 }
 
 /**
@@ -2491,11 +2686,10 @@ async function runInatObservationUpload() {
     showError("Apply a valid API token first.");
     return;
   }
-  const speciesGuess = inatUploadSpecies ? inatUploadSpecies.value : "";
-  const taxonRaw = inatUploadTaxonId ? inatUploadTaxonId.value.trim() : "";
-  const taxonIdNum = taxonRaw ? parseInt(taxonRaw, 10) : NaN;
   const n = workItems.length;
   if (!n) return;
+
+  validateInatUploadGroupsOrInit();
 
   if (inatUploadProgress) {
     inatUploadProgress.hidden = false;
@@ -2518,15 +2712,26 @@ async function runInatObservationUpload() {
     showError("Nothing to upload — export encoding produced no JPEGs.");
     return;
   }
-  if (inatGroupSplitAfter.length !== pairs.length - 1) {
-    ensureInatSplitArrayLength(pairs.length);
+  if (pairs.length !== n) {
+    if (inatUploadProgress) inatUploadProgress.hidden = true;
+    showError(
+      "Cannot upload: some photos failed export preparation. Fix or remove the failed items, then try again."
+    );
+    return;
   }
-  const groups = groupPairsBySplits(pairs, inatGroupSplitAfter);
-  const totalPhotos = pairs.length;
+
+  const nonemptyGroups = inatUploadGroups.filter((g) => g && g.indices && g.indices.length > 0);
+  if (!nonemptyGroups.length) {
+    if (inatUploadProgress) inatUploadProgress.hidden = true;
+    showError("Each observation needs at least one photo. Drag photos into the observation cards.");
+    return;
+  }
+
+  const totalPhotos = nonemptyGroups.reduce((sum, g) => sum + g.indices.length, 0);
   const confirmMsg =
-    groups.length > 1 || totalPhotos > 8
-      ? `Create ${groups.length} observation(s) from ${totalPhotos} photo(s) on iNaturalist?`
-      : `Create ${groups.length} observation(s) on iNaturalist?`;
+    nonemptyGroups.length > 1 || totalPhotos > 8
+      ? `Create ${nonemptyGroups.length} observation(s) from ${totalPhotos} photo(s) on iNaturalist?`
+      : `Create ${nonemptyGroups.length} observation(s) on iNaturalist?`;
   if (!window.confirm(confirmMsg)) {
     if (inatUploadProgress) inatUploadProgress.hidden = true;
     return;
@@ -2541,14 +2746,27 @@ async function runInatObservationUpload() {
   let ok = 0;
   const links = [];
   try {
-    for (let g = 0; g < groups.length; g++) {
-      const grp = groups[g];
-      if (g > 0) await new Promise((r) => setTimeout(r, 400));
+    for (let gi = 0; gi < nonemptyGroups.length; gi++) {
+      const grp = nonemptyGroups[gi];
+      if (gi > 0) await new Promise((r) => setTimeout(r, 400));
       if (inatUploadProgress) {
-        inatUploadProgress.textContent = `Uploading observation ${g + 1} / ${groups.length} (${grp.length} photo(s))…`;
+        inatUploadProgress.textContent = `Uploading observation ${gi + 1} / ${nonemptyGroups.length} (${grp.indices.length} photo(s))…`;
       }
-      const jpegs = grp.map((p) => p.jpegFile);
-      const sources = grp.map((p) => p.sourceFile);
+      const jpegs = [];
+      const sources = [];
+      for (const ix of grp.indices) {
+        const p = pairs[ix];
+        if (!p) {
+          showError(`Missing prepared file for photo ${ix + 1}. Try preparing again.`);
+          break;
+        }
+        jpegs.push(p.jpegFile);
+        sources.push(p.sourceFile);
+      }
+      if (jpegs.length !== grp.indices.length) break;
+      const speciesGuess = (grp.species || "").trim();
+      const taxonRaw = (grp.taxonId || "").trim();
+      const taxonIdNum = taxonRaw ? parseInt(taxonRaw, 10) : NaN;
       try {
         const id = await createInatObservationForGroup(
           jpegs,
@@ -2560,17 +2778,17 @@ async function runInatObservationUpload() {
         links.push(`https://www.inaturalist.org/observations/${id}`);
       } catch (e) {
         const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
-        showError(`Observation ${g + 1}: ${msg}`);
+        showError(`Observation ${gi + 1}: ${msg}`);
         break;
       }
     }
     if (ok > 0 && inatUploadProgress) {
       inatUploadProgress.textContent =
-        ok === groups.length
+        ok === nonemptyGroups.length
           ? `Done. ${ok} observation(s) created.`
-          : `Stopped after ${ok} of ${groups.length}. See error above.`;
+          : `Stopped after ${ok} of ${nonemptyGroups.length}. See error above.`;
     }
-    if (ok > 0 && links.length && ok === groups.length) {
+    if (ok > 0 && links.length && ok === nonemptyGroups.length) {
       const open = window.confirm(`${ok} observation(s) created. Open the first one on iNaturalist?`);
       if (open) window.open(links[0], "_blank", "noopener,noreferrer");
     }
@@ -4385,10 +4603,21 @@ if (btnInatUploadTokenClear) {
     clearError();
     clearStoredInatApiJwt();
     if (inatUploadToken) inatUploadToken.value = "";
-    if (inatUploadTaxonId) inatUploadTaxonId.value = "";
-    if (inatUploadSpecies) inatUploadSpecies.value = "";
-    hideInatSpeciesSuggest();
+    for (const g of inatUploadGroups) {
+      g.species = "";
+      g.taxonId = "";
+    }
+    hideAllInatGroupSpeciesSuggests();
+    if (inatUploadGrouping && !inatUploadGrouping.hidden && workItems.length && isCropReviewFinished()) {
+      renderInatPhotoGroupingStrip();
+    }
     void refreshInatUploadAuthUi();
+  });
+}
+
+if (btnInatAddObservationGroup) {
+  btnInatAddObservationGroup.addEventListener("click", () => {
+    addInatObservationGroupFromUi();
   });
 }
 
@@ -4456,8 +4685,6 @@ function installE2EHooksIfNeeded() {
 }
 
 installE2EHooksIfNeeded();
-
-wireInatSpeciesAutocomplete();
 
 void tryRestoreSessionFromIdb().then((restored) => {
   setCurrentPage("setup");
