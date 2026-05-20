@@ -3714,11 +3714,13 @@ function setPlaceSelection(id, label, options = {}) {
 
 function hideSuggestion(kind) {
   if (kind === "taxon") {
+    if (!el.taxonSuggestions || !el.taxonInput) return;
     el.taxonSuggestions.hidden = true;
     el.taxonSuggestions.innerHTML = "";
     taxonHighlight = -1;
     el.taxonInput.setAttribute("aria-expanded", "false");
   } else if (kind === "place") {
+    if (!el.placeSuggestions || !el.placeInput) return;
     el.placeSuggestions.hidden = true;
     el.placeSuggestions.innerHTML = "";
     placeHighlight = -1;
@@ -3729,9 +3731,13 @@ function hideSuggestion(kind) {
 /** True if a UI event target is still inside the place / nearby filter (not only the text field). */
 function placeFilterUiContainsTarget(node) {
   if (!(node instanceof Node)) return false;
-  if (el.placeInputWrap && el.placeInputWrap.contains(node)) return true;
-  if (el.placeSuggestions && el.placeSuggestions.contains(node)) return true;
-  if (el.nearbyControls && el.nearbyControls.contains(node)) return true;
+  try {
+    if (el.placeInputWrap && el.placeInputWrap.contains(node)) return true;
+    if (el.placeSuggestions && el.placeSuggestions.contains(node)) return true;
+    if (el.nearbyControls && el.nearbyControls.contains(node)) return true;
+  } catch {
+    return false;
+  }
   return false;
 }
 
@@ -3860,8 +3866,21 @@ function wireAutocomplete() {
   });
 
   document.addEventListener("click", (e) => {
-    if (!el.taxonInput.contains(e.target) && !el.taxonSuggestions.contains(e.target)) hideSuggestion("taxon");
-    if (!placeFilterUiContainsTarget(e.target)) hideSuggestion("place");
+    try {
+      const t = e.target;
+      if (!(t instanceof Node)) return;
+      if (
+        el.taxonInput &&
+        el.taxonSuggestions &&
+        !el.taxonInput.contains(t) &&
+        !el.taxonSuggestions.contains(t)
+      ) {
+        hideSuggestion("taxon");
+      }
+      if (!placeFilterUiContainsTarget(t)) hideSuggestion("place");
+    } catch {
+      /* Ignore: malformed targets or transient DOM during suggestion teardown should not brick the app. */
+    }
   });
 
   el.taxonInput.addEventListener("keydown", (e) => {
@@ -4565,7 +4584,10 @@ async function showSpeciesDetail(taxon, obsCount) {
 async function boot() {
   initMonths();
   readUrl();
+  /* `near_me` in the URL runs geolocation here; paint tabs/panels first so the Filters UI is not
+   * stuck behind a multi-second desktop permission prompt (initial HTML keeps panels hidden). */
   if (nearMeSource === "url") {
+    setActiveTabUI();
     await resolveNearMeFromUrl();
   }
   await hydrateSelections();
@@ -4619,6 +4641,10 @@ async function boot() {
  */
 async function resyncAppFromCurrentUrlAfterBfcache() {
   readUrl();
+  if (nearMeSource === "url") {
+    setActiveTabUI();
+    await resolveNearMeFromUrl();
+  }
   await hydrateSelections();
   lastMapFilterKey = null;
   await switchView(currentView);
