@@ -4141,6 +4141,84 @@ async function createInatObservationForGroup(
   return id;
 }
 
+/**
+ * Hard blocks before any upload prep (e.g. invalid manual map coordinates).
+ * @param {Array<{ indices: number[], manualLat?: number, manualLon?: number }>} nonemptyGroups
+ * @returns {string[]}
+ */
+function gatherInatUploadPreflightBlockingErrors(nonemptyGroups) {
+  const errors = [];
+  for (let gi = 0; gi < nonemptyGroups.length; gi++) {
+    const grp = nonemptyGroups[gi];
+    const latN = typeof grp.manualLat === "number" && Number.isFinite(grp.manualLat);
+    const lonN = typeof grp.manualLon === "number" && Number.isFinite(grp.manualLon);
+    if (latN !== lonN) {
+      errors.push(
+        `Observation ${gi + 1}: map location is incomplete — set both latitude and longitude, or clear the map location.`,
+      );
+      continue;
+    }
+    if (latN && lonN && !isValidObservationLatLon(grp.manualLat, grp.manualLon)) {
+      errors.push(
+        `Observation ${gi + 1}: map location is invalid — open Pick on map and choose coordinates within valid ranges, or clear them.`,
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * Warnings (user may cancel or upload anyway) using original files only — no JPEG export yet.
+ * @param {Array<{ indices: number[], species?: string, taxonId?: string, manualLat?: number, manualLon?: number }>} nonemptyGroups
+ * @returns {Promise<string[]>}
+ */
+async function gatherInatUploadPreflightWarnings(nonemptyGroups) {
+  const uploadWarnings = [];
+  const collisionFlags = inatPhotoObservedCollisionFlags;
+  for (let gi = 0; gi < nonemptyGroups.length; gi++) {
+    const grp = nonemptyGroups[gi];
+    const taxonRaw = (grp.taxonId || "").trim();
+    const taxonIdNum = taxonRaw ? parseInt(taxonRaw, 10) : NaN;
+    if (!Number.isFinite(taxonIdNum) || taxonIdNum <= 0) {
+      uploadWarnings.push(
+        `Observation ${gi + 1}: no species / taxon selected from the search field (iNaturalist observations are much more useful with an identification).`,
+      );
+    }
+    const sources = [];
+    for (const ix of grp.indices) {
+      if (Number.isFinite(ix) && ix >= 0 && ix < workItems.length && workItems[ix]) sources.push(workItems[ix]);
+    }
+    const meta = await extractMetaForObservationFromSources(sources, []);
+    const hasExifGps =
+      typeof meta.lat === "number" &&
+      typeof meta.lon === "number" &&
+      Number.isFinite(meta.lat) &&
+      Number.isFinite(meta.lon);
+    const hasManualGps =
+      typeof grp.manualLat === "number" &&
+      typeof grp.manualLon === "number" &&
+      Number.isFinite(grp.manualLat) &&
+      Number.isFinite(grp.manualLon) &&
+      isValidObservationLatLon(grp.manualLat, grp.manualLon);
+    if (!hasExifGps && !hasManualGps) {
+      uploadWarnings.push(
+        `Observation ${gi + 1}: no GPS coordinates in the photo files — add a location on the website after upload, or use photos that include embedded location.`,
+      );
+    }
+    if (collisionFlags && grp.indices && grp.indices.length) {
+      for (const ix of grp.indices) {
+        if (collisionFlags[ix]) {
+          uploadWarnings.push(
+            `Observation ${gi + 1}: at least one photo may match the date and time of an existing observation on your account (see ! on thumbnails).`,
+          );
+          break;
+        }
+      }
+    }
+  }
+  return uploadWarnings;
+}
+
 async function runInatObservationUpload() {
   clearError();
   if (!inatApiJwtAuthorizationValue() || !inatUploadAuthOk) {
@@ -4155,6 +4233,33 @@ async function runInatObservationUpload() {
   if (!n) return;
 
   validateInatUploadGroupsOrInit();
+
+  const nonemptyGroups = inatUploadGroups.filter((g) => g && g.indices && g.indices.length > 0);
+  if (!nonemptyGroups.length) {
+    showError("Each observation needs at least one photo. Drag photos into the observation cards.");
+    return;
+  }
+
+  const blocking = gatherInatUploadPreflightBlockingErrors(nonemptyGroups);
+  if (blocking.length) {
+    showError(blocking.join("\n\n"));
+    return;
+  }
+
+  let uploadWarnings;
+  try {
+    uploadWarnings = await gatherInatUploadPreflightWarnings(nonemptyGroups);
+  } catch (e) {
+    console.error(e);
+    const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+    showError(`Could not read photo metadata before upload: ${msg}`);
+    return;
+  }
+
+  if (uploadWarnings.length) {
+    const proceed = await showInatUploadWarningsDialog(uploadWarnings.join("\n\n"));
+    if (!proceed) return;
+  }
 
   const PREPARE_PORTION = 0.42;
   const prepareStepsTotal = Math.max(1, 2 * n);
@@ -4189,57 +4294,6 @@ async function runInatObservationUpload() {
       "Cannot upload: some photos failed export preparation. Fix or remove the failed items, then try again."
     );
     return;
-  }
-
-  const nonemptyGroups = inatUploadGroups.filter((g) => g && g.indices && g.indices.length > 0);
-  if (!nonemptyGroups.length) {
-    resetInatUploadProgressUi();
-    showError("Each observation needs at least one photo. Drag photos into the observation cards.");
-    return;
-  }
-
-  const uploadWarnings = [];
-  for (let gi = 0; gi < nonemptyGroups.length; gi++) {
-    const grp = nonemptyGroups[gi];
-    const taxonRaw = (grp.taxonId || "").trim();
-    const taxonIdNum = taxonRaw ? parseInt(taxonRaw, 10) : NaN;
-    if (!Number.isFinite(taxonIdNum) || taxonIdNum <= 0) {
-      uploadWarnings.push(
-        `Observation ${gi + 1}: no species / taxon selected from the search field (iNaturalist observations are much more useful with an identification).`
-      );
-    }
-    const jpegs = [];
-    const sources = [];
-    for (const ix of grp.indices) {
-      const p = pairs[ix];
-      if (!p) continue;
-      jpegs.push(p.jpegFile);
-      sources.push(p.sourceFile);
-    }
-    const meta = await extractMetaForObservationFromSources(sources, jpegs);
-    const hasExifGps =
-      typeof meta.lat === "number" &&
-      typeof meta.lon === "number" &&
-      Number.isFinite(meta.lat) &&
-      Number.isFinite(meta.lon);
-    const hasManualGps =
-      typeof grp.manualLat === "number" &&
-      typeof grp.manualLon === "number" &&
-      Number.isFinite(grp.manualLat) &&
-      Number.isFinite(grp.manualLon) &&
-      isValidObservationLatLon(grp.manualLat, grp.manualLon);
-    if (!hasExifGps && !hasManualGps) {
-      uploadWarnings.push(
-        `Observation ${gi + 1}: no GPS coordinates in the photo files — add a location on the website after upload, or use photos that include embedded location.`
-      );
-    }
-  }
-  if (uploadWarnings.length) {
-    const proceed = await showInatUploadWarningsDialog(uploadWarnings.join("\n\n"));
-    if (!proceed) {
-      resetInatUploadProgressUi();
-      return;
-    }
   }
 
   prepareStepsDone = prepareStepsTotal;
