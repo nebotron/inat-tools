@@ -252,6 +252,7 @@ const el = {
   metaPhotoPage: document.getElementById("meta-photo-page"),
   metaSciName: document.getElementById("meta-sci-name"),
   monthsGrid: document.getElementById("months-grid"),
+  searchForm: document.getElementById("search-form"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
   btnRefreshObservations: document.getElementById("btn-refresh-observations"),
@@ -4045,6 +4046,11 @@ function wireFilterExtras() {
 }
 
 function wireButtons() {
+  if (el.searchForm) {
+    el.searchForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+    });
+  }
   el.btnReset.addEventListener("click", () => {
     el.taxonInput.value = "";
     taxonIncludeFilters = [];
