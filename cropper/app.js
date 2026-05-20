@@ -561,6 +561,9 @@ function upsertCropNameMapping(file, cropStateValue, options) {
 function setCropStateForFileAndPersist(file, state, options) {
   const opts = options || {};
   const key = fileCacheKey(file);
+  if (state && state.hasCrop !== false) {
+    enforceMinCropSideOnState(state);
+  }
   cropState.set(key, state);
   upsertCropNameMapping(file, state, {
     deleted: false,
@@ -1247,6 +1250,37 @@ function anchorCropCenterOnZoom(prev, nextSide, imgW, imgH, minSide) {
   let left = cx - nextSide / 2;
   let top = cy - nextSide / 2;
   return clampSquareCropInImageFloat(left, top, nextSide, imgW, imgH, minSide);
+}
+
+/**
+ * Minimum square crop edge in image pixels — must match the zoom slider lower bound in {@link buildCropEditor}
+ * so auto-detected crops are not far more “zoomed in” than the slider indicates.
+ * @param {number} w
+ * @param {number} h
+ */
+function minSquareCropSideForDims(w, h) {
+  const dim = Math.min(w, h);
+  if (!Number.isFinite(dim) || dim <= 0) return 32;
+  const coarse = isCoarsePointerPrimaryInput();
+  return Math.max(coarse ? 48 : 32, Math.round(dim * 0.02));
+}
+
+/**
+ * If `state.side` is below the zoom-slider floor, expand the square (keeping it in-bounds) so preview and slider agree.
+ * @param {{ left: number, top: number, side: number, w: number, h: number, hasCrop?: boolean }} state
+ */
+function enforceMinCropSideOnState(state) {
+  if (!state || state.hasCrop === false) return;
+  const w = state.w;
+  const h = state.h;
+  if (!w || !h) return;
+  if (typeof state.left !== "number" || typeof state.top !== "number" || typeof state.side !== "number") return;
+  const lo = minSquareCropSideForDims(w, h);
+  if (!(state.side < lo)) return;
+  const sq = clampSquareCropInImage(state.left, state.top, lo, w, h, lo);
+  state.left = sq.left;
+  state.top = sq.top;
+  state.side = sq.side;
 }
 
 function isHeicLike(file) {
@@ -4003,10 +4037,7 @@ function buildCropEditor(file, state, manualNote, options) {
   if (meta.childNodes.length) row.appendChild(meta);
 
   function minCropSide() {
-    const dim = Math.min(state.w, state.h);
-    const coarse = isCoarsePointerPrimaryInput();
-    /** Smaller minimum side → stronger zoom-in (slider fully right). Keep a floor for touch/export sanity. */
-    return Math.max(coarse ? 48 : 32, Math.round(dim * 0.02));
+    return minSquareCropSideForDims(state.w, state.h);
   }
 
   function zoomLogBounds() {
