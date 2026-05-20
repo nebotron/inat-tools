@@ -523,34 +523,7 @@ async function fetchPlacesForAutocomplete(query) {
     .map((row) => row.record);
 }
 
-/**
- * Navigate explicitly from a tap/click so the destination URL matches this card.
- * Relying on default anchor navigation alone can mis-resolve universal
- * links to the iNaturalist app (opening the previous observation).
- *
- * Observation pages: open in a **new tab** using **http** so Android App Links
- * (https-only) and iOS universal links are less likely to capture the tap;
- * use the in-app button for the native iNaturalist app.
- */
-function navigateFromCardClick(e, url) {
-  if (e.defaultPrevented) return;
-  if (e.button !== 0) return;
-  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-  e.preventDefault();
-  e.stopPropagation();
-  if (typeof url === "string" && /inaturalist\.org\/observations\/\d+/i.test(url)) {
-    const browserTapUrl = url.replace(/^https:\/\//i, "http://");
-    try {
-      window.open(browserTapUrl, "_blank", "noopener,noreferrer");
-    } catch {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
-    return;
-  }
-  window.location.assign(url);
-}
-
-/** Canonical HTTPS observation URL on www.inaturalist.org (matches grid card `href`). */
+/** Canonical HTTPS observation URL on www.inaturalist.org (used by Open in app). */
 function inatObservationWebUrl(obsId) {
   const id = Math.floor(Number(obsId));
   if (!Number.isFinite(id) || id <= 0) return "";
@@ -2390,13 +2363,13 @@ function buildCardImageBlockFromUrls(urls) {
 }
 
 /**
- * Horizontal photo carousel: scroll-snap + swipe; suppresses card link navigation after a swipe.
+ * Horizontal photo carousel: scroll-snap + swipe; suppress stray taps after a swipe.
  * @param {HTMLElement} card
  */
 function wireObservationCardPhotoCarousel(card) {
   const root = card.querySelector(".card-media-carousel");
-  const anchor = card.querySelector("a.card-link");
-  if (!root || !anchor) return;
+  const linkSurface = card.querySelector(".card-link");
+  if (!root || !linkSurface) return;
   const slides = root.querySelectorAll(":scope > .card-media-carousel__slide");
   const n = slides.length;
   if (n < 2) return;
@@ -2481,7 +2454,7 @@ function wireObservationCardPhotoCarousel(card) {
     scheduleSyncDots();
   });
 
-  anchor.addEventListener(
+  linkSurface.addEventListener(
     "click",
     (e) => {
       if (Date.now() < blockNavUntil) {
@@ -2552,9 +2525,9 @@ function renderCard({
   const imgBlock = buildCardImageBlockFromUrls(urls);
   if (onClick) {
     card.innerHTML = `
-      <a href="${href}" class="card-link" role="button" style="cursor:pointer">
+      <div class="card-link" role="button" tabindex="0" style="cursor:pointer">
         ${imgBlock}
-      </a>
+      </div>
       ${agreeBtn}
       ${openAppBtn}
       <div class="card-bottom">
@@ -2562,12 +2535,22 @@ function renderCard({
         <p class="card-title-overlay">${escapeHtml(name)}</p>
       </div>
     `;
-    card.querySelector("a.card-link").addEventListener("click", (e) => { e.preventDefault(); onClick(); });
+    const linkEl = card.querySelector(".card-link");
+    linkEl.addEventListener("click", (e) => {
+      e.preventDefault();
+      onClick();
+    });
+    linkEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onClick();
+      }
+    });
   } else {
     card.innerHTML = `
-      <a href="${href}" class="card-link" rel="noopener noreferrer">
+      <div class="card-link">
         ${imgBlock}
-      </a>
+      </div>
       ${agreeBtn}
       ${openAppBtn}
       <div class="card-bottom">
@@ -2575,7 +2558,6 @@ function renderCard({
         <p class="card-title-overlay">${escapeHtml(name)}</p>
       </div>
     `;
-    card.querySelector("a.card-link").addEventListener("click", (e) => navigateFromCardClick(e, href));
   }
   const openAppEl = card.querySelector(".card-open-inat-app");
   if (openAppEl) {
