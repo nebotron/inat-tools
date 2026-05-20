@@ -76,7 +76,7 @@ test.describe("explorer", () => {
   });
 });
 
-test.describe("explorer near_me session restore", () => {
+test.describe("explorer near_me geolocation", () => {
   test("shows alert and banner when Nearby geolocation is denied", async ({ page }) => {
     await page.addInitScript(() => {
       navigator.geolocation.getCurrentPosition = (_ok, reject) => {
@@ -132,18 +132,25 @@ test.describe("explorer near_me session restore", () => {
     await expect(page).toHaveURL(/near_me=1/, { timeout: 2000 });
   });
 
-  test("restores Nearby lat/lng from sessionStorage when URL uses near_me=1", async ({ page }) => {
+  test("near_me=1 link fills coordinates from geolocation on load (no session restore)", async ({ page, context }) => {
+    const origin = test.info().project.use.baseURL;
+    if (!origin) throw new Error("Playwright baseURL is required for geolocation permission");
+    await context.grantPermissions(["geolocation"], { origin });
     await page.addInitScript(() => {
-      sessionStorage.setItem(
-        "inatExplorerNearMeGeo",
-        JSON.stringify({
-          v: 2,
-          lat: 47.606_138,
-          lng: -122.332_056,
-          intentKey: "near_me|25",
-          savedAt: Date.now(),
-        }),
-      );
+      navigator.geolocation.getCurrentPosition = (success) => {
+        success({
+          coords: {
+            latitude: 47.606_138,
+            longitude: -122.332_056,
+            accuracy: 10,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null,
+          },
+          timestamp: Date.now(),
+        });
+      };
     });
     await page.goto("/explorer/?near_me=1&radius=25&view=filters", { waitUntil: "domcontentloaded" });
     await expect(page.locator(".view-tabs")).toBeVisible();

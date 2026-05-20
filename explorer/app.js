@@ -47,12 +47,9 @@ function noteExplorerLocationHrefApplied() {
 }
 
 /**
- * When `near_me=1` is in the URL, lat/lng are omitted for shareability. Persist them in sessionStorage
- * so a same-tab full reload can restore the filter without a second geolocation prompt.
+ * Shared `near_me=1` links omit lat/lng. Each full page load requests a fresh browser position
+ * (see `resolvePendingNearMeUrlIfNeeded`) before the first search.
  */
-const EXPLORER_NEAR_ME_GEO_KEY = "inatExplorerNearMeGeo";
-/** Discard stashed coordinates after this many milliseconds (stale GPS). */
-const EXPLORER_NEAR_ME_GEO_STASH_MAX_MS = 24 * 60 * 60 * 1000;
 
 /** Taxon page on iNaturalist (HTTPS works in every browser; some mobile setups still open the native app). */
 function inaturalistTaxonWebUrl(taxonId) {
@@ -454,72 +451,6 @@ function effectiveRadiusKm() {
   return clampRadiusKm(raw);
 }
 
-function clearExplorerNearMeGeoStash() {
-  try {
-    sessionStorage.removeItem(EXPLORER_NEAR_ME_GEO_KEY);
-  } catch (ex) {
-    explorerFatal(ex, "clearExplorerNearMeGeoStash");
-  }
-}
-
-/** Stable key for “this nearby URL” so we do not reuse coordinates after the radius / near_me URL changed. */
-function nearMeIntentKeyFromQuery(q) {
-  const r = String(clampRadiusKm(q.get("radius") || "25"));
-  return `near_me|${r}`;
-}
-
-function stashExplorerNearMeGeoAfterUrlSynced() {
-  const la = Number(el.lat.value);
-  const ln = Number(el.lng.value);
-  if (!Number.isFinite(la) || !Number.isFinite(ln)) return;
-  if (Math.abs(la) > 90 || Math.abs(ln) > 180) return;
-  let intentKey = "";
-  try {
-    intentKey = nearMeIntentKeyFromQuery(new URLSearchParams(window.location.search));
-  } catch (ex) {
-    explorerFatal(ex, "stashExplorerNearMeGeoAfterUrlSynced:intentKey");
-  }
-  if (!intentKey) return;
-  try {
-    sessionStorage.setItem(
-      EXPLORER_NEAR_ME_GEO_KEY,
-      JSON.stringify({
-        v: 2,
-        lat: la,
-        lng: ln,
-        intentKey,
-        savedAt: Date.now(),
-      }),
-    );
-  } catch (ex) {
-    explorerFatal(ex, "stashExplorerNearMeGeoAfterUrlSynced:sessionStorage.setItem");
-  }
-}
-
-/**
- * @param {URLSearchParams} q
- * @returns {{ lat: string, lng: string } | null}
- */
-function tryRestoreExplorerNearMeGeoFromStash(q) {
-  const intentKey = nearMeIntentKeyFromQuery(q);
-  if (!intentKey) return null;
-  try {
-    const raw = sessionStorage.getItem(EXPLORER_NEAR_ME_GEO_KEY);
-    if (!raw) return null;
-    const o = JSON.parse(raw);
-    if (!o || o.v !== 2 || o.intentKey !== intentKey) return null;
-    const la = Number(o.lat);
-    const ln = Number(o.lng);
-    const savedAt = Number(o.savedAt);
-    if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
-    if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
-    if (!Number.isFinite(savedAt) || Date.now() - savedAt > EXPLORER_NEAR_ME_GEO_STASH_MAX_MS) return null;
-    return { lat: String(la), lng: String(ln) };
-  } catch (ex) {
-    explorerFatal(ex, "tryRestoreExplorerNearMeGeoFromStash");
-  }
-}
-
 function updatePlaceNearbyUI() {
   if (el.nearbyControls) el.nearbyControls.hidden = !placeNearbyMode;
 }
@@ -537,7 +468,6 @@ function setCommittedPlaceDisplay(text) {
 }
 
 function clearPlaceFilter() {
-  clearExplorerNearMeGeoStash();
   clearNearbyGeolocationFailureMessage();
   placeNearbyMode = false;
   nearMeSource = "none";
@@ -3823,28 +3753,17 @@ function readUrl() {
 
   const nearMeFlag = q.get("near_me") === "1" || q.get("near_me") === "true";
   if (pid) {
-    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
     el.lat.value = "";
     el.lng.value = "";
   } else if (nearMeFlag) {
-    const restored = tryRestoreExplorerNearMeGeoFromStash(q);
-    if (restored) {
-      nearMeSource = "button";
-      placeNearbyMode = true;
-      el.lat.value = restored.lat;
-      el.lng.value = restored.lng;
-      setCommittedPlaceDisplay("Nearby");
-    } else {
-      nearMeSource = "url";
-      placeNearbyMode = true;
-      el.lat.value = "";
-      el.lng.value = "";
-      setCommittedPlaceDisplay("Nearby");
-    }
+    nearMeSource = "url";
+    placeNearbyMode = true;
+    el.lat.value = "";
+    el.lng.value = "";
+    setCommittedPlaceDisplay("Nearby");
   } else {
-    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     el.lat.value = q.get("lat") || "";
     el.lng.value = q.get("lng") || "";
@@ -3915,7 +3834,6 @@ async function setNearbySelection() {
 
 function setPlaceSelection(id, label, options = {}) {
   const fromHydrate = options.fromHydrate === true;
-  clearExplorerNearMeGeoStash();
   clearNearbyGeolocationFailureMessage();
   nearMeSource = "none";
   placeNearbyMode = false;
@@ -4062,7 +3980,6 @@ function wireAutocomplete() {
 
   el.placeInput.addEventListener("input", () => {
     if (placeInputCommitted && el.placeInput.value !== placeInputCommitted) {
-      clearExplorerNearMeGeoStash();
       el.placeId.value = "";
       el.lat.value = "";
       el.lng.value = "";
@@ -4177,11 +4094,9 @@ async function requestNearbyGeolocation() {
     applyGeoPosition(pos);
     nearMeSource = "button";
     await onLocationFilterChanged();
-    stashExplorerNearMeGeoAfterUrlSynced();
   } catch (err) {
     const msg = formatGeolocationFailureMessage(err);
     showNearbyGeolocationFailureMessage(msg);
-    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
     el.lat.value = "";
@@ -4199,11 +4114,9 @@ async function resolveNearMeFromUrl() {
     nearMeSource = "url";
     stripSavedMapViewFromUrl();
     syncUrl();
-    stashExplorerNearMeGeoAfterUrlSynced();
   } catch (err) {
     const msg = formatGeolocationFailureMessage(err);
     showNearbyGeolocationFailureMessage(msg);
-    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
     el.lat.value = "";
@@ -4215,9 +4128,9 @@ async function resolveNearMeFromUrl() {
 }
 
 /**
- * When the URL has `near_me=1` without coordinates and stash restore did not apply (`nearMeSource === "url"`),
- * wait for geolocation before the first Observations/Species/Stats/Map fetch so we do not issue a
- * no-geo request and then a second narrowed request.
+ * When the URL has `near_me=1` without coordinates (`nearMeSource === "url"`), wait for geolocation
+ * before the first Observations/Species/Stats/Map fetch so we do not issue a no-geo request and
+ * then a second narrowed request.
  * @param {string} contextLabel — error context only (e.g. "boot", "bfcache")
  */
 async function resolvePendingNearMeUrlIfNeeded(contextLabel) {
@@ -4240,7 +4153,6 @@ async function resolvePendingNearMeUrlIfNeeded(contextLabel) {
       showNearbyGeolocationFailureMessage(
         "Nearby in the link needs your current position, but the browser did not return a location in time. Allow location for this site, try again, or pick a named place.",
       );
-      clearExplorerNearMeGeoStash();
       nearMeSource = "none";
       placeNearbyMode = false;
       el.lat.value = "";
@@ -4520,7 +4432,6 @@ function wireButtons() {
     });
   }
   el.btnReset.addEventListener("click", () => {
-    clearExplorerNearMeGeoStash();
     el.taxonInput.value = "";
     taxonIncludeFilters = [];
     taxonExcludeFilters = [];
