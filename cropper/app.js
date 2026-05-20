@@ -4127,6 +4127,17 @@ function buildCropEditor(file, state, manualNote, options) {
   let lastLayoutCap = NaN;
   let lastLayoutOx = NaN;
   let lastLayoutOy = NaN;
+  /** When `clientWidth` is 0 (not laid out yet), poll a few frames so we do not leave a stale preview. */
+  let layoutAwaitingVwRetries = 0;
+  const LAYOUT_VW_ZERO_MAX_RETRIES = 120;
+
+  function invalidateFixedViewportLayoutCache() {
+    lastLayoutImgW = NaN;
+    lastLayoutImgH = NaN;
+    lastLayoutCap = NaN;
+    lastLayoutOx = NaN;
+    lastLayoutOy = NaN;
+  }
 
   function commitPendingPanLayout() {
     if (!panLayoutFloat) return;
@@ -4160,7 +4171,17 @@ function buildCropEditor(file, state, manualNote, options) {
       layoutRaf = 0;
       if (cropUiSignal.aborted) return;
       const vw = viewport.clientWidth;
-      if (vw <= 0 || !state.side) return;
+      if (vw <= 0 || !state.side) {
+        if (layoutDirty) {
+          layoutDirty = false;
+          syncFixedViewportLayout();
+        } else if (layoutAwaitingVwRetries < LAYOUT_VW_ZERO_MAX_RETRIES) {
+          layoutAwaitingVwRetries++;
+          syncFixedViewportLayout();
+        }
+        return;
+      }
+      layoutAwaitingVwRetries = 0;
       const contentScale = vw / state.side;
       const uncW = state.w * contentScale;
       const uncH = state.h * contentScale;
@@ -4219,6 +4240,7 @@ function buildCropEditor(file, state, manualNote, options) {
       const p = im.parentNode;
       if (p) p.replaceChild(c, im);
       img = c;
+      invalidateFixedViewportLayoutCache();
       img.addEventListener("contextmenu", blockImageChrome, { signal: cropUiSignal });
       img.addEventListener("dragstart", blockImageChrome, { signal: cropUiSignal });
     } catch {
@@ -4375,6 +4397,7 @@ function buildCropEditor(file, state, manualNote, options) {
 
   cropUiSignal.addEventListener("abort", () => {
     layoutDirty = false;
+    layoutAwaitingVwRetries = 0;
     pendingPanClient = null;
     if (panMoveRaf) {
       cancelAnimationFrame(panMoveRaf);
