@@ -1441,10 +1441,10 @@ function clampSquareCropInImageFloat(left, top, side, imgW, imgH, minSide) {
   return { left: l, top: t, side: s };
 }
 
-/** After changing crop `side`, center the square on the full image so the slider zooms in/out of the image middle. */
-function anchorCropZoomAtImageCenter(nextSide, imgW, imgH, minSide) {
-  const cx = imgW / 2;
-  const cy = imgH / 2;
+/** After changing crop `side`, keep the viewport center fixed (center of the current crop square in image space). */
+function anchorCropCenterOnZoom(prev, nextSide, imgW, imgH, minSide) {
+  const cx = prev.left + prev.side / 2;
+  const cy = prev.top + prev.side / 2;
   const left = cx - nextSide / 2;
   const top = cy - nextSide / 2;
   return clampSquareCropInImageFloat(left, top, nextSide, imgW, imgH, minSide);
@@ -5176,7 +5176,8 @@ function buildCropEditor(file, state, manualNote, options) {
         zoomInputRaf = 0;
         const minSide = minCropSide();
         const newSide = sliderValueToSide(zoomInput.value);
-        const anchored = anchorCropZoomAtImageCenter(newSide, state.w, state.h, minSide);
+        const prev = { left: state.left, top: state.top, side: state.side };
+        const anchored = anchorCropCenterOnZoom(prev, newSide, state.w, state.h, minSide);
         state.left = anchored.left;
         state.top = anchored.top;
         state.side = anchored.side;
@@ -5193,11 +5194,11 @@ function buildCropEditor(file, state, manualNote, options) {
     () => {
       if (skipZoomInputEvent) return;
       const minSide = minCropSide();
-      const cx = state.w / 2;
-      const cy = state.h / 2;
+      const cxView = state.left + state.side / 2;
+      const cyView = state.top + state.side / 2;
       const snapped = clampSquareCropInImage(
-        cx - state.side / 2,
-        cy - state.side / 2,
+        cxView - state.side / 2,
+        cyView - state.side / 2,
         state.side,
         state.w,
         state.h,
