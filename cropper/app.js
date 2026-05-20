@@ -1455,12 +1455,12 @@ function clampSquareCropInImageFloat(left, top, side, imgW, imgH, minSide) {
   return { left: l, top: t, side: s };
 }
 
-/** After changing crop `side`, keep the same image point at the viewport center (zoom slider anchor). */
-function anchorCropCenterOnZoom(prev, nextSide, imgW, imgH, minSide) {
-  const cx = prev.left + prev.side / 2;
-  const cy = prev.top + prev.side / 2;
-  let left = cx - nextSide / 2;
-  let top = cy - nextSide / 2;
+/** After changing crop `side`, center the square on the full image so the slider zooms in/out of the image middle. */
+function anchorCropZoomAtImageCenter(nextSide, imgW, imgH, minSide) {
+  const cx = imgW / 2;
+  const cy = imgH / 2;
+  const left = cx - nextSide / 2;
+  const top = cy - nextSide / 2;
   return clampSquareCropInImageFloat(left, top, nextSide, imgW, imgH, minSide);
 }
 
@@ -5157,8 +5157,7 @@ function buildCropEditor(file, state, manualNote, options) {
         zoomInputRaf = 0;
         const minSide = minCropSide();
         const newSide = sliderValueToSide(zoomInput.value);
-        const prev = { left: state.left, top: state.top, side: state.side };
-        const anchored = anchorCropCenterOnZoom(prev, newSide, state.w, state.h, minSide);
+        const anchored = anchorCropZoomAtImageCenter(newSide, state.w, state.h, minSide);
         state.left = anchored.left;
         state.top = anchored.top;
         state.side = anchored.side;
@@ -5175,7 +5174,16 @@ function buildCropEditor(file, state, manualNote, options) {
     () => {
       if (skipZoomInputEvent) return;
       const minSide = minCropSide();
-      const snapped = clampSquareCropInImage(state.left, state.top, state.side, state.w, state.h, minSide);
+      const cx = state.w / 2;
+      const cy = state.h / 2;
+      const snapped = clampSquareCropInImage(
+        cx - state.side / 2,
+        cy - state.side / 2,
+        state.side,
+        state.w,
+        state.h,
+        minSide
+      );
       state.left = snapped.left;
       state.top = snapped.top;
       state.side = snapped.side;
