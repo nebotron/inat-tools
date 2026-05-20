@@ -2684,15 +2684,19 @@ function renderCard({
       : "";
   const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
   const reviewBtn = agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
+  /** Upper-right stack: open iNat, mark reviewed, agree (top to bottom). */
+  const upperRightActions = [openAppBtn, reviewBtn, agreeBtn].filter((s) => typeof s === "string" && s.trim() !== "");
+  const upperRightActionsHtml =
+    upperRightActions.length > 0
+      ? `<div class="card-actions-upper-right">${upperRightActions.join("")}</div>`
+      : "";
   const imgBlock = buildCardImageBlockFromUrls(urls);
   if (onClick) {
     card.innerHTML = `
       <div class="card-link" role="button" tabindex="0" style="cursor:pointer">
         ${imgBlock}
       </div>
-      ${agreeBtn}
-      ${reviewBtn}
-      ${openAppBtn}
+      ${upperRightActionsHtml}
       <div class="card-bottom">
         ${metaBlock}
         <p class="card-title-overlay">${escapeHtml(name)}</p>
@@ -2714,9 +2718,7 @@ function renderCard({
       <div class="card-link">
         ${imgBlock}
       </div>
-      ${agreeBtn}
-      ${reviewBtn}
-      ${openAppBtn}
+      ${upperRightActionsHtml}
       <div class="card-bottom">
         ${metaBlock}
         <p class="card-title-overlay">${escapeHtml(name)}</p>

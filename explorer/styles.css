@@ -531,11 +531,24 @@ main {
   cursor: pointer;
 }
 
-.card-open-inat-app {
+/* Stacked controls: open iNat (top), mark reviewed, agree — upper right of card. */
+.card-actions-upper-right {
   position: absolute;
   top: 0.4rem;
   right: 0.4rem;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.card-actions-upper-right > * {
+  pointer-events: auto;
+}
+
+.card-open-inat-app {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -620,10 +633,6 @@ a.card-open-inat-app {
 }
 
 .card-agree {
-  position: absolute;
-  top: 0.4rem;
-  left: 0.4rem;
-  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -657,10 +666,6 @@ a.card-open-inat-app {
 }
 
 .card-mark-reviewed {
-  position: absolute;
-  top: 4rem;
-  left: 0.4rem;
-  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
