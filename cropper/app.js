@@ -6291,7 +6291,7 @@ async function runZipDownload() {
       { indeterminate: false }
     );
     zipSucceeded = true;
-    /** Do not retain duplicate export `File` rows — nothing reads `lastShareInat*` and it doubled RAM after ZIP. */
+    // Omit lastShareInat* = shareAcc.* — nothing reads them and they duplicated every export in RAM.
   } catch (e) {
     console.error(e);
     const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
