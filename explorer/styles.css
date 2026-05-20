@@ -473,17 +473,18 @@ main {
   /* Hairline gutters: each cell is an exact (100% − gaps) / N fraction of the panel width. */
   gap: 1px;
   background: var(--border);
-  /* Phone: one full-width tile; wider panels step up to about three columns on desktop. */
+  /* Phone: one full-width tile until the panel is clearly wider than typical handsets. */
   grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 
-@container explorer-results (min-width: 400px) {
+/* Stay single-column on typical phone widths (many handsets are 360–430px wide). */
+@container explorer-results (min-width: 520px) {
   .results-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@container explorer-results (min-width: 560px) {
+@container explorer-results (min-width: 720px) {
   .results-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -495,13 +496,13 @@ main {
     grid-template-columns: repeat(1, minmax(0, 1fr));
   }
 
-  @media (min-width: 400px) {
+  @media (min-width: 520px) {
     .results-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 
-  @media (min-width: 560px) {
+  @media (min-width: 720px) {
     .results-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
