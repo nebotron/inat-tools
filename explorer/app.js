@@ -4197,7 +4197,8 @@ async function resolveNearMeFromUrl() {
     const pos = await requestGeolocationPosition();
     applyGeoPosition(pos);
     nearMeSource = "url";
-    await onLocationFilterChanged();
+    stripSavedMapViewFromUrl();
+    syncUrl();
     stashExplorerNearMeGeoAfterUrlSynced();
   } catch (err) {
     const msg = formatGeolocationFailureMessage(err);
@@ -4210,6 +4211,46 @@ async function resolveNearMeFromUrl() {
     setCommittedPlaceDisplay("");
     updatePlaceNearbyUI();
     syncUrl();
+  }
+}
+
+/**
+ * When the URL has `near_me=1` without coordinates and stash restore did not apply (`nearMeSource === "url"`),
+ * wait for geolocation before the first Observations/Species/Stats/Map fetch so we do not issue a
+ * no-geo request and then a second narrowed request.
+ * @param {string} contextLabel — error context only (e.g. "boot", "bfcache")
+ */
+async function resolvePendingNearMeUrlIfNeeded(contextLabel) {
+  if (nearMeSource !== "url") return;
+  const geoCapMs = 15000;
+  try {
+    await Promise.race([
+      resolveNearMeFromUrl(),
+      new Promise((_, rej) =>
+        setTimeout(() => rej(Object.assign(new Error("near_me_geo_cap"), { code: "NEAR_ME_GEO_CAP" })), geoCapMs)
+      ),
+    ]);
+  } catch (e) {
+    if (
+      e &&
+      e.code === "NEAR_ME_GEO_CAP" &&
+      nearMeSource === "url" &&
+      (!el.lat.value.trim() || !el.lng.value.trim())
+    ) {
+      showNearbyGeolocationFailureMessage(
+        "Nearby in the link needs your current position, but the browser did not return a location in time. Allow location for this site, try again, or pick a named place.",
+      );
+      clearExplorerNearMeGeoStash();
+      nearMeSource = "none";
+      placeNearbyMode = false;
+      el.lat.value = "";
+      el.lng.value = "";
+      setCommittedPlaceDisplay("");
+      updatePlaceNearbyUI();
+      syncUrl();
+    } else {
+      explorerFatal(e, `resolvePendingNearMeUrlIfNeeded:${contextLabel}`);
+    }
   }
 }
 
@@ -4771,44 +4812,9 @@ async function boot() {
     });
   }
 
+  await resolvePendingNearMeUrlIfNeeded("boot");
   await refreshInatAuthUser();
   await switchView(currentView);
-
-  if (pendingNearMeUrl) {
-    const geoCapMs = 15000;
-    try {
-      await Promise.race([
-        resolveNearMeFromUrl(),
-        new Promise((_, rej) =>
-          setTimeout(() => rej(Object.assign(new Error("near_me_geo_cap"), { code: "NEAR_ME_GEO_CAP" })), geoCapMs)
-        ),
-      ]);
-    } catch (e) {
-      if (
-        e &&
-        e.code === "NEAR_ME_GEO_CAP" &&
-        nearMeSource === "url" &&
-        (!el.lat.value.trim() || !el.lng.value.trim())
-      ) {
-        showNearbyGeolocationFailureMessage(
-          "Nearby in the link needs your current position, but the browser did not return a location in time. Allow location for this site, try again, or pick a named place.",
-        );
-        clearExplorerNearMeGeoStash();
-        nearMeSource = "none";
-        placeNearbyMode = false;
-        el.lat.value = "";
-        el.lng.value = "";
-        setCommittedPlaceDisplay("");
-        updatePlaceNearbyUI();
-        syncUrl();
-      } else {
-        explorerFatal(e, "boot:pendingNearMeUrl");
-      }
-    }
-    if (el.lat.value.trim() && el.lng.value.trim()) {
-      await refreshActiveView();
-    }
-  }
 }
 
 /**
@@ -4828,43 +4834,8 @@ async function resyncAppFromCurrentUrlAfterBfcache() {
   }
   await hydrateSelections();
   lastMapFilterKey = null;
+  await resolvePendingNearMeUrlIfNeeded("bfcache");
   await switchView(currentView);
-
-  if (pendingNearMeUrl) {
-    const geoCapMs = 15000;
-    try {
-      await Promise.race([
-        resolveNearMeFromUrl(),
-        new Promise((_, rej) =>
-          setTimeout(() => rej(Object.assign(new Error("near_me_geo_cap"), { code: "NEAR_ME_GEO_CAP" })), geoCapMs)
-        ),
-      ]);
-    } catch (e) {
-      if (
-        e &&
-        e.code === "NEAR_ME_GEO_CAP" &&
-        nearMeSource === "url" &&
-        (!el.lat.value.trim() || !el.lng.value.trim())
-      ) {
-        showNearbyGeolocationFailureMessage(
-          "Nearby in the link needs your current position, but the browser did not return a location in time. Allow location for this site, try again, or pick a named place.",
-        );
-        clearExplorerNearMeGeoStash();
-        nearMeSource = "none";
-        placeNearbyMode = false;
-        el.lat.value = "";
-        el.lng.value = "";
-        setCommittedPlaceDisplay("");
-        updatePlaceNearbyUI();
-        syncUrl();
-      } else {
-        explorerFatal(e, "resyncAppFromCurrentUrlAfterBfcache:pendingNearMeUrl");
-      }
-    }
-    if (el.lat.value.trim() && el.lng.value.trim()) {
-      await refreshActiveView();
-    }
-  }
 }
 
 window.addEventListener("pageshow", (e) => {
