@@ -2422,12 +2422,18 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
       button.innerHTML = prevHtml;
       return;
     }
+    button.classList.add("card-mark-reviewed--done");
     button.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i>';
     button.setAttribute("aria-label", "Marked reviewed on iNaturalist");
     button.setAttribute("title", "Marked reviewed");
     if (observationListNeedsAuthForReviewFilter()) {
       const card = button.closest(".card");
       if (card && card.parentNode) {
+        try {
+          button.blur();
+        } catch {
+          /* ignore */
+        }
         card.parentNode.removeChild(card);
         obsCardCount = Math.max(0, obsCardCount - 1);
         totalObs = Math.max(0, totalObs - 1);
