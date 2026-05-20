@@ -993,22 +993,22 @@ body.app-body-fit .app-page--crop .crop-review-done {
   border-color: rgba(248, 113, 113, 0.45);
 }
 
-.btn-icon--nav-forward {
+.btn-icon--continue {
   border-color: rgba(34, 197, 94, 0.55);
   background: rgba(22, 163, 74, 0.22);
   color: #bbf7d0;
 }
 
-.btn-icon--nav-forward:hover:not(:disabled) {
+.btn-icon--continue:hover:not(:disabled) {
   background: rgba(22, 163, 74, 0.35);
 }
 
-.btn-icon--nav-back {
+.btn-icon--exit {
   border-color: rgba(148, 163, 184, 0.45);
   color: #cbd5e1;
 }
 
-.btn-icon--nav-back:hover:not(:disabled) {
+.btn-icon--exit:hover:not(:disabled) {
   background: #475569;
 }
 

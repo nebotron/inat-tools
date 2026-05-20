@@ -1178,7 +1178,7 @@ function renderCropEditorSlot() {
         attachBatchRowActions(errRow, file, { variant: "error", showNextCheck: true });
         previewGrid.appendChild(errRow);
         updateCropReviewChrome();
-        showError("Couldn’t show this image. Try the previous/next arrows or delete the file.");
+        showError("Couldn’t show this image. Try Exit, Continue, or delete the file.");
         return;
       }
     }
@@ -1213,12 +1213,17 @@ function advanceCropReview() {
   schedulePersistSession();
 }
 
-/** Go to newer photo without confirming (reverse-chrono: back = toward newest). */
-function retreatCropReview() {
-  if (!workItems.length || isCropReviewFinished()) return;
-  if (cropReviewIndex <= 0) return;
-  cropReviewIndex -= 1;
-  renderCropEditorSlot();
+function exitCropInterfaceToExport() {
+  inatGroupEditForwardIndex = -1;
+  setCurrentPage("export");
+  if (inatUploadGroupingStrip && workItems.length) {
+    try {
+      renderInatPhotoGroupingStrip();
+    } catch {
+      /* ignore */
+    }
+  }
+  updateCropReviewChrome();
   updateButtons();
 }
 
@@ -4506,12 +4511,13 @@ function removeWorkItemAndRow(file, row) {
   updateButtons();
 }
 
-/** Navigate crop queue — forward confirms current photo and advances (last item finishes batch). */
-const NAV_FORWARD_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
+/** Leave crop UI for export (does not confirm the current frame). */
+const EXIT_CROP_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
-const NAV_BACK_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
+/** Accept current crop and advance (last photo finishes review and opens export). */
+const CROP_CONTINUE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 
 /** Undo arrow — “reset crop to suggested” */
 const RESET_CROP_UNDO_SVG =
@@ -4649,22 +4655,21 @@ function attachBatchRowActions(row, file, options) {
     const nav = document.createElement("div");
     nav.className = "crop-toolbar__nav crop-toolbar__nav--five";
 
-    const btnPrev = document.createElement("button");
-    btnPrev.type = "button";
-    btnPrev.className = "btn-icon btn-icon--nav-back";
-    btnPrev.innerHTML = NAV_BACK_SVG;
-    btnPrev.title = "Newer photo";
-    btnPrev.setAttribute("aria-label", "Newer photo");
-    const canGoBack = !inatGroupingSingleEdit && cropReviewIndex > 0;
-    btnPrev.disabled = !canGoBack || variant === "pending";
-    if (inatGroupingSingleEdit) {
-      btnPrev.title = "Disabled while editing from observations";
-      btnPrev.setAttribute("aria-label", "Disabled while editing from observations");
-    } else if (!canGoBack) {
-      btnPrev.title = "No newer photo";
-      btnPrev.setAttribute("aria-label", "No newer photo");
+    const btnExit = document.createElement("button");
+    btnExit.type = "button";
+    btnExit.className = "btn-icon btn-icon--exit";
+    btnExit.innerHTML = EXIT_CROP_SVG;
+    btnExit.title = inatGroupingSingleEdit ? "Exit — return to export without marking done" : "Exit to export";
+    btnExit.setAttribute(
+      "aria-label",
+      inatGroupingSingleEdit ? "Exit without marking this photo done" : "Exit to export page",
+    );
+    btnExit.disabled = variant === "pending";
+    if (variant === "pending") {
+      btnExit.title = "Wait for analysis";
+      btnExit.setAttribute("aria-label", "Wait for analysis");
     }
-    btnPrev.addEventListener("click", () => retreatCropReview());
+    btnExit.addEventListener("click", () => exitCropInterfaceToExport());
 
     /** @type {HTMLButtonElement | null} */
     let btnResetCrop = null;
@@ -4680,24 +4685,24 @@ function attachBatchRowActions(row, file, options) {
       });
     }
 
-    const btnNext = document.createElement("button");
-    btnNext.type = "button";
-    btnNext.className = "btn-icon btn-icon--nav-forward";
+    const btnContinue = document.createElement("button");
+    btnContinue.type = "button";
+    btnContinue.className = "btn-icon btn-icon--continue";
+    btnContinue.innerHTML = CROP_CONTINUE_SVG;
     const atLast = cropReviewIndex <= 0;
     if (variant === "pending") {
-      btnNext.disabled = true;
-      btnNext.title = "Wait for analysis";
-      btnNext.setAttribute("aria-label", "Wait for analysis");
+      btnContinue.disabled = true;
+      btnContinue.title = "Wait for analysis";
+      btnContinue.setAttribute("aria-label", "Wait for analysis");
     } else if (inatGroupingSingleEdit) {
-      btnNext.title = "Done — return to observations";
-      btnNext.setAttribute("aria-label", "Done editing this photo");
-      btnNext.addEventListener("click", () => confirmInatGroupingSingleEditAndReturn());
+      btnContinue.title = "Done — return to observations";
+      btnContinue.setAttribute("aria-label", "Done editing this photo");
+      btnContinue.addEventListener("click", () => confirmInatGroupingSingleEditAndReturn());
     } else {
-      btnNext.title = atLast ? "Finish" : "Next photo";
-      btnNext.setAttribute("aria-label", atLast ? "Finish and export" : "Accept and next photo");
-      btnNext.addEventListener("click", () => advanceCropReview());
+      btnContinue.title = atLast ? "Finish" : "Accept and next";
+      btnContinue.setAttribute("aria-label", atLast ? "Finish review and go to export" : "Accept crop and go to next photo");
+      btnContinue.addEventListener("click", () => advanceCropReview());
     }
-    btnNext.innerHTML = NAV_FORWARD_SVG;
 
     function makeSlot(child) {
       const slot = document.createElement("div");
@@ -4707,7 +4712,7 @@ function attachBatchRowActions(row, file, options) {
     }
 
     nav.append(
-      makeSlot(btnPrev),
+      makeSlot(btnExit),
       makeSlot(btnFullImage),
       makeSlot(btnDel),
       btnResetCrop
@@ -4721,7 +4726,7 @@ function attachBatchRowActions(row, file, options) {
             slot.appendChild(ph);
             return slot;
           })(),
-      makeSlot(btnNext)
+      makeSlot(btnContinue)
     );
 
     actionsWrap.appendChild(nav);
