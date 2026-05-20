@@ -211,10 +211,40 @@
 
   window.explorerReportFatalException = report;
 
+  /**
+   * Browsers (especially WebKit) may dispatch a window `error` for ResizeObserver feedback during
+   * pinch / page zoom. It is not a fatal app bug; replacing the entire document would look like a
+   * refresh and can trigger Safari’s “a problem repeatedly occurred” if it fires in a loop.
+   */
+  function isBenignResizeObserverLoopMessage(msg) {
+    var s = typeof msg === "string" ? msg : msg == null ? "" : String(msg);
+    return (
+      s.indexOf("ResizeObserver loop limit exceeded") !== -1 ||
+      s.indexOf("ResizeObserver loop completed with undelivered notifications") !== -1
+    );
+  }
+
   window.addEventListener(
     "error",
     function (ev) {
       if (shown) return;
+      var msg = ev && typeof ev.message === "string" ? ev.message : "";
+      if (isBenignResizeObserverLoopMessage(msg)) {
+        try {
+          ev.preventDefault();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      if (ev && ev.error && isBenignResizeObserverLoopMessage(ev.error.message)) {
+        try {
+          ev.preventDefault();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       var err = ev.error;
       if (!(err instanceof Error)) {
         err = new Error(ev.message || "window error event", { cause: ev });
@@ -226,6 +256,16 @@
 
   window.addEventListener("unhandledrejection", function (ev) {
     if (shown) return;
+    var r = ev.reason;
+    var m =
+      r instanceof Error
+        ? r.message
+        : r && typeof r.message === "string"
+          ? r.message
+          : typeof r === "string"
+            ? r
+            : "";
+    if (isBenignResizeObserverLoopMessage(m)) return;
     report(ev.reason, "unhandledrejection");
   });
 })();

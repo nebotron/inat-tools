@@ -4432,77 +4432,6 @@ function wireObservationScrollMemory() {
   }
 }
 
-/**
- * Pinch / page zoom can change the observations panel width (container queries change column count),
- * which can jump `scrollTop`. Debounced re-anchor using only `scrollTop` on the panel (not
- * `scrollIntoView`) to avoid ResizeObserver ↔ scroll feedback loops that have crashed some browsers.
- */
-function wireObservationsPanelResizeLayoutAnchor() {
-  if (!el.panelObs || typeof ResizeObserver === "undefined") return;
-  const panel = el.panelObs;
-  let lastWidthRound = -1;
-  let debounceTimer = null;
-  let ro = null;
-  const WIDTH_DELTA_MIN = 40;
-  const DEBOUNCE_MS = 150;
-  let lastNudgeMs = 0;
-
-  const nudgeScrollTowardAnchor = () => {
-    if (currentView !== "observations" || !el.resultsGrid) return;
-    const anchorId = findObsCardIdNearViewportCenter();
-    if (anchorId == null) return;
-    const card = el.resultsGrid.querySelector(`.card[data-obs-id="${anchorId}"]`);
-    if (!card) return;
-    const now = Date.now();
-    if (now - lastNudgeMs < 350) return;
-    const pr = panel.getBoundingClientRect();
-    const cr = card.getBoundingClientRect();
-    const panelMid = pr.top + pr.height / 2;
-    const cardMid = cr.top + cr.height / 2;
-    const delta = cardMid - panelMid;
-    if (Math.abs(delta) < 4) return;
-    lastNudgeMs = now;
-    try {
-      if (ro) ro.unobserve(panel);
-      panel.scrollTop += delta;
-    } catch (ex) {
-      explorerFatal(ex, "wireObservationsPanelResizeLayoutAnchor:scrollTop");
-    } finally {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          try {
-            if (ro) ro.observe(panel);
-          } catch (ex) {
-            explorerFatal(ex, "wireObservationsPanelResizeLayoutAnchor:observe");
-          }
-        });
-      });
-    }
-  };
-
-  ro = new ResizeObserver((entries) => {
-    if (currentView !== "observations") return;
-    const cr = entries[0] && entries[0].contentRect;
-    const w = cr ? Math.round(cr.width) : Math.round(panel.clientWidth);
-    if (lastWidthRound < 0) {
-      lastWidthRound = w;
-      return;
-    }
-    if (Math.abs(w - lastWidthRound) < WIDTH_DELTA_MIN) return;
-    lastWidthRound = w;
-    if (debounceTimer != null) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      requestAnimationFrame(nudgeScrollTowardAnchor);
-    }, DEBOUNCE_MS);
-  });
-  try {
-    ro.observe(panel);
-  } catch (ex) {
-    explorerFatal(ex, "wireObservationsPanelResizeLayoutAnchor:initial observe");
-  }
-}
-
 /** Delegated clicks for observation-card Agree, Mark reviewed, and Favorite (authenticated iNat API writes). */
 function wireObservationAgreeClicks() {
   if (!el.resultsGrid) return;
@@ -5022,7 +4951,6 @@ async function boot() {
   wireTabs();
   wireInfiniteScroll();
   wireObservationScrollMemory();
-  wireObservationsPanelResizeLayoutAnchor();
   wireSpeciesGridScrollImagePreload();
   wireObservationAgreeClicks();
   wireFilterExtras();
