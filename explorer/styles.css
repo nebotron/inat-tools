@@ -473,7 +473,7 @@ main {
   /* Hairline gutters: each cell is an exact (100% − gaps) / N fraction of the panel width. */
   gap: 1px;
   background: var(--border);
-  /* Phone: one full-width tile; wider panels step up toward ~4 columns on desktop. */
+  /* Phone: one full-width tile; wider panels step up to about three columns on desktop. */
   grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 
@@ -486,12 +486,6 @@ main {
 @container explorer-results (min-width: 560px) {
   .results-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@container explorer-results (min-width: 720px) {
-  .results-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -510,12 +504,6 @@ main {
   @media (min-width: 560px) {
     .results-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 720px) {
-    .results-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
     }
   }
 }
