@@ -11,6 +11,22 @@ import {
   inatFetch,
 } from "../lib/inat-api-client.js";
 
+/**
+ * Report an exception via fatal full-page dump (see fatal-dump-bootstrap.js).
+ * @param {unknown} reason
+ * @param {string} [contextLabel]
+ */
+function explorerFatal(reason, contextLabel = "") {
+  const g = typeof globalThis !== "undefined" ? globalThis : undefined;
+  if (g && typeof g.explorerReportFatalException === "function") {
+    g.explorerReportFatalException(reason, contextLabel || "(no context)");
+    return;
+  }
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  console.error(contextLabel, err);
+  throw err;
+}
+
 const OBS_PER_PAGE = 60;
 
 /** Set by `refreshInatAuthUser`; used for Agree UI on observation cards. */
@@ -111,19 +127,8 @@ async function ensureKingCountyNoxiousData() {
       wallHawkweedHref: wallHref || "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wall-hawkweed-subgenus",
     };
     return kingCountyNoxiousData;
-  } catch {
-    kingCountyNoxiousData = {
-      allIds: new Set(),
-      byTaxonId: new Map(),
-      meadowHawkweedGenusId: 203680,
-      wallHawkweedGenusId: 55910,
-      autumnHawkweedTaxonIds: new Set([163800]),
-      meadowHawkweedHref:
-        "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/meadow-hawkweed-subgenus",
-      wallHawkweedHref:
-        "https://kingcounty.gov/en/dept/dnrp/nature-recreation/environment-ecology-conservation/noxious-weeds/identification-control/wall-hawkweed-subgenus",
-    };
-    return kingCountyNoxiousData;
+  } catch (ex) {
+    explorerFatal(ex, "ensureKingCountyNoxiousData");
   }
 }
 
@@ -165,8 +170,8 @@ function mapPinMarkerRadius() {
     const mq = window.matchMedia.bind(window);
     if (mq("(pointer: coarse)").matches || mq("(any-pointer: coarse)").matches) return 12;
     if (mq("(max-width: 900px)").matches) return 10;
-  } catch {
-    /* ignore */
+  } catch (ex) {
+    explorerFatal(ex, "mapPinMarkerRadius");
   }
   return 4;
 }
@@ -358,8 +363,8 @@ function parseTaxonLabeledParam(raw) {
     let label = "";
     try {
       label = decodeURIComponent(s.slice(pipe + 1));
-    } catch {
-      label = s.slice(pipe + 1);
+    } catch (ex) {
+      explorerFatal(ex, "parseTaxonLabeledParam:decodeURIComponent");
     }
     if (Number.isFinite(id) && id > 0) out.push({ id, label: label.trim() || `Taxon ${id}` });
   }
@@ -459,8 +464,8 @@ function effectiveRadiusKm() {
 function clearExplorerNearMeGeoStash() {
   try {
     sessionStorage.removeItem(EXPLORER_NEAR_ME_GEO_KEY);
-  } catch {
-    /* ignore */
+  } catch (ex) {
+    explorerFatal(ex, "clearExplorerNearMeGeoStash");
   }
 }
 
@@ -478,8 +483,8 @@ function stashExplorerNearMeGeoAfterUrlSynced() {
   let intentKey = "";
   try {
     intentKey = nearMeIntentKeyFromQuery(new URLSearchParams(window.location.search));
-  } catch {
-    return;
+  } catch (ex) {
+    explorerFatal(ex, "stashExplorerNearMeGeoAfterUrlSynced:intentKey");
   }
   if (!intentKey) return;
   try {
@@ -493,8 +498,8 @@ function stashExplorerNearMeGeoAfterUrlSynced() {
         savedAt: Date.now(),
       }),
     );
-  } catch {
-    /* ignore */
+  } catch (ex) {
+    explorerFatal(ex, "stashExplorerNearMeGeoAfterUrlSynced:sessionStorage.setItem");
   }
 }
 
@@ -517,8 +522,8 @@ function tryRestoreExplorerNearMeGeoFromStash(q) {
     if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
     if (!Number.isFinite(savedAt) || Date.now() - savedAt > EXPLORER_NEAR_ME_GEO_STASH_MAX_MS) return null;
     return { lat: String(la), lng: String(ln) };
-  } catch {
-    return null;
+  } catch (ex) {
+    explorerFatal(ex, "tryRestoreExplorerNearMeGeoFromStash");
   }
 }
 
@@ -956,8 +961,8 @@ async function saveObservationPhotoWithExif(obs) {
       const res = await fetch(srcUrl, { mode: "cors" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       bin = new Uint8Array(await res.arrayBuffer());
-    } catch {
-      continue;
+    } catch (ex) {
+      explorerFatal(ex, "saveObservationPhotoWithExif:fetch");
     }
 
     if (isJpegMagic(bin) && exifDict) {
@@ -967,9 +972,8 @@ async function saveObservationPhotoWithExif(obs) {
         const blob = new Blob([out], { type: "image/jpeg" });
         const name = `${baseName}.jpg`;
         files.push(new File([blob], name, { type: "image/jpeg", lastModified: lastMod }));
-      } catch {
-        const blob = new Blob([bin], { type: "image/jpeg" });
-        files.push(new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: lastMod }));
+      } catch (ex) {
+        explorerFatal(ex, "saveObservationPhotoWithExif:embedExifInJpegBinaryString");
       }
     } else if (isJpegMagic(bin)) {
       const blob = new Blob([bin], { type: "image/jpeg" });
@@ -997,7 +1001,7 @@ async function saveObservationPhotoWithExif(obs) {
       }
     } catch (e) {
       if (e && e.name === "AbortError") return;
-      /* fall through to download */
+      explorerFatal(e, "saveObservationPhotoWithExif:navigator.share");
     }
   }
 
@@ -1061,8 +1065,8 @@ function showNearbyGeolocationFailureMessage(message) {
   }
   try {
     window.alert(text);
-  } catch {
-    /* ignore */
+  } catch (ex) {
+    explorerFatal(ex, "showNearbyGeolocationFailureMessage:window.alert");
   }
 }
 
@@ -1997,9 +2001,7 @@ async function runStatsSearch() {
     setSearchSummaryVisibility();
     syncUrl();
   } catch (err) {
-    showError("stats", err.message || "Could not load stats.");
-    if (el.searchSummaryStats) el.searchSummaryStats.textContent = "";
-    if (el.statsContent) el.statsContent.innerHTML = "";
+    explorerFatal(err, "runStatsSearch");
   } finally {
     statsLoading = false;
     setSearchSummaryVisibility();
@@ -2104,8 +2106,8 @@ async function fetchObservationTaxonById(taxonIds) {
         const tid = Number(t.id);
         if (want.has(tid) && !map.has(tid)) map.set(tid, t);
       }
-    } catch {
-      /* ignore */
+    } catch (ex) {
+      explorerFatal(ex, "fetchObservationTaxonById:chunk");
     }
   }
 
@@ -2122,8 +2124,8 @@ async function fetchObservationTaxonById(taxonIds) {
       const obs = (data.results || [])[0];
       const t = obs && obs.taxon;
       if (t && t.id != null) map.set(tid, t);
-    } catch {
-      /* ignore */
+    } catch (ex) {
+      explorerFatal(ex, "fetchObservationTaxonById:single");
     }
   }
 
@@ -2411,14 +2413,14 @@ async function openExplorerAuthPanel(options = {}) {
   if (el.inatApiToken && typeof el.inatApiToken.focus === "function") {
     try {
       el.inatApiToken.focus({ preventScroll: false });
-    } catch {
-      el.inatApiToken.focus();
+    } catch (ex) {
+      explorerFatal(ex, "openExplorerAuthPanel:focus");
     }
   }
   try {
     el.explorerAuthPanel.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  } catch {
-    /* ignore */
+  } catch (ex) {
+    explorerFatal(ex, "openExplorerAuthPanel:scrollIntoView");
   }
 }
 
@@ -2457,10 +2459,8 @@ async function refreshInatAuthUser() {
     let res;
     try {
       res = await fetchUsersMeWithStoredJwt();
-    } catch {
-      inatAuthUser = null;
-      renderInatApiAuthStatusEl("Could not reach iNaturalist to verify the saved token.", "error");
-      return;
+    } catch (ex) {
+      explorerFatal(ex, "refreshInatAuthUser:fetchUsersMeWithStoredJwt");
     }
     if (!res.ok) {
       inatAuthUser = null;
@@ -2471,10 +2471,8 @@ async function refreshInatAuthUser() {
     let data;
     try {
       data = await res.json();
-    } catch {
-      inatAuthUser = null;
-      renderInatApiAuthStatusEl("Token check failed (bad response). Clear it or paste a new JWT.", "error");
-      return;
+    } catch (ex) {
+      explorerFatal(ex, "refreshInatAuthUser:res.json");
     }
     const u = data && Array.isArray(data.results) ? data.results[0] : null;
     inatAuthUser = u && typeof u === "object" ? u : null;
@@ -2501,8 +2499,8 @@ function removeObservationCardFromGridAfterWrite(actionEl) {
   if (!card?.parentNode) return;
   try {
     if (actionEl instanceof HTMLElement && "blur" in actionEl) actionEl.blur();
-  } catch {
-    /* ignore */
+  } catch (ex) {
+    explorerFatal(ex, "removeObservationCardFromGridAfterWrite:blur");
   }
   card.parentNode.removeChild(card);
   obsCardCount = Math.max(0, obsCardCount - 1);
@@ -2546,8 +2544,8 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
       return;
     }
   } catch (e) {
-    window.alert(e && e.message ? e.message : "Network error while agreeing.");
     revertOptimisticObservationRemovalCount();
+    explorerFatal(e, "submitObservationAgree");
   }
 }
 
@@ -2687,7 +2685,7 @@ async function submitObservationFavoriteToggle(button, obsIdStr, currentlyFaved)
       button.setAttribute("aria-label", "Add favorite on iNaturalist");
     }
   } catch (e) {
-    window.alert(e && e.message ? e.message : "Network error while updating favorite.");
+    explorerFatal(e, "submitObservationFavoriteToggle");
   } finally {
     button.disabled = false;
   }
@@ -2719,8 +2717,8 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
       return;
     }
   } catch (e) {
-    window.alert(e && e.message ? e.message : "Network error while marking reviewed.");
     revertOptimisticObservationRemovalCount();
+    explorerFatal(e, "submitObservationMarkReviewed");
   }
 }
 
@@ -2903,8 +2901,8 @@ function wireObservationCardPhotoCarousel(card) {
       }, 120);
     });
     ro.observe(scrollEl);
-  } catch {
-    /* ignore */
+  } catch (ex) {
+    explorerFatal(ex, "wireCardMediaCarousel:ResizeObserver");
   }
   scheduleSyncDots();
 }
@@ -3120,8 +3118,8 @@ async function runObservationSearch(reset) {
           const sData = await sRes.json();
           totalSpecies = sData.total_results || 0;
           updateSearchSummaryElements();
-        } catch {
-          /* ignore */
+        } catch (ex) {
+          explorerFatal(ex, "runObservationSearch:species_counts side fetch");
         }
       })();
     }
@@ -3135,7 +3133,7 @@ async function runObservationSearch(reset) {
     updateSearchSummaryElements();
     syncUrl();
   } catch (err) {
-    showError("obs", err.message || "Could not load observations.");
+    explorerFatal(err, "runObservationSearch");
   } finally {
     obsLoading = false;
   }
@@ -3189,8 +3187,8 @@ async function runSpeciesSearch(reset) {
           const oData = await oRes.json();
           totalObs = oData.total_results || 0;
           updateSearchSummaryElements();
-        } catch {
-          /* ignore */
+        } catch (ex) {
+          explorerFatal(ex, "runSpeciesSearch:observation count side fetch");
         }
       })();
     }
@@ -3232,7 +3230,7 @@ async function runSpeciesSearch(reset) {
     updateSearchSummaryElements();
     syncUrl();
   } catch (err) {
-    showError("species", err.message || "Could not load species.");
+    explorerFatal(err, "runSpeciesSearch");
   } finally {
     speciesLoading = false;
   }
@@ -3290,8 +3288,8 @@ function bringMapUserLocationToFront() {
   mapUserLocationLayer.eachLayer((layer) => {
     try {
       if (typeof layer.bringToFront === "function") layer.bringToFront();
-    } catch {
-      /* ignore — layer may be mid-teardown during rapid map updates */
+    } catch (ex) {
+      explorerFatal(ex, "bringMapUserLocationToFront:bringToFront");
     }
   });
 }
@@ -3333,8 +3331,8 @@ function startMapUserLocationWatch() {
       const { latitude, longitude } = pos.coords;
       showUserLocationOnMap(latitude, longitude);
     },
-    () => {
-      /* No permission or unavailable — leave dot hidden */
+    (geoErr) => {
+      explorerFatal(geoErr, "startMapUserLocationWatch:watchPosition");
     },
     { enableHighAccuracy: true, maximumAge: 20000, timeout: 20000 }
   );
@@ -3357,15 +3355,15 @@ function ensureMap() {
     if (currentView !== "map" || !map) return;
     try {
       syncUrl();
-    } catch {
-      /* avoid breaking Leaflet event chain if URL/history throws */
+    } catch (ex) {
+      explorerFatal(ex, "ensureMap:moveend/zoomend:syncUrl");
     }
     clearTimeout(mapMoveTimer);
     mapMoveTimer = setTimeout(() => {
       mapMoveTimer = null;
       if (currentView !== "map" || !map) return;
-      void runMapSearch(false).catch(() => {
-        /* surfaced via showError inside runMapSearch when seq still current */
+      void runMapSearch(false).catch((ex) => {
+        explorerFatal(ex, "ensureMap:runMapSearch");
       });
     }, 400);
   });
@@ -3427,8 +3425,8 @@ async function fitMapToFilterLocation() {
           return;
         }
       }
-    } catch {
-      /* ignore */
+    } catch (ex) {
+      explorerFatal(ex, "fitMapToFilterLocation:place geojson");
     }
   }
 
@@ -3498,8 +3496,8 @@ async function mapAreaParams() {
     p.set("swlng", String(b.getWest()));
     p.set("geo", "true");
     return p;
-  } catch {
-    return null;
+  } catch (ex) {
+    explorerFatal(ex, "mapAreaParams");
   }
 }
 
@@ -3540,9 +3538,8 @@ function installHeatGridLayer(url, onReady) {
       heatGridLayer.once("load", () => {
         if (onReady) onReady();
       });
-    } catch {
-      heatGridLayer = null;
-      if (onReady) onReady();
+    } catch (ex) {
+      explorerFatal(ex, "installHeatGridLayer:first tileLayer");
     }
     return;
   }
@@ -3550,9 +3547,8 @@ function installHeatGridLayer(url, onReady) {
   let newHeat;
   try {
     newHeat = L.tileLayer(url, { ...heatLayerOpts, opacity: 0 }).addTo(map);
-  } catch {
-    if (onReady) onReady();
-    return;
+  } catch (ex) {
+    explorerFatal(ex, "installHeatGridLayer:pending tileLayer");
   }
   pendingHeatLayer = newHeat;
   let swapped = false;
@@ -3565,8 +3561,8 @@ function installHeatGridLayer(url, onReady) {
       if (map.hasLayer(oldHeat)) map.removeLayer(oldHeat);
       heatGridLayer = newHeat;
       if (onReady) onReady();
-    } catch {
-      /* ignore — stale swap after pan/zoom or tab switch */
+    } catch (ex) {
+      explorerFatal(ex, "installHeatGridLayer:swap");
     }
   };
   newHeat.once("load", swap);
@@ -3697,13 +3693,11 @@ async function runMapSearch(forceRecheck) {
     try {
       bringMapUserLocationToFront();
       syncUrl();
-    } catch {
-      /* ignore — map mid-transition */
+    } catch (ex) {
+      explorerFatal(ex, "runMapSearch:bringMapUserLocationToFront/syncUrl");
     }
   } catch (err) {
-    if (seq === mapSearchSeq) {
-      showError("map", err.message || "Could not load map data.");
-    }
+    explorerFatal(err, "runMapSearch");
   } finally {
     if (spinnerShown) hideMapSpinner();
   }
@@ -3901,10 +3895,8 @@ function syncUrl() {
       q.set("mlat", map.getCenter().lat);
       q.set("mlng", map.getCenter().lng);
       q.set("zoom", map.getZoom());
-    } catch {
-      q.delete("mlat");
-      q.delete("mlng");
-      q.delete("zoom");
+    } catch (ex) {
+      explorerFatal(ex, "syncUrl:map camera");
     }
   }
 
@@ -4076,8 +4068,8 @@ function placeFilterUiContainsTarget(node) {
     if (el.placeInputWrap && el.placeInputWrap.contains(node)) return true;
     if (el.placeSuggestions && el.placeSuggestions.contains(node)) return true;
     if (el.nearbyControls && el.nearbyControls.contains(node)) return true;
-  } catch {
-    return false;
+  } catch (ex) {
+    explorerFatal(ex, "placeFilterUiContainsTarget");
   }
   return false;
 }
@@ -4158,8 +4150,8 @@ function wireAutocomplete() {
         const res = await inatFetch(`taxa/autocomplete?q=${encodeURIComponent(q)}&per_page=12`);
         const data = res.ok ? await res.json() : { results: [] };
         renderSuggestions("taxon", data.results || []);
-      } catch {
-        hideSuggestion("taxon");
+      } catch (ex) {
+        explorerFatal(ex, "wireAutocomplete:taxon");
       }
     }, 280);
   });
@@ -4174,8 +4166,8 @@ function wireAutocomplete() {
       try {
         const results = await fetchPlacesForAutocomplete(q);
         renderSuggestions("place", [NEARBY_SUGGESTION, ...results]);
-      } catch {
-        hideSuggestion("place");
+      } catch (ex) {
+        explorerFatal(ex, "wireAutocomplete:place");
       }
     }, 280);
   };
@@ -4220,8 +4212,8 @@ function wireAutocomplete() {
         hideSuggestion("taxon");
       }
       if (!placeFilterUiContainsTarget(t)) hideSuggestion("place");
-    } catch {
-      /* Ignore: malformed targets or transient DOM during suggestion teardown should not brick the app. */
+    } catch (ex) {
+      explorerFatal(ex, "wireAutocomplete:document click");
     }
   });
 
@@ -4361,8 +4353,8 @@ function readObsScrollMemory() {
       id: Number.isFinite(id) && id > 0 ? id : null,
       scrollTop: Number.isFinite(scrollTop) && scrollTop > 0 ? scrollTop : 0,
     };
-  } catch {
-    return { id: null, scrollTop: 0 };
+  } catch (ex) {
+    explorerFatal(ex, "readObsScrollMemory");
   }
 }
 
@@ -4395,8 +4387,8 @@ function writeObsScrollMemory(obsId, scrollTop) {
   try {
     if (id != null) sessionStorage.setItem(OBS_SCROLL_SESSION_ID, String(id));
     sessionStorage.setItem(OBS_SCROLL_SESSION_TOP, String(Math.max(0, top)));
-  } catch {
-    /* quota / private mode */
+  } catch (ex) {
+    explorerFatal(ex, "writeObsScrollMemory");
   }
 }
 
@@ -4473,15 +4465,15 @@ function wireObservationsPanelResizeLayoutAnchor() {
     try {
       if (ro) ro.unobserve(panel);
       panel.scrollTop += delta;
-    } catch {
-      /* ignore */
+    } catch (ex) {
+      explorerFatal(ex, "wireObservationsPanelResizeLayoutAnchor:scrollTop");
     } finally {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           try {
             if (ro) ro.observe(panel);
-          } catch {
-            /* detached */
+          } catch (ex) {
+            explorerFatal(ex, "wireObservationsPanelResizeLayoutAnchor:observe");
           }
         });
       });
@@ -4506,8 +4498,8 @@ function wireObservationsPanelResizeLayoutAnchor() {
   });
   try {
     ro.observe(panel);
-  } catch {
-    ro = null;
+  } catch (ex) {
+    explorerFatal(ex, "wireObservationsPanelResizeLayoutAnchor:initial observe");
   }
 }
 
@@ -4935,7 +4927,7 @@ async function loadDetailFromTaxonId(taxonId) {
     if (!taxon) throw new Error("Species not found.");
     await showSpeciesDetail(taxon, null);
   } catch (err) {
-    el.detailContent.innerHTML = `<p style="color:var(--danger);padding:1rem">${escapeHtml(err.message || "Could not load species.")}</p>`;
+    explorerFatal(err, "loadDetailFromTaxonId");
   }
 }
 
@@ -5001,8 +4993,8 @@ async function showSpeciesDetail(taxon, obsCount) {
     } else {
       monthSection.querySelector(".detail-loading").textContent = "Could not load data.";
     }
-  } catch {
-    monthSection.querySelector(".detail-loading").textContent = "Could not load data.";
+  } catch (ex) {
+    explorerFatal(ex, "showSpeciesDetail:month histogram");
   }
 
   try {
@@ -5013,8 +5005,8 @@ async function showSpeciesDetail(taxon, obsCount) {
     } else {
       hourSection.innerHTML = `<h3>Observations by hour of day</h3><p style="font-size:0.85rem;color:var(--muted)">No time-of-day data available.</p>`;
     }
-  } catch {
-    hourSection.querySelector(".detail-loading").textContent = "Could not load data.";
+  } catch (ex) {
+    explorerFatal(ex, "showSpeciesDetail:hour chart");
   }
 }
 
@@ -5083,6 +5075,8 @@ async function boot() {
         setCommittedPlaceDisplay("");
         updatePlaceNearbyUI();
         syncUrl();
+      } else {
+        explorerFatal(e, "boot:pendingNearMeUrl");
       }
     }
     if (el.lat.value.trim() && el.lng.value.trim()) {
@@ -5137,6 +5131,8 @@ async function resyncAppFromCurrentUrlAfterBfcache() {
         setCommittedPlaceDisplay("");
         updatePlaceNearbyUI();
         syncUrl();
+      } else {
+        explorerFatal(e, "resyncAppFromCurrentUrlAfterBfcache:pendingNearMeUrl");
       }
     }
     if (el.lat.value.trim() && el.lng.value.trim()) {
@@ -5153,8 +5149,8 @@ window.addEventListener("pageshow", (e) => {
     return;
   }
   if (window.location.href === lastExplorerLocationHref) return;
-  void resyncAppFromCurrentUrlAfterBfcache();
+  void resyncAppFromCurrentUrlAfterBfcache().catch((ex) => explorerFatal(ex, "resyncAppFromCurrentUrlAfterBfcache"));
 });
 
 /** Resolved when initial `readUrl` + wiring + first `switchView` complete; used by Playwright e2e. */
-window.__EXPLORER_BOOT__ = boot();
+window.__EXPLORER_BOOT__ = boot().catch((ex) => explorerFatal(ex, "boot"));
