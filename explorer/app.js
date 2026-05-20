@@ -4428,7 +4428,7 @@ function wireObservationsPanelResizeLayoutAnchor() {
     const card = el.resultsGrid.querySelector(`.card[data-obs-id="${anchorId}"]`);
     if (!card) return;
     const now = Date.now();
-    if (now - lastNudgeMs < 200) return;
+    if (now - lastNudgeMs < 350) return;
     const pr = panel.getBoundingClientRect();
     const cr = card.getBoundingClientRect();
     const panelMid = pr.top + pr.height / 2;
@@ -4437,9 +4437,20 @@ function wireObservationsPanelResizeLayoutAnchor() {
     if (Math.abs(delta) < 4) return;
     lastNudgeMs = now;
     try {
+      if (ro) ro.unobserve(panel);
       panel.scrollTop += delta;
     } catch {
       /* ignore */
+    } finally {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          try {
+            if (ro) ro.observe(panel);
+          } catch {
+            /* detached */
+          }
+        });
+      });
     }
   };
 

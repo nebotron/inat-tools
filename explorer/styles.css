@@ -454,6 +454,8 @@ main {
 #panel-species.view-panel {
   container-type: inline-size;
   container-name: explorer-results;
+  /* Reserve scrollbar space so column count does not flip when scroll position toggles the vertical bar (avoids ResizeObserver ↔ layout loops during page zoom). */
+  scrollbar-gutter: stable;
 }
 
 .results-grid {
