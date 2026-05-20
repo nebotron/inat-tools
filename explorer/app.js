@@ -2382,14 +2382,14 @@ async function refreshInatAuthUser() {
   const jwt = getStoredInatApiJwt();
   if (!jwt) {
     inatAuthUser = null;
-    renderInatApiAuthStatusEl("Not signed in. Paste the API token JSON or a raw JWT, then Apply.", "neutral");
+    renderInatApiAuthStatusEl("Not signed in. Paste a token (JSON or JWT), then Apply.", "neutral");
     return;
   }
   const format = validateInatJwtFormat(jwt);
   if (!format.ok) {
     inatAuthUser = null;
     renderInatApiAuthStatusEl(
-      `Stored credential failed the client format check: ${format.error} Clear the token and apply again using the full JSON from the API token page or a valid JWT.`,
+      `Token format: ${format.error} Clear it and paste valid JSON or a JWT from iNaturalist.`,
       "error"
     );
     return;
@@ -2405,10 +2405,7 @@ async function refreshInatAuthUser() {
   if (!res.ok) {
     inatAuthUser = null;
     const detail = await formatInatHttpErrorForDisplay(res);
-    renderInatApiAuthStatusEl(
-      `Saved token was rejected. ${detail} Clear the token or paste a fresh JWT from iNaturalist.`,
-      "error"
-    );
+    renderInatApiAuthStatusEl(`Token rejected. ${detail} Clear it or paste a new one.`, "error");
     return;
   }
   let data;
@@ -2416,19 +2413,14 @@ async function refreshInatAuthUser() {
     data = await res.json();
   } catch {
     inatAuthUser = null;
-    renderInatApiAuthStatusEl(
-      "Saved token was rejected (success response was not valid JSON). Clear it or paste a fresh JWT.",
-      "error"
-    );
+    renderInatApiAuthStatusEl("Token check failed (bad response). Clear it or paste a new JWT.", "error");
     return;
   }
   const u = data && Array.isArray(data.results) ? data.results[0] : null;
   inatAuthUser = u && typeof u === "object" ? u : null;
   const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
   renderInatApiAuthStatusEl(
-    login
-      ? `Signed in as ${login}. Observation cards can Agree, Mark reviewed, and use “Not yet reviewed by me” in filters.`
-      : "Signed in. Observation cards show Agree and Mark reviewed when applicable.",
+    login ? `Signed in as ${login}. Agree, Mark reviewed, and “Unreviewed by me” are available.` : "Signed in. Card actions are available.",
     "ok"
   );
 }
@@ -2471,7 +2463,7 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
   const taxonId = Number(taxonIdStr);
   if (!Number.isFinite(obsId) || obsId <= 0 || !Number.isFinite(taxonId) || taxonId <= 0) return;
   if (!inatApiJwtAuthorizationValue()) {
-    window.alert("Paste and apply an API token under Filters first.");
+    window.alert("Add your API token on Filters, then Apply.");
     return;
   }
   removeObservationCardFromGridAfterWrite(button);
@@ -2519,7 +2511,7 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
   const obsId = Number(obsIdStr);
   if (!Number.isFinite(obsId) || obsId <= 0) return;
   if (!inatApiJwtAuthorizationValue()) {
-    window.alert("Paste and apply an API token under Filters first.");
+    window.alert("Add your API token on Filters, then Apply.");
     return;
   }
   removeObservationCardFromGridAfterWrite(button);
@@ -2812,10 +2804,7 @@ async function runObservationSearch(reset) {
   try {
     if (observationListNeedsAuthForReviewFilter()) {
       if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
-        showError(
-          "obs",
-          "Choose “Not yet reviewed by me” only after signing in with an API token under Filters."
-        );
+        showError("obs", "Pick “Unreviewed by me” only after a token is saved on Filters.");
         return;
       }
     }
@@ -2952,10 +2941,7 @@ async function runSpeciesSearch(reset) {
   try {
     if (observationListNeedsAuthForReviewFilter()) {
       if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
-        showError(
-          "species",
-          "Choose “Not yet reviewed by me” only after signing in with an API token under Filters."
-        );
+        showError("species", "Pick “Unreviewed by me” only after a token is saved on Filters.");
         return;
       }
     }
@@ -4367,9 +4353,7 @@ function wireFilterExtras() {
     el.filterMyReview.addEventListener("change", () => {
       if (el.filterMyReview.value === "unreviewed" && (!inatAuthUser || !inatApiJwtAuthorizationValue())) {
         el.filterMyReview.value = "all";
-        window.alert(
-          "Paste an API token under Filters and click Apply first. “Not yet reviewed by me” needs your iNaturalist account."
-        );
+        window.alert("Apply an API token on Filters first to use “Unreviewed by me”.");
         return;
       }
       lastMapFilterKey = null;

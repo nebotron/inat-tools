@@ -36,7 +36,7 @@ test.describe("explorer", () => {
   });
 
   test("API sign-in fieldset is available for JWT and Agree", async ({ page }) => {
-    await expect(page.getByRole("group", { name: /API sign-in/i })).toBeVisible();
+    await expect(page.getByRole("group", { name: /API token/i })).toBeVisible();
     await expect(page.locator("#inat-api-token")).toBeVisible();
     await expect(page.locator("#inat-api-auth-status")).toContainText(/not signed in/i);
   });

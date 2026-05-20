@@ -11,7 +11,7 @@
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="stylesheet" href="styles.css?v=explorer-mark-reviewed-no-color-flash-1" />
+    <link rel="stylesheet" href="styles.css?v=explorer-filters-copy-1" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -28,24 +28,24 @@
         </div>
 
         <section id="panel-filters" class="view-panel" role="tabpanel" hidden>
-          <section class="filters" aria-labelledby="filters-heading">
+          <section class="filters" aria-label="Filters">
             <form id="search-form" class="filter-form">
               <div class="field taxon-field">
                 <label for="taxon-input">Taxon</label>
-                <input id="taxon-input" type="search" autocomplete="off" placeholder="Search species or group…" aria-autocomplete="list" aria-controls="taxon-suggestions" aria-expanded="false" />
+                <input id="taxon-input" type="search" autocomplete="off" placeholder="Species or group…" aria-autocomplete="list" aria-controls="taxon-suggestions" aria-expanded="false" />
                 <ul id="taxon-suggestions" class="suggestions suggestions--taxon" role="listbox" hidden></ul>
-                <div id="taxon-selected-stack" class="taxon-selected-stack" aria-label="Taxon filters"></div>
+                <div id="taxon-selected-stack" class="taxon-selected-stack" aria-label="Selected taxa"></div>
               </div>
 
               <div class="field">
-                <label for="user-login">Observer username</label>
-                <input id="user-login" class="input-login" type="text" placeholder="iNaturalist username" autocapitalize="none" autocomplete="username" spellcheck="false" />
+                <label for="user-login">Observer</label>
+                <input id="user-login" class="input-login" type="text" placeholder="Username" autocapitalize="none" autocomplete="username" spellcheck="false" />
               </div>
 
               <div class="field place-field">
                 <label for="place-input">Place</label>
                 <div id="place-input-wrap" class="place-input-wrap">
-                  <input id="place-input" type="search" autocomplete="off" placeholder="Search place or choose Nearby…" aria-autocomplete="list" aria-controls="place-suggestions" aria-expanded="false" />
+                  <input id="place-input" type="search" autocomplete="off" placeholder="Place or Nearby…" aria-autocomplete="list" aria-controls="place-suggestions" aria-expanded="false" />
                   <button type="button" id="btn-clear-place" class="place-clear btn secondary" aria-label="Clear place" hidden>×</button>
                 </div>
                 <ul id="place-suggestions" class="suggestions" role="listbox" hidden></ul>
@@ -59,58 +59,55 @@
               </div>
 
               <div class="field taxon-field">
-                <label for="unobserved-input">Unobserved by</label>
-                <input id="unobserved-input" class="input-login" type="text" placeholder="iNaturalist username" autocapitalize="none" autocomplete="username" spellcheck="false" />
+                <label for="unobserved-input">Unseen by</label>
+                <input id="unobserved-input" class="input-login" type="text" placeholder="Username" autocapitalize="none" autocomplete="username" spellcheck="false" />
               </div>
 
               <fieldset class="months-fieldset inat-api-auth-fieldset">
-                <legend>API sign-in (optional)</legend>
+                <legend>API token (optional)</legend>
                 <p class="inat-api-auth-hint">
-                  Paste the <strong>full JSON</strong> from
-                  <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer">your iNaturalist API token page</a>,
-                  or paste the raw JWT string. Apply checks the format in the browser, then stores only the JWT locally so observation cards can show
-                  <strong>Agree</strong> (same as agreeing on the website).
+                  <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer">Get a token</a> — paste the JSON or the JWT alone. Only the JWT is stored here; it unlocks <strong>Agree</strong> and review filters on cards.
                 </p>
-                <label for="inat-api-token">Token (JSON or JWT)</label>
-                <textarea id="inat-api-token" class="inat-api-token" rows="4" spellcheck="false" autocomplete="off" placeholder='e.g. {"api_token":"eyJ..."} or eyJhbGciOi...'></textarea>
+                <label for="inat-api-token">Token</label>
+                <textarea id="inat-api-token" class="inat-api-token" rows="4" spellcheck="false" autocomplete="off" placeholder='{"api_token":"…"} or eyJ…'></textarea>
                 <div class="inat-api-auth-actions">
-                  <button type="button" id="btn-inat-api-token-apply" class="btn secondary">Apply token</button>
-                  <button type="button" id="btn-inat-api-token-clear" class="btn secondary">Clear token</button>
+                  <button type="button" id="btn-inat-api-token-apply" class="btn secondary">Apply</button>
+                  <button type="button" id="btn-inat-api-token-clear" class="btn secondary">Clear</button>
                 </div>
                 <p id="inat-api-auth-status" class="inat-api-auth-status" role="status" aria-live="polite"></p>
               </fieldset>
 
               <fieldset class="months-fieldset">
-                <legend>Months observed</legend>
-                <div id="months-grid" class="months-grid" role="group" aria-label="Months of the year"></div>
+                <legend>Months</legend>
+                <div id="months-grid" class="months-grid" role="group" aria-label="Months"></div>
               </fieldset>
 
               <fieldset class="months-fieldset establishment-fieldset">
-                <legend>Native / introduced / invasive / endemic</legend>
-                <p class="establishment-fieldset-hint">Uncheck a category to hide those observations. All checked shows every category.</p>
+                <legend>Establishment</legend>
+                <p class="establishment-fieldset-hint">Uncheck a type to hide it from results.</p>
                 <div class="card-meta-checks">
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-endemic" checked /> Endemic</label>
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-native" checked /> Native</label>
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-introduced" checked /> Introduced</label>
-                  <label class="card-meta-label"><input type="checkbox" id="filter-est-invasive" checked /> Invasive (King County noxious)</label>
+                  <label class="card-meta-label"><input type="checkbox" id="filter-est-invasive" checked /> Invasive (King Co.)</label>
                 </div>
               </fieldset>
 
               <div class="field">
-                <label for="quality-grade">Quality grade</label>
+                <label for="quality-grade">Quality</label>
                 <select id="quality-grade">
                   <option value="">Any</option>
-                  <option value="research">Research grade</option>
+                  <option value="research">Research</option>
                   <option value="needs_id">Needs ID</option>
                   <option value="casual">Casual</option>
                 </select>
               </div>
 
               <div class="field">
-                <label for="filter-evidence-presence">Type of evidence</label>
+                <label for="filter-evidence-presence">Evidence</label>
                 <select id="filter-evidence-presence">
                   <option value="any" selected>Any</option>
-                  <option value="organism">Animal present</option>
+                  <option value="organism">Alive / present</option>
                   <option value="egg">Egg</option>
                   <option value="nest">Nest</option>
                   <option value="feather">Feather</option>
@@ -120,65 +117,65 @@
               <div class="field">
                 <label for="sort-mode">Sort</label>
                 <select id="sort-mode">
-                  <option value="recent" selected>Most recently uploaded</option>
-                  <option value="oldest">Least recently uploaded</option>
-                  <option value="obs_recent">Most recently observed</option>
-                  <option value="obs_oldest">Least recently observed</option>
-                  <option value="faves">Most faved</option>
+                  <option value="recent" selected>Upload · newest</option>
+                  <option value="oldest">Upload · oldest</option>
+                  <option value="obs_recent">Observed · newest</option>
+                  <option value="obs_oldest">Observed · oldest</option>
+                  <option value="faves">Most favorited</option>
                 </select>
               </div>
 
               <div class="field">
-                <label for="filter-my-review">My review (Identify)</label>
+                <label for="filter-my-review">My review</label>
                 <select id="filter-my-review">
-                  <option value="all" selected>All observations</option>
-                  <option value="unreviewed">Not yet reviewed by me</option>
+                  <option value="all" selected>All</option>
+                  <option value="unreviewed">Unreviewed by me</option>
                 </select>
-                <p class="field-hint muted">Requires API sign-in below. Matches iNaturalist’s personal “reviewed” state.</p>
+                <p class="field-hint muted">Uses Identify “reviewed” state. Needs a token above.</p>
               </div>
 
               <div class="field">
-                <label for="observed-days">Observed within last N days</label>
-                <input id="observed-days" type="number" min="1" max="3650" step="1" placeholder="e.g. 7" />
+                <label for="observed-days">Observed within (days)</label>
+                <input id="observed-days" type="number" min="1" max="3650" step="1" placeholder="7" />
               </div>
 
               <div class="field">
-                <label for="uploaded-days">Uploaded within last N days</label>
-                <input id="uploaded-days" type="number" min="1" max="3650" step="1" placeholder="e.g. 7" />
+                <label for="uploaded-days">Uploaded within (days)</label>
+                <input id="uploaded-days" type="number" min="1" max="3650" step="1" placeholder="7" />
               </div>
 
               <fieldset class="months-fieldset media-popular-fieldset">
-                <legend>More filters</legend>
+                <legend>Media</legend>
                 <div class="card-meta-checks">
-                  <label class="card-meta-label"><input type="checkbox" id="media-photos" checked />Has photos</label>
-                  <label class="card-meta-label"><input type="checkbox" id="media-sounds" />Has sounds</label>
-                  <label class="card-meta-label"><input type="checkbox" id="popular-only" />Popular only</label>
+                  <label class="card-meta-label"><input type="checkbox" id="media-photos" checked /> Photos</label>
+                  <label class="card-meta-label"><input type="checkbox" id="media-sounds" /> Sounds</label>
+                  <label class="card-meta-label"><input type="checkbox" id="popular-only" /> Popular</label>
                 </div>
               </fieldset>
 
               <fieldset class="months-fieldset card-meta-fieldset">
-                <legend>Details shown</legend>
+                <legend>On cards</legend>
                 <div class="card-meta-checks">
-                  <label class="card-meta-label"><input type="checkbox" id="meta-faves" checked /> Favorites count</label>
-                  <label class="card-meta-label"><input type="checkbox" id="meta-species-count" checked /> Observations per species</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-faves" checked /> Faves</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-species-count" checked /> # per species</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-observer" /> Observer</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-location" /> Location</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-native-status" /> Native status</label>
-                  <label class="card-meta-label"><input type="checkbox" id="meta-conservation-status" /> Conservation status</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-conservation-status" /> Conservation</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-grade" /> Grade</label>
-                  <label class="card-meta-label"><input type="checkbox" id="meta-obs-date" /> Observation date</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-obs-date" /> Date observed</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-photo-page" /> Photo page</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-sci-name" /> Scientific name</label>
                 </div>
               </fieldset>
 
               <div class="actions">
-                <button type="button" id="btn-reset" class="btn secondary">Clear filters</button>
+                <button type="button" id="btn-reset" class="btn secondary">Reset</button>
               </div>
             </form>
           </section>
           <footer class="site-footer">
-            <p>Data from <a href="https://www.inaturalist.org/">iNaturalist</a> using the <a href="https://api.inaturalist.org/v1/docs/">iNaturalist API</a>. This app is not affiliated with iNaturalist. <a href="../tree/">Taxonomic tree</a></p>
+            <p><a href="https://www.inaturalist.org/">iNaturalist</a> data via API — not affiliated. <a href="../tree/">Taxonomy tree</a></p>
           </footer>
         </section>
 
@@ -251,6 +248,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=explorer-optimistic-agree-review-1" type="module"></script>
+    <script src="app.js?v=explorer-filters-copy-1" type="module"></script>
   </body>
 </html>
