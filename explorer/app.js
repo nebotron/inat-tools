@@ -3709,6 +3709,7 @@ function readUrl() {
       placeNearbyMode = true;
       el.lat.value = "";
       el.lng.value = "";
+      setCommittedPlaceDisplay("Nearby");
     }
   } else {
     clearExplorerNearMeGeoStash();
@@ -3770,7 +3771,11 @@ async function hydrateSelections() {
 }
 
 async function setNearbySelection() {
-  nearMeSource = "none";
+  /**
+   * Use `button` immediately so `syncUrl` keeps `near_me=1` in the address bar while geolocation is pending.
+   * If `near_me` were omitted (treated like "no location filter"), a refresh mid-request would drop Nearby.
+   */
+  nearMeSource = "button";
   placeNearbyMode = true;
   el.placeId.value = "";
   el.lat.value = "";
@@ -3779,6 +3784,7 @@ async function setNearbySelection() {
   /* Defer closing the list so the originating click/mouseup sequence finishes (avoids desktop ghost clicks). */
   queueMicrotask(() => hideSuggestion("place"));
   updatePlaceNearbyUI();
+  syncUrl();
   await requestNearbyGeolocation();
 }
 
