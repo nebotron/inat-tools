@@ -22,8 +22,12 @@ let inatAuthUser = null;
  */
 let lastExplorerLocationHref = window.location.href;
 
+/** `pathname + search` for the same moment — some engines report `href` differences even when the routed query is unchanged. */
+let lastExplorerPathSearch = window.location.pathname + window.location.search;
+
 function noteExplorerLocationHrefApplied() {
   lastExplorerLocationHref = window.location.href;
+  lastExplorerPathSearch = window.location.pathname + window.location.search;
 }
 
 
@@ -4343,6 +4347,38 @@ function wireObservationScrollMemory() {
   }
 }
 
+/**
+ * Pinch / page zoom changes the observations panel width (container queries change column count),
+ * which can jump `scrollTop`. Re-anchor to the card that was near the viewport center after layout settles.
+ */
+function wireObservationsPanelResizeLayoutAnchor() {
+  if (!el.panelObs || typeof ResizeObserver === "undefined") return;
+  const panel = el.panelObs;
+  let lastWidthRound = -1;
+  let anchorRaf = 0;
+  const ro = new ResizeObserver((entries) => {
+    if (currentView !== "observations") return;
+    const cr = entries[0] && entries[0].contentRect;
+    const w = cr ? Math.round(cr.width) : Math.round(panel.clientWidth);
+    if (lastWidthRound < 0) {
+      lastWidthRound = w;
+      return;
+    }
+    if (Math.abs(w - lastWidthRound) < 8) return;
+    lastWidthRound = w;
+    const anchorId = findObsCardIdNearViewportCenter();
+    if (anchorId == null) return;
+    if (anchorRaf) cancelAnimationFrame(anchorRaf);
+    anchorRaf = requestAnimationFrame(() => {
+      anchorRaf = 0;
+      if (currentView !== "observations" || !el.resultsGrid) return;
+      const card = el.resultsGrid.querySelector(`.card[data-obs-id="${anchorId}"]`);
+      if (card) card.scrollIntoView({ block: "nearest", behavior: "auto" });
+    });
+  });
+  ro.observe(panel);
+}
+
 /** Delegated clicks for observation-card Agree and Mark reviewed (authenticated iNat API writes). */
 function wireObservationAgreeClicks() {
   if (!el.resultsGrid) return;
@@ -4816,6 +4852,7 @@ async function boot() {
   wireTabs();
   wireInfiniteScroll();
   wireObservationScrollMemory();
+  wireObservationsPanelResizeLayoutAnchor();
   wireSpeciesGridScrollImagePreload();
   wireObservationAgreeClicks();
   wireFilterExtras();
@@ -4891,7 +4928,8 @@ async function boot() {
  * matches the new shared link. Re-read the URL and reload the active view so the UI matches the address bar.
  *
  * On many mobile browsers, `pageshow` with `persisted` also fires after an app switch even when the
- * URL never changed; comparing to `lastExplorerLocationHref` avoids a redundant full resync.
+ * URL never changed; comparing to `lastExplorerLocationHref` (and `pathname + search`) avoids a
+ * redundant full resync that would clear the observations grid.
  */
 async function resyncAppFromCurrentUrlAfterBfcache() {
   readUrl();
@@ -4940,6 +4978,11 @@ async function resyncAppFromCurrentUrlAfterBfcache() {
 
 window.addEventListener("pageshow", (e) => {
   if (!e.persisted) return;
+  const pathSearch = window.location.pathname + window.location.search;
+  if (pathSearch === lastExplorerPathSearch) {
+    noteExplorerLocationHrefApplied();
+    return;
+  }
   if (window.location.href === lastExplorerLocationHref) return;
   void resyncAppFromCurrentUrlAfterBfcache();
 });
