@@ -1,6 +1,9 @@
 /**
- * Loads before `app.js` (non-module). Registers global error handlers and
- * `window.explorerReportFatalException` so the explorer can replace the page with a full dump.
+ * Loads before `app.js` (non-module). Defines `window.explorerReportFatalException` so the explorer
+ * can replace the page with a full dump when the app explicitly reports a failure.
+ *
+ * Global `window` "error" / "unhandledrejection" listeners are intentionally not installed: mobile
+ * Safari (e.g. system share sheet) can emit spurious events that are unrelated to app bugs.
  */
 (function explorerFatalDumpBootstrap() {
   "use strict";
@@ -58,33 +61,6 @@
       );
     }
     return safeString(cur);
-  }
-
-  function recentScriptResourceUrls() {
-    try {
-      if (typeof performance === "undefined" || !performance.getEntriesByType) return "";
-      var entries = performance.getEntriesByType("resource");
-      var out = [];
-      var i;
-      var max = 20;
-      for (i = entries.length - 1; i >= 0 && out.length < max; i -= 1) {
-        var e = entries[i];
-        var n = String(e.name);
-        if (!/\.js(\?|$|#)/i.test(n) && e.initiatorType !== "script") continue;
-        out.push(n + "  [" + String(e.initiatorType || "?") + "]");
-      }
-      return out.length ? out.reverse().join("\n") : "";
-    } catch (x) {
-      return "(could not read performance entries: " + String(x && x.message ? x.message : x) + ")";
-    }
-  }
-
-  function isOpaqueCrossOriginScriptError(ev, err) {
-    var msg = ev && typeof ev.message === "string" ? ev.message : "";
-    if (msg === "Script error.") return true;
-    if (err && err instanceof Error && err.message === "Script error.") return true;
-    if (msg === "" && ev && !ev.filename && (ev.lineno === 0 || ev.lineno === undefined)) return true;
-    return false;
   }
 
   function formatErrorChain(err) {
@@ -150,14 +126,6 @@
     lines.push("Context label (from app): " + (contextLabel || "(none)"));
     lines.push("");
     var appendixStr = appendix ? String(appendix).trim() : "";
-    var diagFirst = appendixStr.indexOf('--- ErrorEvent (window "error") ---') === 0;
-    if (diagFirst) {
-      lines.push(
-        "--- Diagnostics (window error; cross-origin script throws hide filename/line on the primary Error) ---"
-      );
-      lines.push(appendixStr);
-      lines.push("");
-    }
     lines.push("--- Primary exception ---");
     if (reason instanceof Error) {
       lines.push(formatErrorChain(reason));
@@ -165,7 +133,7 @@
       lines.push("Thrown / rejected value:\n" + safeString(reason));
     }
     lines.push("");
-    if (!diagFirst && appendixStr) {
+    if (appendixStr) {
       lines.push("--- Additional diagnostics ---");
       lines.push(appendixStr);
       lines.push("");
@@ -293,134 +261,4 @@
 
   /** @param {unknown} reason @param {string} [contextLabel] @param {string} [appendix] */
   window.explorerReportFatalException = report;
-
-  /**
-   * Browsers (especially WebKit) may dispatch a window `error` for ResizeObserver feedback during
-   * pinch / page zoom. It is not a fatal app bug; replacing the entire document would look like a
-   * refresh and can trigger Safari’s “a problem repeatedly occurred” if it fires in a loop.
-   */
-  function isBenignResizeObserverLoopMessage(msg) {
-    var s = typeof msg === "string" ? msg : msg == null ? "" : String(msg);
-    return s.indexOf("ResizeObserver") !== -1;
-  }
-
-  function isWebKitMobile() {
-    var ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
-    if (/iPhone|iPad|iPod/i.test(ua)) return true;
-    if (typeof navigator !== "undefined" && navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * iOS Safari’s system share sheet and other chrome can dispatch empty `error` events or
-   * cross-origin “Script error.” noise; treating those as fatal replaces the whole page.
-   */
-  function shouldSuppressWindowErrorForMobileWebKit(ev) {
-    if (!isWebKitMobile() || !ev || typeof ev !== "object") return false;
-    var msg = typeof ev.message === "string" ? ev.message : "";
-    if (msg === "Script error.") return true;
-    if (
-      !msg &&
-      (!ev.filename || ev.filename === "") &&
-      (ev.lineno === 0 || ev.lineno == null || ev.lineno === undefined) &&
-      (ev.colno === 0 || ev.colno == null || ev.colno === undefined) &&
-      (ev.error == null || ev.error === undefined)
-    ) {
-      return true;
-    }
-    return false;
-  }
-
-  window.addEventListener(
-    "error",
-    function (ev) {
-      if (shown) return;
-      var msg = ev && typeof ev.message === "string" ? ev.message : "";
-      if (shouldSuppressWindowErrorForMobileWebKit(ev)) {
-        try {
-          ev.preventDefault();
-        } catch {
-          /* ignore */
-        }
-        return;
-      }
-      if (isBenignResizeObserverLoopMessage(msg)) {
-        try {
-          ev.preventDefault();
-        } catch {
-          /* ignore */
-        }
-        return;
-      }
-      if (ev && ev.error && isBenignResizeObserverLoopMessage(ev.error.message)) {
-        try {
-          ev.preventDefault();
-        } catch {
-          /* ignore */
-        }
-        return;
-      }
-      var rawErr = ev.error;
-      var err;
-      if (rawErr instanceof Error && !isOpaqueCrossOriginScriptError(ev, rawErr)) {
-        err = rawErr;
-      } else if (rawErr instanceof Error && isOpaqueCrossOriginScriptError(ev, rawErr)) {
-        err = new Error(
-          "Script error. (browser omitted source location, often cross-origin). See Diagnostics for ErrorEvent fields and recent script URLs.",
-          { cause: rawErr }
-        );
-      } else {
-        err = new Error(
-          isOpaqueCrossOriginScriptError(ev, null)
-            ? "Script error. (browser omitted details). See Diagnostics below."
-            : typeof ev.message === "string" && ev.message
-              ? ev.message
-              : "window error event"
-        );
-      }
-      var evBlock = "--- ErrorEvent (window \"error\") ---\n" + formatErrorEvent(ev);
-      var appendix = evBlock;
-      if (isOpaqueCrossOriginScriptError(ev, err)) {
-        appendix +=
-          "\n\n--- Cross-origin / sanitized script errors ---\n" +
-          "Browsers often report only \"Script error.\" with no filename or line when the throw site is in another\n" +
-          "origin (classic script without CORS) or when details are withheld. The stack on a synthetic Error below\n" +
-          "points at this fatal reporter, not the original file.\n";
-        var scripts = recentScriptResourceUrls();
-        if (scripts) appendix += "\n--- Recent JS-related resource URLs (Performance API) ---\n" + scripts + "\n";
-      } else {
-        var scripts2 = recentScriptResourceUrls();
-        if (scripts2) appendix += "\n--- Recent JS-related resource URLs (Performance API) ---\n" + scripts2 + "\n";
-      }
-      var ctx =
-        'window "error" event — filename: ' +
-        (ev.filename || "(none)") +
-        "  line: " +
-        (ev.lineno != null ? ev.lineno : "(none)") +
-        "  col: " +
-        (ev.colno != null ? ev.colno : "(none)");
-      report(err, ctx, appendix);
-    },
-    true
-  );
-
-  window.addEventListener("unhandledrejection", function (ev) {
-    if (shown) return;
-    var r = ev.reason;
-    var m =
-      r instanceof Error
-        ? r.message
-        : r && typeof r.message === "string"
-          ? r.message
-          : typeof r === "string"
-            ? r
-            : "";
-    if (isBenignResizeObserverLoopMessage(m)) return;
-    var appendix = "";
-    var scripts = recentScriptResourceUrls();
-    if (scripts) appendix = "--- Recent JS-related resource URLs (Performance API) ---\n" + scripts;
-    report(ev.reason, "unhandledrejection", appendix || undefined);
-  });
 })();
