@@ -3710,6 +3710,7 @@ function confirmInatGroupingSingleEditAndReturn() {
   if (file) {
     const k = fileCacheKey(file);
     if (cropState.has(k)) cropReviewDoneKeys.add(k);
+    revokeInatGroupingThumbUrlForKey(k);
   }
   inatGroupEditForwardIndex = -1;
   setCurrentPage("export");
@@ -4591,6 +4592,20 @@ function fixInatGroupEditIndexAfterRemove(removedIdx) {
   else if (inatGroupEditForwardIndex > removedIdx) inatGroupEditForwardIndex -= 1;
 }
 
+/** Drop cached iNat grouping JPEG so the strip can rebuild after crop edits (cache key is file-only). */
+function revokeInatGroupingThumbUrlForKey(key) {
+  const inatThumb = inatGroupingThumbUrlByKey.get(key);
+  if (!inatThumb) return;
+  try {
+    URL.revokeObjectURL(inatThumb);
+  } catch {
+    /* ignore */
+  }
+  inatGroupingThumbUrlByKey.delete(key);
+  const pi0 = previewObjectUrls.indexOf(inatThumb);
+  if (pi0 >= 0) previewObjectUrls.splice(pi0, 1);
+}
+
 /**
  * Remove a photo from the batch and revoke its preview blob URL.
  */
@@ -4618,15 +4633,7 @@ function removeWorkItemAndRow(file, row) {
     } catch { /* ignore */ }
     cropPreviewBitmapByKey.delete(key);
   }
-  const inatThumb = inatGroupingThumbUrlByKey.get(key);
-  if (inatThumb) {
-    try {
-      URL.revokeObjectURL(inatThumb);
-    } catch { /* ignore */ }
-    inatGroupingThumbUrlByKey.delete(key);
-    const pi0 = previewObjectUrls.indexOf(inatThumb);
-    if (pi0 >= 0) previewObjectUrls.splice(pi0, 1);
-  }
+  revokeInatGroupingThumbUrlForKey(key);
   /** Stop pan/zoom/rAF before mutating batch — avoids touching detached DOM after splice. */
   if (row && typeof row._abortCropEditorUi === "function") {
     try {
