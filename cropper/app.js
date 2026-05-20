@@ -375,8 +375,62 @@ let inatSpeciesSuggestActiveCard = null;
 let inatSpeciesSuggestHighlight = -1;
 let inatSpeciesSelectingProgrammatic = false;
 let inatUploadGroupingDelegated = false;
-/** After a thumbnail drag, ignore the synthetic `click` so the crop editor does not open. */
-let inatStripSuppressNextTileClick = false;
+/** Max duration (ms) for a release that still counts as a quick tap to open crop (below long-hold drag). */
+const INAT_STRIP_SHORT_TAP_MAX_MS = 320;
+/** Hold this long on a thumbnail to arm drag-and-drop without opening crop on release. */
+const INAT_STRIP_LONG_HOLD_MS = 450;
+const INAT_STRIP_TAP_SLOP_SQ = 12 * 12;
+/**
+ * Active primary-pointer gesture on an iNat grouping thumbnail (quick tap opens crop; long hold is for drag).
+ * @type {{ photoIdx: number, downTs: number, x0: number, y0: number, pointerId: number, longArmed: boolean, dragDid: boolean, movedPastSlop: boolean } | null}
+ */
+let inatStripTileGesture = null;
+let inatStripTileLongHoldTimer = 0;
+
+function clearInatStripTileLongHoldTimer() {
+  if (inatStripTileLongHoldTimer !== 0) {
+    clearTimeout(inatStripTileLongHoldTimer);
+    inatStripTileLongHoldTimer = 0;
+  }
+}
+
+function inatStripTileGlobalPointerMove(e) {
+  if (!inatStripTileGesture || e.pointerId !== inatStripTileGesture.pointerId) return;
+  const g = inatStripTileGesture;
+  const dx = e.clientX - g.x0;
+  const dy = e.clientY - g.y0;
+  if (!g.movedPastSlop && dx * dx + dy * dy >= INAT_STRIP_TAP_SLOP_SQ) {
+    g.movedPastSlop = true;
+    clearInatStripTileLongHoldTimer();
+  }
+}
+
+function inatStripTileGlobalPointerEnd(e) {
+  if (!inatStripTileGesture || e.pointerId !== inatStripTileGesture.pointerId) return;
+  const g = inatStripTileGesture;
+  const fromCancel = e.type === "pointercancel";
+  clearInatStripTileLongHoldTimer();
+  window.removeEventListener("pointermove", inatStripTileGlobalPointerMove, true);
+  window.removeEventListener("pointerup", inatStripTileGlobalPointerEnd, true);
+  window.removeEventListener("pointercancel", inatStripTileGlobalPointerEnd, true);
+  inatStripTileGesture = null;
+
+  const elapsed = performance.now() - g.downTs;
+  if (!fromCancel && !g.dragDid && !g.longArmed && !g.movedPastSlop && elapsed <= INAT_STRIP_SHORT_TAP_MAX_MS) {
+    openInatGroupingCropEditor(g.photoIdx);
+  }
+}
+
+function resetInatStripTileGesture() {
+  clearInatStripTileLongHoldTimer();
+  if (inatStripTileGesture) {
+    window.removeEventListener("pointermove", inatStripTileGlobalPointerMove, true);
+    window.removeEventListener("pointerup", inatStripTileGlobalPointerEnd, true);
+    window.removeEventListener("pointercancel", inatStripTileGlobalPointerEnd, true);
+    inatStripTileGesture = null;
+  }
+}
+
 /** Drop zone currently highlighted during an in-flight photo drag. */
 let inatDnDDropHighlightEl = null;
 
@@ -3358,18 +3412,38 @@ function wireInatUploadGroupingDelegated() {
       void handleInatGroupCvClick(card, btn, g);
       return;
     }
+  });
+
+  inatUploadGroupingStrip.addEventListener("pointerdown", (e) => {
+    if (!e.isPrimary || e.button !== 0) return;
     const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
-    if (tile instanceof HTMLElement && inatUploadGroupingStrip.contains(tile)) {
-      if (inatStripSuppressNextTileClick) return;
-      const ix = parseInt(tile.dataset.photoIdx || "", 10);
-      if (!Number.isFinite(ix) || ix < 0 || ix >= workItems.length || !workItems[ix]) return;
-      e.preventDefault();
-      openInatGroupingCropEditor(ix);
-    }
+    if (!(tile instanceof HTMLElement) || !inatUploadGroupingStrip.contains(tile)) return;
+    const ix = parseInt(tile.dataset.photoIdx || "", 10);
+    if (!Number.isFinite(ix) || ix < 0 || ix >= workItems.length || !workItems[ix]) return;
+    resetInatStripTileGesture();
+    inatStripTileGesture = {
+      photoIdx: ix,
+      downTs: performance.now(),
+      x0: e.clientX,
+      y0: e.clientY,
+      pointerId: e.pointerId,
+      longArmed: false,
+      dragDid: false,
+      movedPastSlop: false,
+    };
+    window.addEventListener("pointermove", inatStripTileGlobalPointerMove, true);
+    window.addEventListener("pointerup", inatStripTileGlobalPointerEnd, true);
+    window.addEventListener("pointercancel", inatStripTileGlobalPointerEnd, true);
+    inatStripTileLongHoldTimer = window.setTimeout(() => {
+      inatStripTileLongHoldTimer = 0;
+      if (!inatStripTileGesture) return;
+      inatStripTileGesture.longArmed = true;
+    }, INAT_STRIP_LONG_HOLD_MS);
   });
 
   inatUploadGroupingStrip.addEventListener("dragstart", (e) => {
     const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
+    if (tile && e instanceof DragEvent && e.dataTransfer) resetInatStripTileGesture();
     if (!tile || !(e instanceof DragEvent) || !e.dataTransfer) return;
     const idx = parseInt(tile.dataset.photoIdx || "", 10);
     if (!Number.isFinite(idx)) return;
@@ -3394,10 +3468,6 @@ function wireInatUploadGroupingDelegated() {
     const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
     if (tile) tile.classList.remove("inat-dnd-tile--dragging");
     clearInatDnDDropHighlight();
-    inatStripSuppressNextTileClick = true;
-    window.setTimeout(() => {
-      inatStripSuppressNextTileClick = false;
-    }, 250);
   });
 
   inatUploadGroupingStrip.addEventListener("dragover", (e) => {
@@ -3910,7 +3980,7 @@ function renderInatPhotoGroupingStrip() {
     drop.className = "inat-group-drop";
     drop.setAttribute(
       "aria-label",
-      "Photo thumbnails — tap to adjust crop; press and hold, then drag to regroup. Drop on another observation to combine, or on a dashed row for a new observation",
+      "Photo thumbnails — quick tap to adjust crop; press and hold, then drag to regroup. Drop on another observation to combine, or on a dashed row for a new observation",
     );
     for (const ix of grp.indices) {
       if (ix < 0 || ix >= workItems.length) continue;
