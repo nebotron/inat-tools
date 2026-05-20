@@ -11,7 +11,7 @@
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="stylesheet" href="styles.css?v=explorer-agree-review-no-hover-1" />
+    <link rel="stylesheet" href="styles.css?v=explorer-nearby-geo-error-2" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -57,6 +57,7 @@
                 <input type="hidden" id="lat" value="" />
                 <input type="hidden" id="lng" value="" />
               </div>
+              <p id="error-banner-place" class="error-banner error-banner--place" role="alert" aria-live="assertive" hidden></p>
 
               <div class="field taxon-field">
                 <label for="unobserved-input">Unseen by</label>

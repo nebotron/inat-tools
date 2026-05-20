@@ -83,6 +83,30 @@ test.describe("explorer", () => {
 });
 
 test.describe("explorer near_me session restore", () => {
+  test("shows alert and banner when Nearby geolocation is denied", async ({ page }) => {
+    await page.addInitScript(() => {
+      navigator.geolocation.getCurrentPosition = (_ok, reject) => {
+        reject({ code: 1, message: "User denied Geolocation" });
+      };
+    });
+    const dialogPromise = new Promise((resolve) => {
+      page.once("dialog", (d) => {
+        expect(d.message()).toMatch(/denied|permission/i);
+        void d.accept();
+        resolve(null);
+      });
+    });
+    await page.goto("/explorer/?view=filters", { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".view-tabs")).toBeVisible();
+    await page.waitForFunction(() => window.__EXPLORER_BOOT__ != null, { timeout: 60_000 });
+    await page.evaluate(() => window.__EXPLORER_BOOT__);
+    await page.locator("#place-input").focus();
+    await page.getByRole("option", { name: "Nearby" }).click();
+    await dialogPromise;
+    await expect(page.locator("#error-banner-place")).toBeVisible();
+    await expect(page.locator("#error-banner-place")).toContainText(/permission|denied/i);
+  });
+
   test("writes near_me to URL before geolocation resolves", async ({ page, context }) => {
     const origin = test.info().project.use.baseURL;
     if (!origin) throw new Error("Playwright baseURL is required for geolocation permission");

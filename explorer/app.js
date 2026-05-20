@@ -295,6 +295,7 @@ const el = {
   searchSummarySpecies: document.getElementById("search-summary-species"),
   mapError: document.getElementById("error-banner-map"),
   statsError: document.getElementById("error-banner-stats"),
+  placeGeoError: document.getElementById("error-banner-place"),
   searchSummaryStats: document.getElementById("search-summary-stats"),
   statsContent: document.getElementById("stats-content"),
   obsSentinel: document.getElementById("obs-sentinel"),
@@ -547,6 +548,7 @@ function setCommittedPlaceDisplay(text) {
 
 function clearPlaceFilter() {
   clearExplorerNearMeGeoStash();
+  clearNearbyGeolocationFailureMessage();
   placeNearbyMode = false;
   nearMeSource = "none";
   el.placeId.value = "";
@@ -1043,6 +1045,57 @@ function clearErrors() {
   showError("species", "");
   showError("map", "");
   showError("stats", "");
+  clearNearbyGeolocationFailureMessage();
+}
+
+/**
+ * Clears the Filters-tab banner for Nearby / geolocation failures.
+ */
+function clearNearbyGeolocationFailureMessage() {
+  if (!el.placeGeoError) return;
+  el.placeGeoError.textContent = "";
+  el.placeGeoError.hidden = true;
+}
+
+/**
+ * User-visible failure for Nearby (modal + persistent banner in Filters).
+ * @param {string} message
+ */
+function showNearbyGeolocationFailureMessage(message) {
+  const text = (message || "").trim() || "Could not get your location for Nearby search.";
+  if (el.placeGeoError) {
+    el.placeGeoError.textContent = text;
+    el.placeGeoError.hidden = false;
+  }
+  try {
+    window.alert(text);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * @param {unknown} err from `getCurrentPosition` or thrown Error
+ */
+function formatGeolocationFailureMessage(err) {
+  if (err && typeof err === "object" && "code" in err) {
+    const code = /** @type {{ code?: number }} */ (err).code;
+    if (code === 1) {
+      return "Location permission was denied. Nearby search needs your position. Allow location for this site (lock or tune icon in the address bar), then try Nearby again, or pick a named place.";
+    }
+    if (code === 2) {
+      return "Your device could not determine its position (position unavailable). Try Nearby again or pick a named place.";
+    }
+    if (code === 3) {
+      return "Getting your location timed out. Try again, or pick a named place.";
+    }
+  }
+  const msg =
+    err && typeof err === "object" && "message" in err && typeof /** @type {{ message?: unknown }} */ (err).message === "string"
+      ? String(/** @type {{ message: string }} */ (err).message).trim()
+      : "";
+  if (msg) return `Could not get your location: ${msg}`;
+  return "Could not get your location. Check browser settings or pick a named place.";
 }
 
 function initMonths() {
@@ -3853,6 +3906,7 @@ async function setNearbySelection() {
 function setPlaceSelection(id, label, options = {}) {
   const fromHydrate = options.fromHydrate === true;
   clearExplorerNearMeGeoStash();
+  clearNearbyGeolocationFailureMessage();
   nearMeSource = "none";
   placeNearbyMode = false;
   updatePlaceNearbyUI();
@@ -4084,6 +4138,7 @@ function wireAutocomplete() {
 }
 
 function applyGeoPosition(pos) {
+  clearNearbyGeolocationFailureMessage();
   placeNearbyMode = true;
   el.placeId.value = "";
   setCommittedPlaceDisplay("Nearby");
@@ -4113,7 +4168,9 @@ async function requestNearbyGeolocation() {
     nearMeSource = "button";
     await onLocationFilterChanged();
     stashExplorerNearMeGeoAfterUrlSynced();
-  } catch {
+  } catch (err) {
+    const msg = formatGeolocationFailureMessage(err);
+    showNearbyGeolocationFailureMessage(msg);
     clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
@@ -4132,7 +4189,9 @@ async function resolveNearMeFromUrl() {
     nearMeSource = "url";
     await onLocationFilterChanged();
     stashExplorerNearMeGeoAfterUrlSynced();
-  } catch {
+  } catch (err) {
+    const msg = formatGeolocationFailureMessage(err);
+    showNearbyGeolocationFailureMessage(msg);
     clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
@@ -4807,6 +4866,9 @@ async function boot() {
         nearMeSource === "url" &&
         (!el.lat.value.trim() || !el.lng.value.trim())
       ) {
+        showNearbyGeolocationFailureMessage(
+          "Nearby in the link needs your current position, but the browser did not return a location in time. Allow location for this site, try again, or pick a named place.",
+        );
         clearExplorerNearMeGeoStash();
         nearMeSource = "none";
         placeNearbyMode = false;
@@ -4857,6 +4919,9 @@ async function resyncAppFromCurrentUrlAfterBfcache() {
         nearMeSource === "url" &&
         (!el.lat.value.trim() || !el.lng.value.trim())
       ) {
+        showNearbyGeolocationFailureMessage(
+          "Nearby in the link needs your current position, but the browser did not return a location in time. Allow location for this site, try again, or pick a named place.",
+        );
         clearExplorerNearMeGeoStash();
         nearMeSource = "none";
         placeNearbyMode = false;

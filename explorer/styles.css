@@ -460,6 +460,12 @@ main {
   font-size: 0.9rem;
 }
 
+.error-banner--place {
+  margin: 0 0 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #ffcdd2;
+}
+
 /* Panel width is the query container so column count tracks the real results area (even divisors via equal `fr`). */
 #panel-observations.view-panel,
 #panel-species.view-panel {
