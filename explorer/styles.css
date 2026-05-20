@@ -467,11 +467,17 @@ main {
   width: 100%;
 }
 
-/* Phone: cards span the full results width; wider viewports cap column width for readable tiles. */
+/* Phone: cards span the full results width; wider viewports cap column so squares stay thumbnail-sized. */
 @media (min-width: 641px) {
   .results-grid {
-    max-width: 42rem;
+    max-width: min(30rem, 100%);
     margin-inline: auto;
+  }
+}
+
+@media (min-width: 1100px) {
+  .results-grid {
+    max-width: min(34rem, 100%);
   }
 }
 
