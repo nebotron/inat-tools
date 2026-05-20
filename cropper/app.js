@@ -375,6 +375,90 @@ let inatUploadGroupingDelegated = false;
 /** Drop zone currently highlighted during an in-flight photo drag. */
 let inatDnDDropHighlightEl = null;
 
+/**
+ * Find gap vs card photo-drop under the pointer. Uses `elementsFromPoint` so hits work when the
+ * cursor is over species/location rows (siblings of `.inat-group-drop`, not inside it).
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {{ kind: "gap"; el: Element } | { kind: "card"; dropEl: Element; overTile: Element | null } | null}
+ */
+function inatResolvePhotoDnDHit(clientX, clientY) {
+  const strip = inatUploadGroupingStrip;
+  if (!strip) return null;
+  try {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    for (const node of stack) {
+      if (!(node instanceof Element) || !strip.contains(node)) continue;
+      const gapEl = node.closest(".inat-group-gap-drop");
+      if (gapEl) return { kind: "gap", el: gapEl };
+    }
+    for (const node of stack) {
+      if (!(node instanceof Element) || !strip.contains(node)) continue;
+      const dropEl = node.closest(".inat-group-drop");
+      if (dropEl) {
+        let overTile = null;
+        for (const n2 of stack) {
+          if (!(n2 instanceof Element)) continue;
+          const ti = n2.closest(".inat-dnd-tile");
+          if (ti && dropEl.contains(ti)) {
+            overTile = ti;
+            break;
+          }
+        }
+        return { kind: "card", dropEl, overTile };
+      }
+      const card = node.closest(".inat-group-card");
+      if (card) {
+        const inner = card.querySelector(".inat-group-drop");
+        if (inner) {
+          let overTile = null;
+          for (const n2 of stack) {
+            if (!(n2 instanceof Element)) continue;
+            const ti = n2.closest(".inat-dnd-tile");
+            if (ti && inner.contains(ti)) {
+              overTile = ti;
+              break;
+            }
+          }
+          return { kind: "card", dropEl: inner, overTile };
+        }
+      }
+    }
+  } catch {
+    /* elementsFromPoint can throw in rare cases */
+  }
+  return null;
+}
+
+/** @param {EventTarget | null} target */
+function inatFallbackPhotoDnDHitFromTarget(target) {
+  if (!(target instanceof Element) || !inatUploadGroupingStrip?.contains(target)) return null;
+  const gap = target.closest(".inat-group-gap-drop");
+  if (gap) return { kind: "gap", el: gap };
+  const drop = target.closest(".inat-group-drop");
+  if (drop) return { kind: "card", dropEl: drop, overTile: target.closest(".inat-dnd-tile") };
+  const card = target.closest(".inat-group-card");
+  if (card) {
+    const inner = card.querySelector(".inat-group-drop");
+    if (inner) return { kind: "card", dropEl: inner, overTile: target.closest(".inat-dnd-tile") };
+  }
+  return null;
+}
+
+function inatUpdatePhotoDnDHighlightFromPointer(clientX, clientY) {
+  const hit = inatResolvePhotoDnDHit(clientX, clientY);
+  const drop =
+    hit && hit.kind === "gap" ? hit.el : hit && hit.kind === "card" ? hit.dropEl : null;
+  if (inatDnDDropHighlightEl === drop) return;
+  if (inatDnDDropHighlightEl) {
+    inatDnDDropHighlightEl.classList.remove("inat-group-drop--over", "inat-group-gap-drop--over");
+  }
+  inatDnDDropHighlightEl = drop;
+  if (drop) {
+    drop.classList.add(drop.classList.contains("inat-group-gap-drop") ? "inat-group-gap-drop--over" : "inat-group-drop--over");
+  }
+}
+
 function resetInatUploadProgressUi() {
   if (inatUploadProgressWrap) inatUploadProgressWrap.hidden = true;
   if (inatUploadProgressBar) {
@@ -3215,13 +3299,27 @@ function wireInatUploadGroupingDelegated() {
     if (!(t instanceof Node) || !inatUploadGroupingStrip.contains(t)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    const drop = "closest" in t ? t.closest(".inat-group-gap-drop, .inat-group-drop") : null;
-    if (inatDnDDropHighlightEl !== drop) {
-      if (inatDnDDropHighlightEl) {
+    inatUpdatePhotoDnDHighlightFromPointer(e.clientX, e.clientY);
+  });
+
+  inatUploadGroupingStrip.addEventListener("dragleave", (e) => {
+    if (!(e instanceof DragEvent)) return;
+    const strip = inatUploadGroupingStrip;
+    if (!strip) return;
+    const r = strip.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return;
+    if (inatDnDDropHighlightEl) {
+      try {
         inatDnDDropHighlightEl.classList.remove("inat-group-drop--over", "inat-group-gap-drop--over");
+      } catch {
+        /* ignore */
       }
-      inatDnDDropHighlightEl = drop;
-      if (drop) drop.classList.add(drop.classList.contains("inat-group-gap-drop") ? "inat-group-gap-drop--over" : "inat-group-drop--over");
+      inatDnDDropHighlightEl = null;
+    }
+    for (const el of strip.querySelectorAll(".inat-group-drop--over, .inat-group-gap-drop--over")) {
+      el.classList.remove("inat-group-drop--over", "inat-group-gap-drop--over");
     }
   });
 
@@ -3230,8 +3328,11 @@ function wireInatUploadGroupingDelegated() {
     const photoIdx = parseInt(e.dataTransfer.getData("application/x-inat-photo-idx") || e.dataTransfer.getData("text/plain") || "", 10);
     if (!Number.isFinite(photoIdx)) return;
 
-    const gap = e.target && "closest" in e.target ? e.target.closest(".inat-group-gap-drop") : null;
-    if (gap) {
+    const hit =
+      inatResolvePhotoDnDHit(e.clientX, e.clientY) ?? inatFallbackPhotoDnDHitFromTarget(e.target);
+
+    if (hit?.kind === "gap") {
+      const gap = hit.el;
       e.preventDefault();
       clearInatDnDDropHighlight();
       const insertBeforeGroup = parseInt(gap.dataset.insertBeforeGroup || "", 10);
@@ -3255,8 +3356,8 @@ function wireInatUploadGroupingDelegated() {
       return;
     }
 
-    const drop = e.target && "closest" in e.target ? e.target.closest(".inat-group-drop") : null;
-    if (!drop) return;
+    if (hit?.kind !== "card") return;
+    const drop = hit.dropEl;
     e.preventDefault();
     clearInatDnDDropHighlight();
     const card = drop.closest(".inat-group-card");
@@ -3276,7 +3377,7 @@ function wireInatUploadGroupingDelegated() {
     }
     if (fromG < 0) return;
 
-    const overTile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
+    const overTile = hit.overTile;
     let insertBefore = null;
     if (overTile) {
       const cand = parseInt(overTile.dataset.photoIdx || "", 10);

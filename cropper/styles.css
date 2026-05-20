@@ -1666,7 +1666,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
   border-left: none;
   border-right: none;
   background: transparent;
-  transition: outline-color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out;
+  transition: outline-color 0.05s ease-out, background 0.05s ease-out, border-color 0.05s ease-out;
 }
 
 .inat-upload-grouping-strip--dnd .inat-group-gap-drop {
@@ -1716,7 +1716,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
   border-radius: 0;
   border: none;
   background: transparent;
-  transition: outline-color 0.12s ease-out, background 0.12s ease-out;
+  transition: outline-color 0.05s ease-out, background 0.05s ease-out;
 }
 
 .inat-group-drop--over {
@@ -1732,11 +1732,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
   cursor: grab;
   touch-action: none;
   box-shadow: none;
-  transition: transform 0.12s ease-out, opacity 0.12s ease-out;
-}
-
-.inat-upload-grouping-strip--dnd .inat-dnd-tile:not(.inat-dnd-tile--dragging) {
-  will-change: transform;
+  transition: transform 0.05s ease-out, opacity 0.05s ease-out;
 }
 
 .inat-dnd-tile:active {
@@ -1746,6 +1742,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
 .inat-dnd-tile--dragging {
   opacity: 0.35;
   transform: scale(0.97);
+  will-change: transform, opacity;
 }
 
 .inat-dnd-tile__thumb {
