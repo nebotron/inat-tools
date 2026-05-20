@@ -1727,6 +1727,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
 
 .inat-dnd-tile {
   flex: 0 0 auto;
+  position: relative;
   border-radius: 0;
   overflow: hidden;
   cursor: grab;
@@ -1767,6 +1768,25 @@ body.app-body-fit .app-page--crop .crop-review-done {
 
 .inat-dnd-tile__thumb--fallback {
   font-size: 0.85rem;
+}
+
+.inat-dnd-tile__obs-dup {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.2rem;
+  border-radius: 999px;
+  background: #b45309;
+  color: #fffbeb;
+  font-weight: 800;
+  font-size: 0.78rem;
+  line-height: 1.15rem;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
 .inat-upload-progress-wrap {

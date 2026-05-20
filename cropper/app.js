@@ -359,6 +359,18 @@ let inatUploadAuthOk = false;
 let inatUploadInProgress = false;
 /** True while running computer vision across every observation row (blocks upload / per-row Vision). */
 let inatBulkCvInProgress = false;
+/** Signed-in iNaturalist user id from `users/me` (preferred for observation queries). */
+let inatMeUserId = 0;
+/** Login from `users/me` when `id` is missing — fallback `user_login=` on observations API. */
+let inatMeLogin = "";
+/** `Math.floor(Date.parse(time_observed_at) / 1000)` for the signed-in user's fetched observations. */
+let inatExistingObservedSecondsSet = /** @type {Set<number>} */ (new Set());
+let inatExistingObsSecondsFetchedAt = 0;
+let inatObservedCollisionTimer = 0;
+/** `workItems` signature when `inatPhotoObservedCollisionFlags` was last computed. */
+let inatObservedCollisionSig = "";
+/** Per work-item index: photo observed instant matches an existing observation (same UTC second). */
+let inatPhotoObservedCollisionFlags = /** @type {boolean[] | null} */ (null);
 /**
  * Each observation group: workItem indices (0..n-1) and per-group species / taxon for iNat create.
  * @type {{ indices: number[], species: string, taxonId: string }[]}
@@ -1077,6 +1089,7 @@ function clearCropState() {
     if (pi >= 0) previewObjectUrls.splice(pi, 1);
   }
   inatGroupingThumbUrlByKey.clear();
+  resetInatObservedTimeCollisionState();
 }
 
 function invalidateShareSheetPrep() {
@@ -2666,12 +2679,19 @@ function setInatUploadStatusVariant(variant) {
   else inatUploadStatus.classList.add("inat-upload-status--neutral");
 }
 
+function clearInatUploadIdentityAndCollisions() {
+  inatMeUserId = 0;
+  inatMeLogin = "";
+  resetInatObservedTimeCollisionState();
+}
+
 async function refreshInatUploadAuthUi() {
   if (!inatUploadStatus || !inatUploadTokenField) return;
   inatUploadAuthOk = false;
   updateButtons();
   const jwt = getStoredInatApiJwt();
   if (!jwt) {
+    clearInatUploadIdentityAndCollisions();
     inatUploadTokenField.hidden = false;
     inatUploadStatus.textContent =
       "No API token saved. Paste the JSON or a raw JWT from iNaturalist (same storage as the observation browser), then Apply.";
@@ -2681,6 +2701,7 @@ async function refreshInatUploadAuthUi() {
   }
   const format = validateInatJwtFormat(jwt);
   if (!format.ok) {
+    clearInatUploadIdentityAndCollisions();
     inatUploadTokenField.hidden = false;
     inatUploadStatus.textContent = `Stored token failed the format check: ${format.error} Clear it and paste again.`;
     setInatUploadStatusVariant("error");
@@ -2691,6 +2712,7 @@ async function refreshInatUploadAuthUi() {
   try {
     res = await fetchUsersMeWithStoredJwt();
   } catch {
+    clearInatUploadIdentityAndCollisions();
     inatUploadStatus.textContent = "Could not reach iNaturalist to verify the saved token.";
     setInatUploadStatusVariant("error");
     inatUploadTokenField.hidden = false;
@@ -2698,6 +2720,7 @@ async function refreshInatUploadAuthUi() {
     return;
   }
   if (!res.ok) {
+    clearInatUploadIdentityAndCollisions();
     const detail = await formatInatHttpErrorForDisplay(res);
     inatUploadStatus.textContent = `Token not accepted: ${detail} Try a fresh token from iNaturalist.`;
     setInatUploadStatusVariant("error");
@@ -2709,6 +2732,7 @@ async function refreshInatUploadAuthUi() {
   try {
     data = await res.json();
   } catch {
+    clearInatUploadIdentityAndCollisions();
     inatUploadStatus.textContent = "Unexpected response while verifying the token.";
     setInatUploadStatusVariant("error");
     inatUploadTokenField.hidden = false;
@@ -2717,6 +2741,14 @@ async function refreshInatUploadAuthUi() {
   }
   const u = data && Array.isArray(data.results) ? data.results[0] : null;
   const login = u && typeof u.login === "string" ? u.login.trim() : "";
+  inatMeLogin = login;
+  let uid = 0;
+  if (u && u.id != null) {
+    if (typeof u.id === "number" && Number.isFinite(u.id)) uid = Math.floor(u.id);
+    else if (typeof u.id === "string" && /^\d+$/.test(String(u.id).trim())) uid = parseInt(String(u.id).trim(), 10);
+  }
+  inatMeUserId = uid > 0 ? uid : 0;
+  resetInatObservedTimeCollisionState();
   inatUploadAuthOk = true;
   inatUploadTokenField.hidden = true;
   if (inatUploadToken) inatUploadToken.value = "";
@@ -2725,6 +2757,7 @@ async function refreshInatUploadAuthUi() {
     : "Signed in. You can upload observations below.";
   setInatUploadStatusVariant("ok");
   updateButtons();
+  scheduleInatObservedTimeCollisionCheck(true);
 }
 
 /** @param {{ dtStr?: string, lat?: number, lon?: number, lastModified?: number }} meta */
@@ -2739,6 +2772,120 @@ function observedOnStringFromMeta(meta) {
   const mi = String(d.getMinutes()).padStart(2, "0");
   const s = String(d.getSeconds()).padStart(2, "0");
   return `${y}-${mo}-${day} ${h}:${mi}:${s}`;
+}
+
+const INAT_EXISTING_OBS_CACHE_MS = 5 * 60 * 1000;
+const INAT_EXISTING_OBS_MAX_PAGES = 25;
+
+function resetInatObservedTimeCollisionState() {
+  inatPhotoObservedCollisionFlags = null;
+  inatObservedCollisionSig = "";
+  inatExistingObservedSecondsSet.clear();
+  inatExistingObsSecondsFetchedAt = 0;
+  if (inatObservedCollisionTimer) {
+    window.clearTimeout(inatObservedCollisionTimer);
+    inatObservedCollisionTimer = 0;
+  }
+}
+
+/**
+ * Populate `inatExistingObservedSecondsSet` from the signed-in user's observations (paginated).
+ * Observations without `time_observed_at` are skipped (date-only times cannot match EXIF seconds reliably).
+ * @param {boolean} force bypass short TTL cache
+ */
+async function fetchInatExistingObservationObservedSecondsIfStale(force) {
+  const now = Date.now();
+  if (
+    !force &&
+    inatExistingObsSecondsFetchedAt > 0 &&
+    now - inatExistingObsSecondsFetchedAt < INAT_EXISTING_OBS_CACHE_MS
+  ) {
+    return;
+  }
+  if (!inatUploadAuthOk || (!inatMeUserId && !inatMeLogin)) {
+    inatExistingObservedSecondsSet.clear();
+    inatExistingObsSecondsFetchedAt = 0;
+    return;
+  }
+  const qUser =
+    inatMeUserId > 0
+      ? `user_id=${inatMeUserId}`
+      : `user_login=${encodeURIComponent(inatMeLogin)}`;
+  const next = new Set();
+  const perPage = 200;
+  let gotOkPage = false;
+  for (let page = 1; page <= INAT_EXISTING_OBS_MAX_PAGES; page++) {
+    const res = await inatFetch(
+      `observations?${qUser}&verifiable=any&per_page=${perPage}&page=${page}&order_by=observed_on&order=desc`,
+      { auth: true }
+    );
+    if (!res.ok) break;
+    gotOkPage = true;
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      break;
+    }
+    const rows = Array.isArray(data.results) ? data.results : [];
+    for (const o of rows) {
+      const raw = o && o.time_observed_at;
+      if (typeof raw !== "string" || !raw.trim()) continue;
+      const ms = Date.parse(raw.trim());
+      if (!Number.isNaN(ms)) next.add(Math.floor(ms / 1000));
+    }
+    if (rows.length < perPage) break;
+  }
+  if (gotOkPage) {
+    inatExistingObservedSecondsSet = next;
+    inatExistingObsSecondsFetchedAt = Date.now();
+  } else if (force) {
+    inatExistingObservedSecondsSet.clear();
+    inatExistingObsSecondsFetchedAt = 0;
+  }
+}
+
+function scheduleInatObservedTimeCollisionCheck(forceObsFetch = false) {
+  if (inatObservedCollisionTimer) window.clearTimeout(inatObservedCollisionTimer);
+  inatObservedCollisionTimer = window.setTimeout(() => {
+    inatObservedCollisionTimer = 0;
+    void runInatObservedTimeCollisionCheck(forceObsFetch);
+  }, 260);
+}
+
+/**
+ * Compare each batch photo's EXIF/file `lastModified` instant (same basis as upload `observed_on_string`)
+ * against observed UTC seconds from the user's existing observations.
+ * @param {boolean} forceObsFetch
+ */
+async function runInatObservedTimeCollisionCheck(forceObsFetch = false) {
+  const sig = workItems.map((f) => fileCacheKey(f)).join("\0");
+  if (!inatUploadAuthOk || (!inatMeUserId && !inatMeLogin) || !workItems.length || !isCropReviewFinished()) {
+    inatPhotoObservedCollisionFlags = null;
+    inatObservedCollisionSig = "";
+    return;
+  }
+  try {
+    await fetchInatExistingObservationObservedSecondsIfStale(forceObsFetch);
+    if (workItems.map((f) => fileCacheKey(f)).join("\0") !== sig) return;
+    const n = workItems.length;
+    const flags = new Array(n);
+    if (!inatExistingObservedSecondsSet.size) {
+      for (let i = 0; i < n; i++) flags[i] = false;
+    } else {
+      for (let i = 0; i < n; i++) {
+        const m = await extractMetaForEmbedding(workItems[i]);
+        flags[i] = inatExistingObservedSecondsSet.has(Math.floor(m.lastModified / 1000));
+        if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    if (workItems.map((f) => fileCacheKey(f)).join("\0") !== sig) return;
+    inatPhotoObservedCollisionFlags = flags;
+    inatObservedCollisionSig = sig;
+    if (inatUploadGrouping && !inatUploadGrouping.hidden) renderInatPhotoGroupingStrip();
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 /** @param {any} data */
@@ -3941,6 +4088,15 @@ function renderInatPhotoGroupingStrip() {
       });
       thumb.appendChild(img);
       tile.appendChild(thumb);
+      if (inatPhotoObservedCollisionFlags && inatPhotoObservedCollisionFlags[ix]) {
+        const mark = document.createElement("span");
+        mark.className = "inat-dnd-tile__obs-dup";
+        mark.textContent = "!";
+        mark.title =
+          "This photo’s observed date and time (EXIF or file time) match an existing iNaturalist observation on your account — same instant to the second.";
+        mark.setAttribute("aria-label", mark.title);
+        tile.appendChild(mark);
+      }
       drop.appendChild(tile);
     }
     card.appendChild(drop);
@@ -3949,6 +4105,11 @@ function renderInatPhotoGroupingStrip() {
   appendGap(inatUploadGroups.length);
 
   wireInatUploadGroupingDelegated();
+
+  if (inatUploadAuthOk && (inatMeUserId > 0 || inatMeLogin)) {
+    const sig = workItems.map((f) => fileCacheKey(f)).join("\0");
+    if (sig && sig !== inatObservedCollisionSig) scheduleInatObservedTimeCollisionCheck(false);
+  }
 }
 
 /**
