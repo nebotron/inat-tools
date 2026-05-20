@@ -930,12 +930,17 @@ body.app-body-fit .app-page--crop .crop-review-done {
   min-width: 0;
 }
 
-/** Bottom row: five equal columns spanning full width */
+/** Toolbar button row: grid column presets (see `.crop-toolbar__nav--four` / `--five`). */
 .crop-toolbar__nav {
   display: grid;
   align-items: stretch;
   gap: 0.35rem 0.35rem;
   width: 100%;
+}
+
+/** Bottom row: equal columns spanning full width */
+.crop-toolbar__nav--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .crop-toolbar__nav--five {
@@ -1001,15 +1006,6 @@ body.app-body-fit .app-page--crop .crop-review-done {
 
 .btn-icon--continue:hover:not(:disabled) {
   background: rgba(22, 163, 74, 0.35);
-}
-
-.btn-icon--exit {
-  border-color: rgba(148, 163, 184, 0.45);
-  color: #cbd5e1;
-}
-
-.btn-icon--exit:hover:not(:disabled) {
-  background: #475569;
 }
 
 .btn-icon--reset-crop {

@@ -1180,7 +1180,7 @@ function renderCropEditorSlot() {
         attachBatchRowActions(errRow, file, { variant: "error", showNextCheck: true });
         previewGrid.appendChild(errRow);
         updateCropReviewChrome();
-        showError("Couldn’t show this image. Try Exit, Continue, or delete the file.");
+        showError("Couldn’t show this image. Try Continue or delete the file.");
         return;
       }
     }
@@ -1213,20 +1213,6 @@ function advanceCropReview() {
   }
   updateButtons();
   schedulePersistSession();
-}
-
-function exitCropInterfaceToExport() {
-  inatGroupEditForwardIndex = -1;
-  setCurrentPage("export");
-  if (inatUploadGroupingStrip && workItems.length) {
-    try {
-      renderInatPhotoGroupingStrip();
-    } catch {
-      /* ignore */
-    }
-  }
-  updateCropReviewChrome();
-  updateButtons();
 }
 
 /**
@@ -4554,10 +4540,6 @@ function removeWorkItemAndRow(file, row) {
   updateButtons();
 }
 
-/** Leave crop UI for export (does not confirm the current frame). */
-const EXIT_CROP_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-
 /** Accept current crop and advance (last photo finishes review and opens export). */
 const CROP_CONTINUE_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
@@ -4696,23 +4678,7 @@ function attachBatchRowActions(row, file, options) {
 
   if (showNextCheck) {
     const nav = document.createElement("div");
-    nav.className = "crop-toolbar__nav crop-toolbar__nav--five";
-
-    const btnExit = document.createElement("button");
-    btnExit.type = "button";
-    btnExit.className = "btn-icon btn-icon--exit";
-    btnExit.innerHTML = EXIT_CROP_SVG;
-    btnExit.title = inatGroupingSingleEdit ? "Exit — return to export without marking done" : "Exit to export";
-    btnExit.setAttribute(
-      "aria-label",
-      inatGroupingSingleEdit ? "Exit without marking this photo done" : "Exit to export page",
-    );
-    btnExit.disabled = variant === "pending";
-    if (variant === "pending") {
-      btnExit.title = "Wait for analysis";
-      btnExit.setAttribute("aria-label", "Wait for analysis");
-    }
-    btnExit.addEventListener("click", () => exitCropInterfaceToExport());
+    nav.className = "crop-toolbar__nav crop-toolbar__nav--four";
 
     /** @type {HTMLButtonElement | null} */
     let btnResetCrop = null;
@@ -4755,7 +4721,6 @@ function attachBatchRowActions(row, file, options) {
     }
 
     nav.append(
-      makeSlot(btnExit),
       makeSlot(btnFullImage),
       makeSlot(btnDel),
       btnResetCrop
