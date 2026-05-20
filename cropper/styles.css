@@ -1651,8 +1651,8 @@ body.app-body-fit .app-page--crop .crop-review-done {
 /** Full-width drop slot between stacked rows (was a narrow column in the old horizontal strip). */
 .inat-group-gap-drop {
   flex: 0 0 auto;
-  align-self: stretch;
-  width: 100%;
+  align-self: center;
+  width: 50%;
   min-height: 48px;
   box-sizing: border-box;
   margin: 0;
