@@ -301,10 +301,36 @@
    */
   function isBenignResizeObserverLoopMessage(msg) {
     var s = typeof msg === "string" ? msg : msg == null ? "" : String(msg);
-    return (
-      s.indexOf("ResizeObserver loop limit exceeded") !== -1 ||
-      s.indexOf("ResizeObserver loop completed with undelivered notifications") !== -1
-    );
+    return s.indexOf("ResizeObserver") !== -1;
+  }
+
+  function isWebKitMobile() {
+    var ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+    if (/iPhone|iPad|iPod/i.test(ua)) return true;
+    if (typeof navigator !== "undefined" && navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * iOS Safari’s system share sheet and other chrome can dispatch empty `error` events or
+   * cross-origin “Script error.” noise; treating those as fatal replaces the whole page.
+   */
+  function shouldSuppressWindowErrorForMobileWebKit(ev) {
+    if (!isWebKitMobile() || !ev || typeof ev !== "object") return false;
+    var msg = typeof ev.message === "string" ? ev.message : "";
+    if (msg === "Script error.") return true;
+    if (
+      !msg &&
+      (!ev.filename || ev.filename === "") &&
+      (ev.lineno === 0 || ev.lineno == null || ev.lineno === undefined) &&
+      (ev.colno === 0 || ev.colno == null || ev.colno === undefined) &&
+      (ev.error == null || ev.error === undefined)
+    ) {
+      return true;
+    }
+    return false;
   }
 
   window.addEventListener(
@@ -312,6 +338,14 @@
     function (ev) {
       if (shown) return;
       var msg = ev && typeof ev.message === "string" ? ev.message : "";
+      if (shouldSuppressWindowErrorForMobileWebKit(ev)) {
+        try {
+          ev.preventDefault();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       if (isBenignResizeObserverLoopMessage(msg)) {
         try {
           ev.preventDefault();

@@ -226,6 +226,9 @@ let mapMoveTimer = null;
 let currentHeatUrl = null;
 let mapMode = null;
 let lastMapFilterKey = null;
+/** Debounced `invalidateSize` when the Map tab is active (`trackResize` is disabled on the map). */
+let mapWindowResizeRaf = 0;
+let mapWindowResizeListenerInstalled = false;
 
 /** "none" | fixed lat/lng in URL; "button" | "url" = near me, share as `near_me` not coordinates */
 let nearMeSource = "none";
@@ -3294,6 +3297,10 @@ function destroyLeafletMap() {
     clearTimeout(mapMoveTimer);
     mapMoveTimer = null;
   }
+  if (mapWindowResizeRaf) {
+    cancelAnimationFrame(mapWindowResizeRaf);
+    mapWindowResizeRaf = 0;
+  }
   mapSearchSeq += 1;
   stopMapUserLocationWatch();
   if (map) {
@@ -3312,9 +3319,34 @@ function destroyLeafletMap() {
   mapMode = null;
 }
 
+function installExplorerMapWindowResizeListener() {
+  if (mapWindowResizeListenerInstalled) return;
+  mapWindowResizeListenerInstalled = true;
+  const scheduleInvalidate = () => {
+    if (currentView !== "map" || !map) return;
+    if (mapWindowResizeRaf) cancelAnimationFrame(mapWindowResizeRaf);
+    mapWindowResizeRaf = requestAnimationFrame(() => {
+      mapWindowResizeRaf = 0;
+      if (currentView !== "map" || !map) return;
+      try {
+        map.invalidateSize(false);
+      } catch (ex) {
+        console.warn("installExplorerMapWindowResizeListener:invalidateSize", ex);
+      }
+    });
+  };
+  window.addEventListener("resize", scheduleInvalidate, { passive: true });
+  if (typeof visualViewport !== "undefined" && visualViewport) {
+    visualViewport.addEventListener("resize", scheduleInvalidate, { passive: true });
+  }
+}
+
 function ensureMap() {
   if (map || !window.L) return;
-  map = L.map(el.mapContainer);
+  /* `trackResize: false` — Leaflet’s default window resize path runs even when the map is a bad
+   * size; iOS Safari’s share sheet resizes the viewport and has destabilized WebKit. We resize
+   * only while the Map tab is active (see `installExplorerMapWindowResizeListener`). */
+  map = L.map(el.mapContainer, { trackResize: false });
 
   const { lat, lng, zoom } = readInitialMapViewFromUrl();
   map.setView([lat, lng], zoom);
@@ -3330,17 +3362,19 @@ function ensureMap() {
     try {
       syncUrl();
     } catch (ex) {
-      explorerFatal(ex, "ensureMap:moveend/zoomend:syncUrl");
+      console.warn("ensureMap:moveend/zoomend:syncUrl", ex);
     }
     clearTimeout(mapMoveTimer);
     mapMoveTimer = setTimeout(() => {
       mapMoveTimer = null;
       if (currentView !== "map" || !map) return;
       void runMapSearch(false).catch((ex) => {
-        explorerFatal(ex, "ensureMap:runMapSearch");
+        console.warn("ensureMap:runMapSearch", ex);
+        showError("map", "Could not refresh the map. Try again.");
       });
     }, 400);
   });
+  installExplorerMapWindowResizeListener();
 }
 
 /** Remove saved map camera from the URL so the next fit is not skipped by `urlHasValidMapPosition`. */
@@ -3881,7 +3915,7 @@ function syncUrl() {
       q.set("mlng", map.getCenter().lng);
       q.set("zoom", map.getZoom());
     } catch (ex) {
-      explorerFatal(ex, "syncUrl:map camera");
+      console.warn("syncUrl:map camera", ex);
     }
   }
 
