@@ -59,12 +59,17 @@ body.app-body-fit .app-main--flow {
   display: flex;
   flex-direction: column;
   padding-top: max(0.35rem, env(safe-area-inset-top, 0px));
-  /* Scroll inside main so setup/crop can exceed one screen without clipping or overlap */
+  /* Scroll inside main so setup/export can exceed one screen; crop step locks scroll (see :has rule below). */
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: none;
   overscroll-behavior-y: contain;
+}
+
+/** Crop step: one viewport-height column — no outer scroll; chrome stays under the image. */
+body.app-body-fit .app-main--flow:has(#page-crop:not([hidden])) {
+  overflow: hidden;
 }
 
 /** Full-screen while IndexedDB session is being rehydrated */
@@ -131,6 +136,56 @@ body.app-body-fit .app-page:not([hidden]) {
   flex-direction: column;
   min-height: 0;
   overflow: visible;
+}
+
+/** Crop review: fill the main column so the editor can size the square from remaining height. */
+body.app-body-fit .app-page--crop:not([hidden]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > .crop-flow-inline-status,
+body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > .crop-flow-inline-progress,
+body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #batch-progress,
+body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #progress-line,
+body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #progress-bar,
+body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #preview-empty {
+  flex: 0 0 auto;
+}
+
+body.app-body-fit .app-page--crop:not([hidden]) .preview-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.app-body-fit .app-page--crop:not([hidden]) .preview-grid .preview-row {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/** Analysis spinner row: use free space instead of a tall min-height (avoids scroll). */
+body.app-body-fit .app-page--crop:not([hidden]) .preview-row--pending {
+  min-height: 0;
+}
+
+body.app-body-fit .app-page--crop:not([hidden]) .preview-row--loading .crop-loading-slot {
+  min-height: 0;
 }
 
 a {
@@ -773,6 +828,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
+  flex: 0 0 auto;
   padding: 0.35rem max(1rem, env(safe-area-inset-right, 0px)) max(0.45rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
 }
 
@@ -1063,10 +1119,27 @@ body.app-body-fit .app-page--crop .crop-review-done {
   pointer-events: none;
 }
 
-/** Fixed square on screen; image pans behind it; zoom via slider */
+/** Fixed square: flex column fills the row; host sizes the largest square that fits above zoom + toolbar. */
 .crop-editor--fixed-viewport {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
   touch-action: none;
   overflow: visible;
+}
+
+/** Flex slot that shrinks with the column; largest inscribed square is sized via container queries on the host. */
+.crop-viewport-host {
+  container-type: size;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .crop-viewport {
@@ -1079,6 +1152,34 @@ body.app-body-fit .app-page--crop .crop-review-done {
   cursor: grab;
   /** Isolate stacking / paint for the panning subtree (viewport + frame shadow). */
   contain: strict;
+}
+
+.crop-editor--fixed-viewport .crop-viewport {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
+}
+
+/** Host wider than tall: height is the limiting dimension for the square. */
+@container (min-aspect-ratio: 1 / 1) {
+  .crop-editor--fixed-viewport .crop-viewport {
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+  }
+}
+
+/** Host taller than wide: width limits the square. */
+@container (max-aspect-ratio: 1 / 1) {
+  .crop-editor--fixed-viewport .crop-viewport {
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+  }
 }
 
 .crop-viewport:active {
@@ -1125,27 +1226,13 @@ body.app-body-fit .app-page--crop .crop-review-done {
 .crop-zoom-row {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   gap: 0.45rem;
+  flex: 0 0 auto;
   padding: 0.35rem max(1rem, env(safe-area-inset-right, 0px)) 0.3rem max(1rem, env(safe-area-inset-left, 0px));
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   touch-action: manipulation;
-}
-
-@media (min-width: 420px) {
-  .crop-zoom-row {
-    flex-direction: row;
-    align-items: flex-end;
-    flex-wrap: wrap;
-    gap: 0.5rem 0.75rem;
-  }
-
-  .crop-zoom-row__slider {
-    flex: 1 1 min(100%, 26rem);
-    min-width: 0;
-    max-width: min(100%, 34rem);
-  }
 }
 
 .crop-zoom-row__slider {
@@ -1153,6 +1240,9 @@ body.app-body-fit .app-page--crop .crop-review-done {
   flex-direction: column;
   gap: 0.2rem;
   min-width: 0;
+  width: min(100%, 26rem);
+  max-width: 100%;
+  align-self: center;
 }
 
 .crop-zoom-label {

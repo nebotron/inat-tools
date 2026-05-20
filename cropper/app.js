@@ -3789,6 +3789,9 @@ function buildCropEditor(file, state, manualNote, options) {
     }
   };
 
+  const viewportHost = document.createElement("div");
+  viewportHost.className = "crop-viewport-host";
+
   const viewport = document.createElement("div");
   viewport.className = "crop-viewport";
   viewport.setAttribute("role", "application");
@@ -3808,7 +3811,8 @@ function buildCropEditor(file, state, manualNote, options) {
   imageLayer.appendChild(imageScaler);
   viewport.appendChild(imageLayer);
   viewport.appendChild(frameEl);
-  editorWrap.appendChild(viewport);
+  viewportHost.appendChild(viewport);
+  editorWrap.appendChild(viewportHost);
 
   const zoomRow = document.createElement("div");
   zoomRow.className = "crop-zoom-row";
