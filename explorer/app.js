@@ -2569,19 +2569,53 @@ function observationMarkReviewedButtonHtml(obs) {
 }
 
 /**
- * Whether the signed-in user appears in the observation `faves` list (when the API includes it).
+ * True when a vote row is an observation “fave” (not a quality-metric vote such as `needs_id`).
+ * @param {object | null | undefined} row
+ */
+function observationVoteRowIsFave(row) {
+  if (!row || typeof row !== "object") return false;
+  if (row.vote_flag === false) return false;
+  const vs = row.vote_scope;
+  return vs == null || String(vs).trim() === "";
+}
+
+/**
+ * User id on a vote / fave row (`user_id` or nested `user.id`).
+ * @param {object | null | undefined} row
+ */
+function observationVoteRowUserId(row) {
+  if (!row || typeof row !== "object") return NaN;
+  if (row.user_id != null) {
+    const n = Number(row.user_id);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  if (row.user && row.user.id != null) {
+    const n = Number(row.user.id);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return NaN;
+}
+
+/**
+ * Whether the signed-in user has an active fave on this observation.
+ * Uses `faved_by_current_user` when present, otherwise scans `faves` and `votes` (index `faves` can be
+ * truncated; `votes` includes the viewer’s fave vote when the API omits them from `faves`).
  * @param {object | null | undefined} obs
  * @param {number} meId
  */
 function currentUserHasFavedObservation(obs, meId) {
   if (!obs || typeof obs !== "object" || !Number.isFinite(meId) || meId <= 0) return false;
-  if (obs.faved_by_current_user === true) return true;
-  const rows = obs.faves;
-  if (!Array.isArray(rows)) return false;
-  for (const row of rows) {
-    const uid = row && row.user && row.user.id != null ? Number(row.user.id) : NaN;
-    if (uid === meId) return true;
-  }
+  if (obs.faved_by_current_user === true || obs.faved_by_current_user === 1) return true;
+  const scanRows = (rows) => {
+    if (!Array.isArray(rows)) return false;
+    for (const row of rows) {
+      if (observationVoteRowUserId(row) !== meId) continue;
+      if (observationVoteRowIsFave(row)) return true;
+    }
+    return false;
+  };
+  if (scanRows(obs.faves)) return true;
+  if (scanRows(obs.votes)) return true;
   return false;
 }
 
@@ -4488,8 +4522,11 @@ function wireObservationAgreeClicks() {
       e.stopPropagation();
       const fid = faveBtn.getAttribute("data-fave-obs-id");
       if (!fid) return;
-      const active = faveBtn.getAttribute("data-fave-active") === "1";
-      void submitObservationFavoriteToggle(faveBtn, fid, active);
+      const iconEl = faveBtn.querySelector("i.fa");
+      const currentlyFaved = Boolean(
+        iconEl && iconEl.classList.contains("fa-star") && !iconEl.classList.contains("fa-star-o"),
+      );
+      void submitObservationFavoriteToggle(faveBtn, fid, currentlyFaved);
       return;
     }
 
