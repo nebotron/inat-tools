@@ -865,14 +865,16 @@ button.card-media-carousel__dot-slot {
   font-size: 0.8rem;
 }
 
-.card-bottom {
+/* Species + meta (location, etc.): top-left over the photo, clear of the action stack. */
+.card-details-overlay {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 0.4rem;
+  left: 0.4rem;
   z-index: 1;
-  padding: 0.45rem 0.5rem 0.5rem;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
+  max-width: calc(100% - 4.75rem);
+  padding: 0.35rem 0.45rem 0.4rem;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.28) 100%);
   pointer-events: none;
 }
 
@@ -883,6 +885,10 @@ button.card-media-carousel__dot-slot {
   font-weight: 500;
   line-height: 1.25;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
+}
+
+.card-meta-line:last-child {
+  margin-bottom: 0;
 }
 
 .card-meta-line a.card-meta-tag-link {
@@ -909,13 +915,17 @@ button.card-media-carousel__dot-slot {
 }
 
 .card-title-overlay {
-  margin: 0;
+  margin: 0 0 0.25rem;
   padding: 0;
   color: #fff;
   font-size: 0.86rem;
   font-weight: 650;
   line-height: 1.2;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+
+.card-details-overlay > .card-title-overlay:last-child {
+  margin-bottom: 0;
 }
 
 .scroll-sentinel {

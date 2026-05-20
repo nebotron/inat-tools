@@ -2763,9 +2763,9 @@ function renderCard({
         ${imgBlock}
       </div>
       ${upperRightActionsHtml}
-      <div class="card-bottom">
-        ${metaBlock}
+      <div class="card-details-overlay">
         <p class="card-title-overlay">${escapeHtml(name)}</p>
+        ${metaBlock}
       </div>
     `;
     const linkEl = card.querySelector(".card-link");
@@ -2785,9 +2785,9 @@ function renderCard({
         ${imgBlock}
       </div>
       ${upperRightActionsHtml}
-      <div class="card-bottom">
-        ${metaBlock}
+      <div class="card-details-overlay">
         <p class="card-title-overlay">${escapeHtml(name)}</p>
+        ${metaBlock}
       </div>
     `;
   }
