@@ -284,6 +284,13 @@ async function tryRestoreSessionFromIdb() {
   }
 }
 
+/**
+ * Single-flight restore of saved filename → crop mappings from IndexedDB.
+ * The file-input handler must `await` this before `offerCropMappingReapply`, otherwise a fast
+ * picker selection can run while the map is still empty and saved crops never reapply.
+ */
+const cropMappingsSessionRestorePromise = tryRestoreSessionFromIdb();
+
 const fileInput = document.getElementById("file-input");
 const fileSummary = document.getElementById("file-summary");
 const previewGrid = document.getElementById("preview-grid");
@@ -4795,6 +4802,7 @@ fileInput.addEventListener("change", async () => {
     return;
   }
 
+  await cropMappingsSessionRestorePromise;
   pendingReapplyMappingsByImageName = await offerCropMappingReapply(images);
 
   if (images.length > MAX_BATCH_FILES) {
@@ -5288,7 +5296,7 @@ function installE2EHooksIfNeeded() {
 
 installE2EHooksIfNeeded();
 
-void tryRestoreSessionFromIdb().then(() => {
+void cropMappingsSessionRestorePromise.then(() => {
   setCurrentPage("setup");
   updateButtons();
   installE2EHooksIfNeeded();
