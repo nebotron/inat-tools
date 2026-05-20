@@ -987,7 +987,7 @@ async function applySavedCropMappingForCurrentBatch(totalFilesForUi) {
 
 /**
  * Large batches: aggressive preview prefetch limits + do not retain export payloads in RAM after each encode.
- * Share, ZIP, and background prep still run — we only tune memory retention, not features.
+ * Below the threshold we still skip caching full original `ArrayBuffer` exports (they duplicate whole files in RAM).
  */
 function heavyBatchMode() {
   return workItems.length >= memoryPressureThreshold();
@@ -1252,7 +1252,6 @@ async function buildExportPayloadForKey(key) {
   if (!file) return;
   const state = cropState.get(key);
   const meta = await extractMetaForEmbedding(file);
-  const heavyBatch = heavyBatchMode();
 
   if (!state || !state.hasCrop) {
     const buf = await file.arrayBuffer();
@@ -1265,11 +1264,11 @@ async function buildExportPayloadForKey(key) {
     }
     const metaOut = { ...meta, lastModified: lastMs };
     const prep = { kind: "original", buffer: buf, meta: metaOut, mime: file.type || "application/octet-stream" };
-    if (workItems.some((f) => fileCacheKey(f) === key) && !heavyBatch) {
-      exportPrepCache.set(key, prep);
-    }
+    /** Never retain full-file `ArrayBuffer` copies in `exportPrepCache` — peak RAM scales badly vs. one transient buffer. */
     return prep;
   }
+
+  const heavyBatch = heavyBatchMode();
 
   let source = state.source;
   let closeSource = null;
@@ -1518,9 +1517,9 @@ function shouldYieldBetweenBatchItems() {
 }
 
 /** How many upcoming files to decode in the background while reviewing (reduces delay on “next”). */
-const CROP_PREVIEW_PREFETCH_AHEAD = 4;
+const CROP_PREVIEW_PREFETCH_AHEAD = 3;
 /** Large batches: fewer prefetch probes and more aggressive blob-URL eviction (mobile RAM). */
-const MEMORY_PRESSURE_FILE_THRESHOLD = 44;
+const MEMORY_PRESSURE_FILE_THRESHOLD = 28;
 const CROP_PREVIEW_PREFETCH_AHEAD_LARGE = 1;
 /** iOS: skip ahead-of-queue ImageBitmap prefetch — it competes with TF.js and can spike RAM. */
 const CROP_PREVIEW_PREFETCH_AHEAD_IOS = 0;
@@ -1536,7 +1535,7 @@ function memoryPressureThreshold() {
   if (typeof window !== "undefined" && window.location.search.includes("e2e-memlow=1") && !isIOSOrIPadOS()) {
     return 120;
   }
-  return isIOSOrIPadOS() ? Math.min(MEMORY_PRESSURE_FILE_THRESHOLD, 32) : MEMORY_PRESSURE_FILE_THRESHOLD;
+  return isIOSOrIPadOS() ? Math.min(MEMORY_PRESSURE_FILE_THRESHOLD, 26) : MEMORY_PRESSURE_FILE_THRESHOLD;
 }
 
 function prefetchAheadCount() {
@@ -2157,7 +2156,7 @@ async function ensureInatGroupingThumbUrl(file) {
 function revokeDistantPreviewBlobUrls() {
   const pressure = memoryPressureThreshold();
   if (workItems.length < pressure) return;
-  const keepRadius = workItems.length >= pressure ? 2 : 4;
+  const keepRadius = workItems.length >= pressure ? 1 : 4;
   const ahead = Math.max(prefetchAheadCount(), 0);
   const fi = cropItemForwardIndex();
   const lo = Math.max(0, fi - keepRadius - ahead);
@@ -6292,8 +6291,7 @@ async function runZipDownload() {
       { indeterminate: false }
     );
     zipSucceeded = true;
-    lastShareInatFiles = shareAcc.files;
-    lastShareInatSourceFiles = shareAcc.sources;
+    /** Do not retain duplicate export `File` rows — nothing reads `lastShareInat*` and it doubled RAM after ZIP. */
   } catch (e) {
     console.error(e);
     const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
@@ -6355,6 +6353,7 @@ if (btnShareInat) {
         showError(`Share failed: ${msg} Use Download ZIP.`);
       })
       .finally(() => {
+        invalidateShareSheetPrep();
         updateButtons();
       });
   });
