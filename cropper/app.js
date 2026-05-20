@@ -307,11 +307,6 @@ const uploadWarningsDialog = document.getElementById("inat-upload-warnings-dialo
 const uploadWarningsBody = document.getElementById("inat-upload-warnings-body");
 const btnInatUploadWarningsUpload = document.getElementById("btn-inat-upload-warnings-upload");
 const btnInatUploadWarningsBack = document.getElementById("btn-inat-upload-warnings-back");
-const inatPhotoActionDialog = document.getElementById("inat-photo-action-dialog");
-const inatPhotoActionBody = document.getElementById("inat-photo-action-body");
-const btnInatPhotoActionCrop = document.getElementById("btn-inat-photo-action-crop");
-const btnInatPhotoActionRemove = document.getElementById("btn-inat-photo-action-remove");
-const btnInatPhotoActionCancel = document.getElementById("btn-inat-photo-action-cancel");
 const inatLocationPickerDialog = document.getElementById("inat-location-picker-dialog");
 const inatLocationMapEl = document.getElementById("inat-location-map");
 const inatLocLatInput = document.getElementById("inat-loc-lat");
@@ -3511,19 +3506,13 @@ function wireInatUploadGroupingDelegated() {
     cancelInatLongPressHold();
     inatLongPressPointerId = e.pointerId;
     const holdIdx = ix;
-    inatLongPressTimer = window.setTimeout(async () => {
+    inatLongPressTimer = window.setTimeout(() => {
       inatLongPressTimer = 0;
       inatLongPressPointerId = -1;
       if (!Number.isFinite(holdIdx) || holdIdx < 0 || holdIdx >= workItems.length) return;
-      const f = workItems[holdIdx];
-      if (!f) return;
-      const choice = await showInatPhotoActionDialog(holdIdx, f.name || `Photo ${holdIdx + 1}`);
-      if (choice === "crop") openInatGroupingCropEditor(holdIdx);
-      else if (choice === "remove") {
-        removeWorkItemAndRow(f, null);
-        renderInatPhotoGroupingStrip();
-        updateButtons();
-      }
+      if (!workItems[holdIdx]) return;
+      /** Open crop directly (no action sheet) — Safari was showing the native image preview on thumbnails. */
+      openInatGroupingCropEditor(holdIdx);
     }, 520);
   });
   inatUploadGroupingStrip.addEventListener("pointerup", cancelInatLongPressHold);
@@ -3532,63 +3521,6 @@ function wireInatUploadGroupingDelegated() {
   document.addEventListener("click", (e) => {
     const t = /** @type {Node} */ (e.target);
     if (inatUploadGroupingStrip && !inatUploadGroupingStrip.contains(t)) hideAllInatGroupSpeciesSuggests();
-  });
-}
-
-/**
- * @param {number} photoIdx
- * @param {string} fileLabel
- * @returns {Promise<'crop'|'remove'|null>}
- */
-function showInatPhotoActionDialog(photoIdx, fileLabel) {
-  if (
-    !inatPhotoActionDialog ||
-    !inatPhotoActionBody ||
-    !btnInatPhotoActionCrop ||
-    !btnInatPhotoActionRemove ||
-    !btnInatPhotoActionCancel
-  ) {
-    const c = window.prompt(`${fileLabel}\nType "crop" or "remove" (blank = cancel):`, "");
-    if (!c) return Promise.resolve(null);
-    const t = c.trim().toLowerCase();
-    if (t === "remove") return Promise.resolve("remove");
-    if (t === "crop") return Promise.resolve("crop");
-    return Promise.resolve(null);
-  }
-  inatPhotoActionBody.textContent = fileLabel || `Photo ${photoIdx + 1}`;
-  inatPhotoActionDialog.hidden = false;
-  const backdrop = inatPhotoActionDialog.querySelector(".reapply-dialog__backdrop");
-  return new Promise((resolve) => {
-    const finish = (/** @type {'crop'|'remove'|null} */ choice) => {
-      btnInatPhotoActionCrop.removeEventListener("click", onCrop);
-      btnInatPhotoActionRemove.removeEventListener("click", onRemove);
-      btnInatPhotoActionCancel.removeEventListener("click", onCancel);
-      document.removeEventListener("keydown", onKey, true);
-      if (backdrop) backdrop.removeEventListener("click", onCancelBackdrop);
-      inatPhotoActionDialog.hidden = true;
-      resolve(choice);
-    };
-    const onCrop = () => finish("crop");
-    const onRemove = () => finish("remove");
-    const onCancel = () => finish(null);
-    const onCancelBackdrop = () => finish(null);
-    /** @param {KeyboardEvent} e */
-    const onKey = (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        finish(null);
-      }
-    };
-    btnInatPhotoActionCrop.addEventListener("click", onCrop);
-    btnInatPhotoActionRemove.addEventListener("click", onRemove);
-    btnInatPhotoActionCancel.addEventListener("click", onCancel);
-    document.addEventListener("keydown", onKey, true);
-    if (backdrop) backdrop.addEventListener("click", onCancelBackdrop);
-    try {
-      btnInatPhotoActionCancel.focus();
-    } catch {
-      /* ignore */
-    }
   });
 }
 

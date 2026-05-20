@@ -1764,6 +1764,11 @@ body.app-body-fit .app-page--crop .crop-review-done {
   height: 100%;
   object-fit: cover;
   display: block;
+  /** Avoid iOS Safari’s full-screen image preview / callout on long-press; events hit the tile parent. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
 }
 
 .inat-dnd-tile__thumb--fallback {
