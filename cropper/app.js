@@ -5421,6 +5421,8 @@ function buildCropEditor(file, state, manualNote, options) {
   let lastLayoutCap = NaN;
   let lastLayoutOx = NaN;
   let lastLayoutOy = NaN;
+  /** Matches `setW / state.w` after layout — must drive pan/zoom math (not `vw/side`) when width is divisor-snapped. */
+  let lastCssPxPerImgPx = NaN;
   /** When `clientWidth` is 0 (not laid out yet), poll a few frames so we do not leave a stale preview. */
   let layoutAwaitingVwRetries = 0;
   const LAYOUT_VW_ZERO_MAX_RETRIES = 120;
@@ -5431,6 +5433,7 @@ function buildCropEditor(file, state, manualNote, options) {
     lastLayoutCap = NaN;
     lastLayoutOx = NaN;
     lastLayoutOy = NaN;
+    lastCssPxPerImgPx = NaN;
   }
 
   function commitPendingPanLayout() {
@@ -5514,10 +5517,13 @@ function buildCropEditor(file, state, manualNote, options) {
           imageScaler.style.transform = "";
         }
       }
+      /** Divisor-snapped `setW` can differ a lot from `vw/side`×w — use the real CSS px per image px so zoom does not look like pan. */
+      const pxPerImg = cap < 1 - 1e-9 ? Math.max(1e-9, setW / cap / state.w) : setW / state.w;
+      lastCssPxPerImgPx = pxPerImg;
       const oxSrc = panLayoutFloat ? panLayoutFloat.left : state.left;
       const oySrc = panLayoutFloat ? panLayoutFloat.top : state.top;
-      const ox = -oxSrc * contentScale;
-      const oy = -oySrc * contentScale;
+      const ox = -oxSrc * pxPerImg;
+      const oy = -oySrc * pxPerImg;
       if (ox !== lastLayoutOx || oy !== lastLayoutOy) {
         lastLayoutOx = ox;
         lastLayoutOy = oy;
@@ -5630,13 +5636,14 @@ function buildCropEditor(file, state, manualNote, options) {
     if (!panAnchor) return;
     const vw = viewport.clientWidth;
     if (vw <= 0) return;
-    const contentScale = vw / state.side;
+    const scale =
+      Number.isFinite(lastCssPxPerImgPx) && lastCssPxPerImgPx > 0 ? lastCssPxPerImgPx : vw / state.side;
     const dx = clientX - panAnchor.x;
     const dy = clientY - panAnchor.y;
     const minSide = minCropSide();
     const sq = clampSquareCropInImageFloat(
-      panAnchor.left - dx / contentScale,
-      panAnchor.top - dy / contentScale,
+      panAnchor.left - dx / scale,
+      panAnchor.top - dy / scale,
       state.side,
       state.w,
       state.h,
