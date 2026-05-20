@@ -1842,3 +1842,12 @@ body.app-body-fit .app-page--crop .crop-review-done {
   flex: 1 1 auto;
   min-height: var(--tap-min);
 }
+
+.reapply-dialog__actions--stack {
+  flex-direction: column;
+}
+
+.reapply-dialog__actions--stack .btn {
+  flex: 0 0 auto;
+  width: 100%;
+}

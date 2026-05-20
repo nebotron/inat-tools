@@ -14,7 +14,7 @@
     <title>Square crop</title>
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
-    <link rel="stylesheet" href="./styles.css?v=inatcv8" />
+    <link rel="stylesheet" href="./styles.css?v=inatcv9" />
   </head>
   <body class="app-body-fit">
     <div
@@ -134,9 +134,9 @@
                     <h4 class="inat-upload-subheading" id="inat-upload-subheading">Observations</h4>
                   </div>
                   <p class="inat-upload-grouping-hint muted">
-                    Each photo starts as its own observation. Drag thumbnails to combine shots, or drop onto a dashed row
-                    between observations to start a new observation with that photo. Each row has its own species search.
-                    Order matches your ZIP.
+                    Photos taken within 30 seconds are grouped into one observation. Drag thumbnails to regroup, or drop
+                    on a dashed row for a new observation. Press and hold a thumbnail to adjust the crop or remove it.
+                    Each row has its own species search. Order matches your ZIP.
                   </p>
                   <div id="inat-upload-grouping-strip" class="inat-upload-grouping-strip" role="list"></div>
                 </div>
@@ -217,6 +217,49 @@
       </div>
     </div>
 
-    <script src="./app.js?v=inatcv8" type="module"></script>
+    <div
+      id="inat-upload-warnings-dialog"
+      class="reapply-dialog"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="inat-upload-warnings-title"
+      aria-describedby="inat-upload-warnings-body"
+      tabindex="-1"
+    >
+      <div class="reapply-dialog__backdrop" tabindex="-1" aria-hidden="true"></div>
+      <div class="reapply-dialog__panel">
+        <h2 id="inat-upload-warnings-title" class="reapply-dialog__title">Upload warnings</h2>
+        <p id="inat-upload-warnings-body" class="reapply-dialog__body"></p>
+        <div class="reapply-dialog__actions">
+          <button type="button" id="btn-inat-upload-warnings-upload" class="btn primary">Upload anyway</button>
+          <button type="button" id="btn-inat-upload-warnings-back" class="btn secondary">Go back</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="inat-photo-action-dialog"
+      class="reapply-dialog"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="inat-photo-action-title"
+      aria-describedby="inat-photo-action-body"
+      tabindex="-1"
+    >
+      <div class="reapply-dialog__backdrop" tabindex="-1" aria-hidden="true"></div>
+      <div class="reapply-dialog__panel">
+        <h2 id="inat-photo-action-title" class="reapply-dialog__title">Photo</h2>
+        <p id="inat-photo-action-body" class="reapply-dialog__body muted"></p>
+        <div class="reapply-dialog__actions reapply-dialog__actions--stack">
+          <button type="button" id="btn-inat-photo-action-crop" class="btn primary">Adjust crop</button>
+          <button type="button" id="btn-inat-photo-action-remove" class="btn secondary">Remove from batch</button>
+          <button type="button" id="btn-inat-photo-action-cancel" class="btn secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js?v=inatcv9" type="module"></script>
   </body>
 </html>

@@ -307,6 +307,15 @@ const reapplyMappingsDialog = document.getElementById("reapply-mappings-dialog")
 const reapplyDialogBody = document.getElementById("reapply-dialog-body");
 const btnReapplyDialogYes = document.getElementById("btn-reapply-dialog-yes");
 const btnReapplyDialogNo = document.getElementById("btn-reapply-dialog-no");
+const uploadWarningsDialog = document.getElementById("inat-upload-warnings-dialog");
+const uploadWarningsBody = document.getElementById("inat-upload-warnings-body");
+const btnInatUploadWarningsUpload = document.getElementById("btn-inat-upload-warnings-upload");
+const btnInatUploadWarningsBack = document.getElementById("btn-inat-upload-warnings-back");
+const inatPhotoActionDialog = document.getElementById("inat-photo-action-dialog");
+const inatPhotoActionBody = document.getElementById("inat-photo-action-body");
+const btnInatPhotoActionCrop = document.getElementById("btn-inat-photo-action-crop");
+const btnInatPhotoActionRemove = document.getElementById("btn-inat-photo-action-remove");
+const btnInatPhotoActionCancel = document.getElementById("btn-inat-photo-action-cancel");
 const batchProgress = document.getElementById("batch-progress");
 const sharePrepProgress = document.getElementById("share-prep-progress");
 const sharePrepLine = document.getElementById("share-prep-line");
@@ -418,6 +427,15 @@ let previewGeneration = 0;
 let lastShareInatFiles = [];
 /** Parallel to `lastShareInatFiles`: original `File` from the batch (for re-encoding non-JPEG “full original” exports as JPEG for Share). */
 let lastShareInatSourceFiles = [];
+
+/** Capture time (ms) per `workItems` index — burst grouping for iNaturalist upload. */
+let workItemCaptureTimesMs = null;
+/** Square-crop preview URLs for grouping thumbnails (`fileCacheKey` → object URL). */
+const inatGroupingThumbUrlByKey = new Map();
+/** Forward (ZIP) index of photo opened from grouping for single-photo crop edit; −1 when not in that mode. */
+let inatGroupEditForwardIndex = -1;
+
+const INAT_TIME_CLUSTER_WINDOW_MS = 30_000;
 
 /**
  * JPEG `File`s ready for `navigator.share({ files })` — built on the export step before the user taps Share
@@ -748,6 +766,50 @@ function showReapplyMappingsDialog(bodyText) {
   });
 }
 
+/**
+ * @param {string} bodyText
+ * @returns {Promise<boolean>} `true` when the user chooses **Upload anyway**.
+ */
+function showInatUploadWarningsDialog(bodyText) {
+  if (!uploadWarningsDialog || !uploadWarningsBody || !btnInatUploadWarningsUpload || !btnInatUploadWarningsBack) {
+    return Promise.resolve(
+      window.confirm(`${bodyText}\n\nOK = upload anyway, Cancel = go back and fix issues.`)
+    );
+  }
+  uploadWarningsBody.textContent = bodyText;
+  uploadWarningsDialog.hidden = false;
+  const backdrop = uploadWarningsDialog.querySelector(".reapply-dialog__backdrop");
+  return new Promise((resolve) => {
+    const finish = (/** @type {boolean} */ upload) => {
+      btnInatUploadWarningsUpload.removeEventListener("click", onUpload);
+      btnInatUploadWarningsBack.removeEventListener("click", onBack);
+      document.removeEventListener("keydown", onKey, true);
+      if (backdrop) backdrop.removeEventListener("click", onBackDrop);
+      uploadWarningsDialog.hidden = true;
+      resolve(upload);
+    };
+    const onUpload = () => finish(true);
+    const onBack = () => finish(false);
+    const onBackDrop = () => finish(false);
+    /** @param {KeyboardEvent} e */
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+    btnInatUploadWarningsUpload.addEventListener("click", onUpload);
+    btnInatUploadWarningsBack.addEventListener("click", onBack);
+    document.addEventListener("keydown", onKey, true);
+    if (backdrop) backdrop.addEventListener("click", onBackDrop);
+    try {
+      btnInatUploadWarningsBack.focus();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 async function offerCropMappingReapply(files) {
   if (!Array.isArray(files) || !files.length) return new Map();
   const matches = new Map();
@@ -890,6 +952,18 @@ function clearCropState() {
   inatUploadGroupsInitializedForN = -1;
   hideAllInatGroupSpeciesSuggests();
   clearInatDnDDropHighlight();
+  workItemCaptureTimesMs = null;
+  inatGroupEditForwardIndex = -1;
+  for (const u of inatGroupingThumbUrlByKey.values()) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {
+      /* ignore */
+    }
+    const pi = previewObjectUrls.indexOf(u);
+    if (pi >= 0) previewObjectUrls.splice(pi, 1);
+  }
+  inatGroupingThumbUrlByKey.clear();
 }
 
 function invalidateShareSheetPrep() {
@@ -1926,6 +2000,14 @@ function revokePreviewUrls() {
   for (const u of previewObjectUrls) URL.revokeObjectURL(u);
   previewObjectUrls = [];
   filePreviewUrlByKey.clear();
+  for (const u of inatGroupingThumbUrlByKey.values()) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {
+      /* ignore */
+    }
+  }
+  inatGroupingThumbUrlByKey.clear();
   for (const bm of cropPreviewBitmapByKey.values()) {
     try {
       bm.close();
@@ -1949,6 +2031,52 @@ function getOrCreateFilePreviewUrl(file) {
     pushPreviewUrl(url);
   }
   return url;
+}
+
+/**
+ * Small square JPEG object URL for iNat grouping thumbnails (uses current `cropState` square).
+ * @param {File} file
+ */
+async function ensureInatGroupingThumbUrl(file) {
+  const key = fileCacheKey(file);
+  const cached = inatGroupingThumbUrlByKey.get(key);
+  if (cached) return cached;
+  const st = cropState.get(key);
+  const raw = await decodeForPipeline(file);
+  try {
+    const w = raw.w;
+    const h = raw.h;
+    const side0 = Math.min(w, h);
+    const pick =
+      st && st.hasCrop !== false
+        ? { left: st.left, top: st.top, side: st.side }
+        : { left: Math.round((w - side0) / 2), top: Math.round((h - side0) / 2), side: side0 };
+    const edge = 112;
+    const canvas = document.createElement("canvas");
+    canvas.width = edge;
+    canvas.height = edge;
+    const ctx = canvas.getContext("2d", { willReadFrequently: false, alpha: false });
+    if (!ctx) throw new Error("No canvas context.");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(raw.source, pick.left, pick.top, pick.side, pick.side, 0, 0, edge, edge);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (b) => {
+          if (b) resolve(b);
+          else reject(new Error("Thumb encode failed."));
+        },
+        "image/jpeg",
+        0.78
+      );
+    });
+    const url = URL.createObjectURL(blob);
+    inatGroupingThumbUrlByKey.set(key, url);
+    pushPreviewUrl(url);
+    return url;
+  } finally {
+    disposeDecodedBundle(raw);
+  }
 }
 
 /** Drop blob URLs far from the current review index so hundreds of files do not all stay resident. */
@@ -2529,6 +2657,35 @@ function initInatUploadGroups() {
   inatUploadGroupsInitializedForN = n;
 }
 
+/** Build observation groups from capture times: consecutive photos ≤30s apart stay in one group. */
+function initInatUploadGroupsTimeClusteredFromCache() {
+  const n = workItems.length;
+  if (n <= 0) {
+    inatUploadGroups = [];
+    inatUploadGroupsInitializedForN = -1;
+    return;
+  }
+  const times =
+    workItemCaptureTimesMs && workItemCaptureTimesMs.length === n
+      ? workItemCaptureTimesMs
+      : workItems.map((f) => f.lastModified);
+  const groups = [];
+  let cur = /** @type {number[]} */ ([]);
+  let prevMs = null;
+  for (let i = 0; i < n; i++) {
+    const t = times[i];
+    if (cur.length && prevMs != null && t - prevMs > INAT_TIME_CLUSTER_WINDOW_MS) {
+      groups.push({ indices: [...cur], species: "", taxonId: "" });
+      cur = [];
+    }
+    cur.push(i);
+    prevMs = t;
+  }
+  if (cur.length) groups.push({ indices: [...cur], species: "", taxonId: "" });
+  inatUploadGroups = groups;
+  inatUploadGroupsInitializedForN = n;
+}
+
 /**
  * Ensure every index 0..n-1 appears exactly once across groups; empty `indices` allowed (extra drop target).
  * Otherwise reset.
@@ -2986,10 +3143,130 @@ function wireInatUploadGroupingDelegated() {
     renderInatPhotoGroupingStrip();
   });
 
+  let inatLongPressTimer = 0;
+  let inatLongPressPointerId = -1;
+  function cancelInatLongPressHold() {
+    if (inatLongPressTimer) {
+      window.clearTimeout(inatLongPressTimer);
+      inatLongPressTimer = 0;
+    }
+    inatLongPressPointerId = -1;
+  }
+  inatUploadGroupingStrip.addEventListener("pointerdown", (e) => {
+    if (!(e instanceof PointerEvent) || e.button !== 0) return;
+    const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
+    if (!tile || !inatUploadGroupingStrip.contains(tile)) return;
+    const ix = parseInt(tile.dataset.photoIdx || "", 10);
+    if (!Number.isFinite(ix)) return;
+    cancelInatLongPressHold();
+    inatLongPressPointerId = e.pointerId;
+    const holdIdx = ix;
+    inatLongPressTimer = window.setTimeout(async () => {
+      inatLongPressTimer = 0;
+      inatLongPressPointerId = -1;
+      if (!Number.isFinite(holdIdx) || holdIdx < 0 || holdIdx >= workItems.length) return;
+      const f = workItems[holdIdx];
+      if (!f) return;
+      const choice = await showInatPhotoActionDialog(holdIdx, f.name || `Photo ${holdIdx + 1}`);
+      if (choice === "crop") openInatGroupingCropEditor(holdIdx);
+      else if (choice === "remove") {
+        removeWorkItemAndRow(f, null);
+        renderInatPhotoGroupingStrip();
+        updateButtons();
+      }
+    }, 520);
+  });
+  inatUploadGroupingStrip.addEventListener("pointerup", cancelInatLongPressHold);
+  inatUploadGroupingStrip.addEventListener("pointercancel", cancelInatLongPressHold);
+
   document.addEventListener("click", (e) => {
     const t = /** @type {Node} */ (e.target);
     if (inatUploadGroupingStrip && !inatUploadGroupingStrip.contains(t)) hideAllInatGroupSpeciesSuggests();
   });
+}
+
+/**
+ * @param {number} photoIdx
+ * @param {string} fileLabel
+ * @returns {Promise<'crop'|'remove'|null>}
+ */
+function showInatPhotoActionDialog(photoIdx, fileLabel) {
+  if (
+    !inatPhotoActionDialog ||
+    !inatPhotoActionBody ||
+    !btnInatPhotoActionCrop ||
+    !btnInatPhotoActionRemove ||
+    !btnInatPhotoActionCancel
+  ) {
+    const c = window.prompt(`${fileLabel}\nType "crop" or "remove" (blank = cancel):`, "");
+    if (!c) return Promise.resolve(null);
+    const t = c.trim().toLowerCase();
+    if (t === "remove") return Promise.resolve("remove");
+    if (t === "crop") return Promise.resolve("crop");
+    return Promise.resolve(null);
+  }
+  inatPhotoActionBody.textContent = fileLabel || `Photo ${photoIdx + 1}`;
+  inatPhotoActionDialog.hidden = false;
+  const backdrop = inatPhotoActionDialog.querySelector(".reapply-dialog__backdrop");
+  return new Promise((resolve) => {
+    const finish = (/** @type {'crop'|'remove'|null} */ choice) => {
+      btnInatPhotoActionCrop.removeEventListener("click", onCrop);
+      btnInatPhotoActionRemove.removeEventListener("click", onRemove);
+      btnInatPhotoActionCancel.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKey, true);
+      if (backdrop) backdrop.removeEventListener("click", onCancelBackdrop);
+      inatPhotoActionDialog.hidden = true;
+      resolve(choice);
+    };
+    const onCrop = () => finish("crop");
+    const onRemove = () => finish("remove");
+    const onCancel = () => finish(null);
+    const onCancelBackdrop = () => finish(null);
+    /** @param {KeyboardEvent} e */
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finish(null);
+      }
+    };
+    btnInatPhotoActionCrop.addEventListener("click", onCrop);
+    btnInatPhotoActionRemove.addEventListener("click", onRemove);
+    btnInatPhotoActionCancel.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKey, true);
+    if (backdrop) backdrop.addEventListener("click", onCancelBackdrop);
+    try {
+      btnInatPhotoActionCancel.focus();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+function openInatGroupingCropEditor(photoIdx) {
+  inatGroupEditForwardIndex = photoIdx;
+  const file = workItems[photoIdx];
+  if (!file) return;
+  cropReviewDoneKeys.delete(fileCacheKey(file));
+  cropReviewIndex = workItems.length - 1 - photoIdx;
+  setCurrentPage("crop");
+  renderCropEditorSlot();
+  updateCropReviewChrome();
+  updateButtons();
+}
+
+function confirmInatGroupingSingleEditAndReturn() {
+  const file =
+    inatGroupEditForwardIndex >= 0 && inatGroupEditForwardIndex < workItems.length
+      ? workItems[inatGroupEditForwardIndex]
+      : null;
+  if (file) {
+    const k = fileCacheKey(file);
+    if (cropState.has(k)) cropReviewDoneKeys.add(k);
+  }
+  inatGroupEditForwardIndex = -1;
+  setCurrentPage("export");
+  renderInatPhotoGroupingStrip();
+  updateButtons();
 }
 
 function renderInatPhotoGroupingStrip() {
@@ -3001,7 +3278,11 @@ function renderInatPhotoGroupingStrip() {
     clearInatDnDDropHighlight();
     return;
   }
-  validateInatUploadGroupsOrInit();
+  if (inatUploadGroupsInitializedForN !== n) {
+    initInatUploadGroupsTimeClusteredFromCache();
+  } else {
+    validateInatUploadGroupsOrInit();
+  }
   inatUploadGrouping.hidden = false;
   hideAllInatGroupSpeciesSuggests();
   clearInatDnDDropHighlight();
@@ -3081,6 +3362,11 @@ function renderInatPhotoGroupingStrip() {
       img.draggable = false;
       try {
         img.src = getOrCreateFilePreviewUrl(file);
+        void ensureInatGroupingThumbUrl(file)
+          .then((u) => {
+            img.src = u;
+          })
+          .catch(() => {});
       } catch {
         /* ignore */
       }
@@ -3296,6 +3582,44 @@ async function runInatObservationUpload() {
     return;
   }
 
+  const uploadWarnings = [];
+  for (let gi = 0; gi < nonemptyGroups.length; gi++) {
+    const grp = nonemptyGroups[gi];
+    const taxonRaw = (grp.taxonId || "").trim();
+    const taxonIdNum = taxonRaw ? parseInt(taxonRaw, 10) : NaN;
+    if (!Number.isFinite(taxonIdNum) || taxonIdNum <= 0) {
+      uploadWarnings.push(
+        `Observation ${gi + 1}: no species / taxon selected from the search field (iNaturalist observations are much more useful with an identification).`
+      );
+    }
+    const jpegs = [];
+    const sources = [];
+    for (const ix of grp.indices) {
+      const p = pairs[ix];
+      if (!p) continue;
+      jpegs.push(p.jpegFile);
+      sources.push(p.sourceFile);
+    }
+    const meta = await extractMetaForObservationFromSources(sources, jpegs);
+    if (
+      typeof meta.lat !== "number" ||
+      typeof meta.lon !== "number" ||
+      !Number.isFinite(meta.lat) ||
+      !Number.isFinite(meta.lon)
+    ) {
+      uploadWarnings.push(
+        `Observation ${gi + 1}: no GPS coordinates in the photo files — add a location on the website after upload, or use photos that include embedded location.`
+      );
+    }
+  }
+  if (uploadWarnings.length) {
+    const proceed = await showInatUploadWarningsDialog(uploadWarnings.join("\n\n"));
+    if (!proceed) {
+      resetInatUploadProgressUi();
+      return;
+    }
+  }
+
   prepareStepsDone = prepareStepsTotal;
   setInatUploadProgressUi(PREPARE_PORTION, "Files ready — confirm upload.");
 
@@ -3394,6 +3718,24 @@ async function runInatObservationUpload() {
   }
 }
 
+/** After removing `workItems[removedIdx]`, fix observation group indices (call before `workItems.splice`). */
+function adjustInatUploadGroupsAfterRemoveAtIndex(removedIdx) {
+  if (!inatUploadGroups.length) return;
+  for (const g of inatUploadGroups) {
+    if (!g || !Array.isArray(g.indices)) continue;
+    g.indices = g.indices
+      .filter((ix) => ix !== removedIdx)
+      .map((ix) => (ix > removedIdx ? ix - 1 : ix));
+  }
+  inatUploadGroups = inatUploadGroups.filter((g) => g && g.indices && g.indices.length > 0);
+}
+
+function fixInatGroupEditIndexAfterRemove(removedIdx) {
+  if (inatGroupEditForwardIndex < 0) return;
+  if (inatGroupEditForwardIndex === removedIdx) inatGroupEditForwardIndex = -1;
+  else if (inatGroupEditForwardIndex > removedIdx) inatGroupEditForwardIndex -= 1;
+}
+
 /**
  * Remove a photo from the batch and revoke its preview blob URL.
  */
@@ -3421,28 +3763,56 @@ function removeWorkItemAndRow(file, row) {
     } catch { /* ignore */ }
     cropPreviewBitmapByKey.delete(key);
   }
+  const inatThumb = inatGroupingThumbUrlByKey.get(key);
+  if (inatThumb) {
+    try {
+      URL.revokeObjectURL(inatThumb);
+    } catch { /* ignore */ }
+    inatGroupingThumbUrlByKey.delete(key);
+    const pi0 = previewObjectUrls.indexOf(inatThumb);
+    if (pi0 >= 0) previewObjectUrls.splice(pi0, 1);
+  }
   /** Stop pan/zoom/rAF before mutating batch — avoids touching detached DOM after splice. */
-  if (typeof row._abortCropEditorUi === "function") {
+  if (row && typeof row._abortCropEditorUi === "function") {
     try {
       row._abortCropEditorUi();
     } catch {
       /* ignore */
     }
   }
-  /** Revoke blob preview URLs for `<img>` (canvas-based previews have no blob src). */
-  for (const imgEl of row.querySelectorAll('img[src^="blob:"]')) {
-    const u = imgEl.src;
-    if (filePreviewUrlByKey.get(key) === u) filePreviewUrlByKey.delete(key);
-    try {
-      URL.revokeObjectURL(u);
-    } catch {
-      /* ignore */
+  /** Revoke blob preview URLs from the row preview, or the cached file URL when `row` is absent (e.g. iNat strip). */
+  if (row) {
+    for (const imgEl of row.querySelectorAll('img[src^="blob:"]')) {
+      const u = imgEl.src;
+      if (filePreviewUrlByKey.get(key) === u) filePreviewUrlByKey.delete(key);
+      try {
+        URL.revokeObjectURL(u);
+      } catch {
+        /* ignore */
+      }
+      const pi = previewObjectUrls.indexOf(u);
+      if (pi >= 0) previewObjectUrls.splice(pi, 1);
     }
-    const pi = previewObjectUrls.indexOf(u);
-    if (pi >= 0) previewObjectUrls.splice(pi, 1);
+  } else {
+    const url = filePreviewUrlByKey.get(key);
+    if (url) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
+      filePreviewUrlByKey.delete(key);
+      const pi = previewObjectUrls.indexOf(url);
+      if (pi >= 0) previewObjectUrls.splice(pi, 1);
+    }
   }
   const idx = workItems.findIndex((f) => fileCacheKey(f) === key);
   if (idx >= 0) {
+    adjustInatUploadGroupsAfterRemoveAtIndex(idx);
+    if (workItemCaptureTimesMs && workItemCaptureTimesMs.length > idx) {
+      workItemCaptureTimesMs.splice(idx, 1);
+    }
+    fixInatGroupEditIndexAfterRemove(idx);
     const n = workItems.length;
     const fi = n - 1 - cropReviewIndex;
     workItems.splice(idx, 1);
@@ -3451,10 +3821,12 @@ function removeWorkItemAndRow(file, row) {
       if (idx === fi) syncCropReviewIndex();
       else if (idx > fi) cropReviewIndex = Math.max(0, cropReviewIndex - 1);
       cropReviewIndex = Math.max(0, Math.min(cropReviewIndex, m - 1));
+      if (inatUploadGroups.length === 0) initInatUploadGroupsTimeClusteredFromCache();
+      else inatUploadGroupsInitializedForN = m;
     }
   }
   pruneAnalysisPendingKeysToWorkItems();
-  row.remove();
+  if (row) row.remove();
   if (workItems.length === 0) {
     cropToolbarProgressEl = null;
     lastShareInatFiles = [];
@@ -3550,7 +3922,7 @@ function buildAnalyzingPendingRow(file) {
  * Toolbar: progress; row with back arrow | full-image, delete, optional reset | forward arrow.
  */
 function attachBatchRowActions(row, file, options) {
-  const { variant, showNextCheck, onResetSuggested } = options || {};
+  const { variant, showNextCheck, onResetSuggested, inatGroupingSingleEdit } = options || {};
   cropToolbarProgressEl = null;
   const tb = document.createElement("div");
   tb.className = "crop-toolbar";
@@ -3654,9 +4026,12 @@ function attachBatchRowActions(row, file, options) {
     btnPrev.innerHTML = NAV_BACK_SVG;
     btnPrev.title = "Newer photo";
     btnPrev.setAttribute("aria-label", "Newer photo");
-    const canGoBack = cropReviewIndex > 0;
+    const canGoBack = !inatGroupingSingleEdit && cropReviewIndex > 0;
     btnPrev.disabled = !canGoBack || variant === "pending";
-    if (!canGoBack) {
+    if (inatGroupingSingleEdit) {
+      btnPrev.title = "Disabled while editing from observations";
+      btnPrev.setAttribute("aria-label", "Disabled while editing from observations");
+    } else if (!canGoBack) {
       btnPrev.title = "No newer photo";
       btnPrev.setAttribute("aria-label", "No newer photo");
     }
@@ -3684,6 +4059,10 @@ function attachBatchRowActions(row, file, options) {
       btnNext.disabled = true;
       btnNext.title = "Wait for analysis";
       btnNext.setAttribute("aria-label", "Wait for analysis");
+    } else if (inatGroupingSingleEdit) {
+      btnNext.title = "Done — return to observations";
+      btnNext.setAttribute("aria-label", "Done editing this photo");
+      btnNext.addEventListener("click", () => confirmInatGroupingSingleEditAndReturn());
     } else {
       btnNext.title = atLast ? "Finish" : "Next photo";
       btnNext.setAttribute("aria-label", atLast ? "Finish and export" : "Accept and next photo");
@@ -4503,7 +4882,15 @@ function buildCropEditor(file, state, manualNote, options) {
     syncFixedViewportLayout();
   }
 
-  attachBatchRowActions(row, file, { variant: "crop", showNextCheck, onResetSuggested: resetCropToSuggested });
+  const fiNow = cropItemForwardIndex();
+  const inatGroupingSingleEdit =
+    inatGroupEditForwardIndex >= 0 && fiNow === inatGroupEditForwardIndex;
+  attachBatchRowActions(row, file, {
+    variant: "crop",
+    showNextCheck,
+    onResetSuggested: resetCropToSuggested,
+    inatGroupingSingleEdit,
+  });
   return row;
 }
 
@@ -4727,29 +5114,25 @@ async function runAutoCrop() {
     setProgress(false, 0, "");
     if (fileSummary) {
       fileSummary.textContent = fileSummaryTextAfterReapply(
-        `${workItems.length} ready — review & ✓ each`,
+        `${workItems.length} ready`,
         reapplied.applied,
         reapplied.accepted,
         reappliedDeleted
       );
     }
-    syncCropReviewIndex();
-    if (isCropReviewFinished()) {
-      setCurrentPage("export");
-      prepareShareSheetFilesInBackground();
-    } else {
-      setCurrentPage("crop");
-      renderCropEditorSlot();
+    for (const f of workItems) {
+      const k = fileCacheKey(f);
+      if (cropState.has(k)) cropReviewDoneKeys.add(k);
     }
+    initInatUploadGroupsTimeClusteredFromCache();
+    setCurrentPage("export");
+    prepareShareSheetFilesInBackground();
     updateCropReviewChrome();
     updateButtons();
     return;
   }
-  syncCropReviewIndex();
   setProgress(true, 0, "Preparing…", { indeterminate: true });
   setCurrentPage("crop");
-  renderCropEditorSlot();
-  updateCropReviewChrome();
   updateButtons();
 
   try { await ensureModel(); } catch (e) {
@@ -4763,9 +5146,20 @@ async function runAutoCrop() {
       return;
     }
     const detail = formatAnalysisLoadError(e);
-    showError(`Couldn’t start analysis: ${detail} Crop manually below.`, e);
+    showError(`Couldn’t start analysis: ${detail} Centered square crops were applied — adjust below if needed.`, e);
     await runManualCropOnly(gen);
-    finishPreviewBatch(gen, totalFiles, true);
+    if (gen !== previewGeneration) return;
+    for (const f of workItems) {
+      const k = fileCacheKey(f);
+      if (cropState.has(k)) cropReviewDoneKeys.add(k);
+    }
+    initInatUploadGroupsTimeClusteredFromCache();
+    setProgress(false, 0, "");
+    if (fileSummary) fileSummary.textContent = `${workItems.length} ready — arrange observations below`;
+    setCurrentPage("export");
+    prepareShareSheetFilesInBackground();
+    updateCropReviewChrome();
+    updateButtons();
     return;
   }
   if (gen !== previewGeneration) return;
@@ -4782,9 +5176,23 @@ async function runAutoCrop() {
   const minScore = MIN_DETECTION_SCORE;
   const detModel = model;
   const total = workItems.length;
-
-  setProgress(true, total > 0 ? (1 / total) * 100 : 0, `1 / ${total}…`);
-  await analyzeOneImage(workItems[workItems.length - 1], detModel, padFrac, minScore, gen);
+  const pendingCount = analysisPendingKeys.size;
+  let analyzed = 0;
+  for (let ii = 0; ii < workItems.length; ii++) {
+    if (gen !== previewGeneration) return;
+    const file = workItems[ii];
+    const key = fileCacheKey(file);
+    if (!analysisPendingKeys.has(key)) continue;
+    analyzed++;
+    setProgress(
+      true,
+      pendingCount > 0 ? ((analyzed - 0.5) / pendingCount) * 100 : 0,
+      `Auto crop · ${analyzed} / ${pendingCount}…`,
+      { indeterminate: false }
+    );
+    await analyzeOneImage(file, detModel, padFrac, minScore, gen);
+    if (shouldYieldBetweenBatchItems() && ii > 0) await new Promise((r) => setTimeout(r, 0));
+  }
   if (gen !== previewGeneration) return;
 
   if (!workItems.length) {
@@ -4795,15 +5203,17 @@ async function runAutoCrop() {
     return;
   }
 
-  openCropEditorAfterFirst(
-    gen,
-    total,
-    total > 1 ? `1 / ${total} analyzed · more in background` : `${total} ready — review & ✓ each`
-  );
-
-  if (total > 1) {
-    runRemainingAnalysisInBackground(gen, detModel, padFrac, minScore);
+  for (const f of workItems) {
+    const k = fileCacheKey(f);
+    if (cropState.has(k)) cropReviewDoneKeys.add(k);
   }
+  initInatUploadGroupsTimeClusteredFromCache();
+  setProgress(false, 0, "");
+  if (fileSummary) fileSummary.textContent = `${total} ready — arrange observations below`;
+  setCurrentPage("export");
+  prepareShareSheetFilesInBackground();
+  updateCropReviewChrome();
+  updateButtons();
 }
 
 function startOverFromCropFlow() {
@@ -4878,6 +5288,11 @@ fileInput.addEventListener("change", async () => {
   releaseBatchResources();
     try {
     workItems = await sortFilesByCapture(images);
+    try {
+      workItemCaptureTimesMs = await Promise.all(workItems.map((f) => getCaptureTime(f)));
+    } catch {
+      workItemCaptureTimesMs = workItems.map((f) => f.lastModified);
+    }
   } catch (e) {
     console.error(e);
     fileSummary.textContent = "";
