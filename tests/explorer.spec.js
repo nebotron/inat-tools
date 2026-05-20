@@ -27,6 +27,14 @@ test.describe("explorer", () => {
     await expect(page).not.toHaveURL(/evidence=/);
   });
 
+  test("unreviewed filter requires API sign-in (select reverts without JWT)", async ({ page }) => {
+    await expect(page.locator("#filter-my-review")).toBeVisible();
+    page.once("dialog", (d) => d.accept());
+    await page.locator("#filter-my-review").selectOption("unreviewed");
+    /* Without a stored JWT the UI reverts the select and shows an alert. */
+    await expect(page.locator("#filter-my-review")).toHaveValue("all");
+  });
+
   test("API sign-in fieldset is available for JWT and Agree", async ({ page }) => {
     await expect(page.getByRole("group", { name: /API sign-in/i })).toBeVisible();
     await expect(page.locator("#inat-api-token")).toBeVisible();

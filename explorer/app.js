@@ -246,6 +246,7 @@ const el = {
   qualityGrade: document.getElementById("quality-grade"),
   filterEvidencePresence: document.getElementById("filter-evidence-presence"),
   sortMode: document.getElementById("sort-mode"),
+  filterMyReview: document.getElementById("filter-my-review"),
   mediaPhotos: document.getElementById("media-photos"),
   mediaSounds: document.getElementById("media-sounds"),
   observedDays: document.getElementById("observed-days"),
@@ -1320,6 +1321,26 @@ function applyEvidencePresenceToParams(p) {
   p.set("term_value_id", String(termVal));
 }
 
+function observationListNeedsAuthForReviewFilter() {
+  return el.filterMyReview && el.filterMyReview.value === "unreviewed";
+}
+
+/**
+ * iNaturalist search: exclude observations the signed-in user has already reviewed
+ * (`reviewed_by` in the API index), using `reviewed=false` + `viewer_id`.
+ */
+function applyUnreviewedByMeObservationParams(p) {
+  if (!observationListNeedsAuthForReviewFilter()) return;
+  const uid = inatAuthUser && inatAuthUser.id != null ? Number(inatAuthUser.id) : NaN;
+  if (!Number.isFinite(uid) || uid <= 0) return;
+  p.set("reviewed", "false");
+  p.set("viewer_id", String(Math.floor(uid)));
+}
+
+function observationListAuthFetchOptions() {
+  return observationListNeedsAuthForReviewFilter() ? { auth: true } : {};
+}
+
 function joinKingCountyTaxonIdsCsv(kc) {
   if (!kc || !kc.allIds || kc.allIds.size === 0) return "";
   return [...kc.allIds].sort((a, b) => a - b).join(",");
@@ -1356,6 +1377,7 @@ async function observationParams(opts = {}) {
     p.set("order", "desc");
     if (idBelow != null) p.set("id_below", String(Math.floor(idBelow)));
   }
+  applyUnreviewedByMeObservationParams(p);
   return p;
 }
 
@@ -1443,6 +1465,7 @@ async function speciesParams(page) {
   p.set("per_page", String(SPECIES_PER_PAGE));
   p.set("order", "desc");
   p.set("order_by", "count");
+  applyUnreviewedByMeObservationParams(p);
   return p;
 }
 
@@ -2302,8 +2325,8 @@ async function refreshInatAuthUser() {
   const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
   renderInatApiAuthStatusEl(
     login
-      ? `Signed in as ${login}. Observation cards show Agree when you have not already identified at that taxon.`
-      : "Signed in. Observation cards show Agree when applicable.",
+      ? `Signed in as ${login}. Observation cards can Agree, Mark reviewed, and use “Not yet reviewed by me” in filters.`
+      : "Signed in. Observation cards show Agree and Mark reviewed when applicable.",
     "ok"
   );
 }
@@ -2343,6 +2366,70 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     button.setAttribute("title", "You agreed");
   } catch (e) {
     window.alert(e && e.message ? e.message : "Network error while agreeing.");
+    button.disabled = false;
+    button.innerHTML = prevHtml;
+  }
+}
+
+/**
+ * HTML for “Mark reviewed” on an observation card (Identify-style; requires API sign-in).
+ * Hidden for your own observations (same boundary as Agree).
+ */
+function observationMarkReviewedButtonHtml(obs) {
+  if (!inatAuthUser || inatAuthUser.id == null) return "";
+  const meId = Number(inatAuthUser.id);
+  if (!Number.isFinite(meId) || meId <= 0) return "";
+  const ownerId = obs && obs.user && obs.user.id != null ? Number(obs.user.id) : NaN;
+  if (Number.isFinite(ownerId) && ownerId === meId) return "";
+  const oid = obs && obs.id != null ? Number(obs.id) : NaN;
+  if (!Number.isFinite(oid) || oid <= 0) return "";
+  return `<button type="button" class="card-mark-reviewed" aria-label="Mark this observation as reviewed on iNaturalist" title="Mark reviewed (your Identify queue)" data-review-obs-id="${Math.floor(
+    oid
+  )}"><i class="fa fa-check" aria-hidden="true"></i></button>`;
+}
+
+/**
+ * @param {HTMLButtonElement} button
+ * @param {string} obsIdStr
+ */
+async function submitObservationMarkReviewed(button, obsIdStr) {
+  const obsId = Number(obsIdStr);
+  if (!Number.isFinite(obsId) || obsId <= 0) return;
+  if (!inatApiJwtAuthorizationValue()) {
+    window.alert("Paste and apply an API token under Filters first.");
+    return;
+  }
+  const prevHtml = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<i class="fa fa-spinner fa-spin" aria-hidden="true"></i>';
+  try {
+    const res = await inatFetch(`observations/${Math.floor(obsId)}/review`, {
+      method: "POST",
+      auth: true,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ reviewed: "true" }).toString(),
+    });
+    if (!res.ok) {
+      const detail = await formatInatHttpErrorForDisplay(res);
+      window.alert(`Could not mark reviewed. ${detail}`);
+      button.disabled = false;
+      button.innerHTML = prevHtml;
+      return;
+    }
+    button.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i>';
+    button.setAttribute("aria-label", "Marked reviewed on iNaturalist");
+    button.setAttribute("title", "Marked reviewed");
+    if (observationListNeedsAuthForReviewFilter()) {
+      const card = button.closest(".card");
+      if (card && card.parentNode) {
+        card.parentNode.removeChild(card);
+        obsCardCount = Math.max(0, obsCardCount - 1);
+        totalObs = Math.max(0, totalObs - 1);
+        updateSearchSummaryElements();
+      }
+    }
+  } catch (e) {
+    window.alert(e && e.message ? e.message : "Network error while marking reviewed.");
     button.disabled = false;
     button.innerHTML = prevHtml;
   }
@@ -2533,6 +2620,7 @@ function renderCard({
         )}" aria-label="Open this observation in the iNaturalist mobile app" title="Open in iNaturalist app (installed app)"><i class="fa fa-mobile" aria-hidden="true"></i></button>`
       : "";
   const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
+  const reviewBtn = agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
   const imgBlock = buildCardImageBlockFromUrls(urls);
   if (onClick) {
     card.innerHTML = `
@@ -2540,6 +2628,7 @@ function renderCard({
         ${imgBlock}
       </div>
       ${agreeBtn}
+      ${reviewBtn}
       ${openAppBtn}
       <div class="card-bottom">
         ${metaBlock}
@@ -2563,6 +2652,7 @@ function renderCard({
         ${imgBlock}
       </div>
       ${agreeBtn}
+      ${reviewBtn}
       ${openAppBtn}
       <div class="card-bottom">
         ${metaBlock}
@@ -2592,6 +2682,16 @@ async function runObservationSearch(reset) {
   obsLoading = true;
   showError("obs", "");
   try {
+    if (observationListNeedsAuthForReviewFilter()) {
+      if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
+        showError(
+          "obs",
+          "Choose “Not yet reviewed by me” only after signing in with an API token under Filters."
+        );
+        return;
+      }
+    }
+
     if (reset) {
       obsListCursorId = null;
       obsListCursorAscId = null;
@@ -2622,7 +2722,8 @@ async function runObservationSearch(reset) {
         `observations?${(await observationParams({
           idBelow: obsListCursorId,
           idAbove: obsListCursorAscId,
-        })).toString()}`
+        })).toString()}`,
+        observationListAuthFetchOptions()
       );
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = await res.json();
@@ -2686,7 +2787,10 @@ async function runObservationSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const sRes = await inatFetch(`observations/species_counts?${(await speciesCountParams()).toString()}`);
+          const sRes = await inatFetch(
+            `observations/species_counts?${(await speciesCountParams()).toString()}`,
+            observationListAuthFetchOptions()
+          );
           if (!sRes.ok) return;
           const sData = await sRes.json();
           totalSpecies = sData.total_results || 0;
@@ -2718,6 +2822,16 @@ async function runSpeciesSearch(reset) {
   speciesLoading = true;
   showError("species", "");
   try {
+    if (observationListNeedsAuthForReviewFilter()) {
+      if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
+        showError(
+          "species",
+          "Choose “Not yet reviewed by me” only after signing in with an API token under Filters."
+        );
+        return;
+      }
+    }
+
     if (reset) {
       speciesPage = 1;
       totalSpecies = 0;
@@ -2728,7 +2842,10 @@ async function runSpeciesSearch(reset) {
       el.speciesGrid.innerHTML = "";
     }
 
-    const res = await inatFetch(`observations/species_counts?${(await speciesParams(speciesPage)).toString()}`);
+    const res = await inatFetch(
+      `observations/species_counts?${(await speciesParams(speciesPage)).toString()}`,
+      observationListAuthFetchOptions()
+    );
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     const data = await res.json();
     const results = data.results || [];
@@ -2737,7 +2854,10 @@ async function runSpeciesSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const oRes = await inatFetch(`observations?${(await observationCountParams()).toString()}`);
+          const oRes = await inatFetch(
+            `observations?${(await observationCountParams()).toString()}`,
+            observationListAuthFetchOptions()
+          );
           if (!oRes.ok) return;
           const oData = await oRes.json();
           totalObs = oData.total_results || 0;
@@ -3373,6 +3493,14 @@ function syncUrl() {
   if (el.popularOnly.checked) q.set("popular", "1");
   else q.delete("popular");
 
+  if (el.filterMyReview) {
+    if (el.filterMyReview.value === "unreviewed" && inatAuthUser && inatAuthUser.id != null) {
+      q.set("unreviewed", "1");
+    } else {
+      q.delete("unreviewed");
+    }
+  }
+
   const est = formatEstablishmentForUrl();
   if (est) q.set("est", est);
   else q.delete("est");
@@ -3460,6 +3588,9 @@ function readUrl() {
     const s = q.get("sort") || "recent";
     const allowed = new Set(["recent", "oldest", "faves", "obs_recent", "obs_oldest"]);
     el.sortMode.value = allowed.has(s) ? s : "recent";
+  }
+  if (el.filterMyReview) {
+    el.filterMyReview.value = q.get("unreviewed") === "1" ? "unreviewed" : "all";
   }
   applyMediaFromQuery(q);
   el.uploadedDays.value = q.get("days") || "";
@@ -3908,10 +4039,21 @@ function wireObservationScrollMemory() {
   }
 }
 
-/** Delegated clicks for observation-card Agree (posts an identification via the iNaturalist API). */
+/** Delegated clicks for observation-card Agree and Mark reviewed (authenticated iNat API writes). */
 function wireObservationAgreeClicks() {
   if (!el.resultsGrid) return;
   el.resultsGrid.addEventListener("click", (e) => {
+    const reviewRaw = e.target && e.target.closest && e.target.closest("button.card-mark-reviewed");
+    const reviewBtn = reviewRaw instanceof HTMLButtonElement ? reviewRaw : null;
+    if (reviewBtn && !reviewBtn.disabled) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rid = reviewBtn.getAttribute("data-review-obs-id");
+      if (!rid) return;
+      void submitObservationMarkReviewed(reviewBtn, rid);
+      return;
+    }
+
     const raw = e.target && e.target.closest && e.target.closest("button.card-agree");
     const btn = raw instanceof HTMLButtonElement ? raw : null;
     if (!btn || btn.disabled) return;
@@ -3950,8 +4092,10 @@ function wireExplorerApiAuth() {
     el.btnInatApiTokenClear.addEventListener("click", () => {
       clearStoredInatApiJwt();
       if (el.inatApiToken) el.inatApiToken.value = "";
+      if (el.filterMyReview) el.filterMyReview.value = "all";
       void (async () => {
         await refreshInatAuthUser();
+        syncUrl();
         refreshResultPanelsIfMetaChanged();
       })();
     });
@@ -4035,6 +4179,21 @@ function wireFilterExtras() {
     queueMicrotask(() => refreshResultPanelsIfMetaChanged());
   });
 
+  if (el.filterMyReview) {
+    el.filterMyReview.addEventListener("change", () => {
+      if (el.filterMyReview.value === "unreviewed" && (!inatAuthUser || !inatApiJwtAuthorizationValue())) {
+        el.filterMyReview.value = "all";
+        window.alert(
+          "Paste an API token under Filters and click Apply first. “Not yet reviewed by me” needs your iNaturalist account."
+        );
+        return;
+      }
+      lastMapFilterKey = null;
+      scheduleUrlSync();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
+
   const lowerLogin = (e) => {
     e.target.value = e.target.value.toLowerCase();
   };
@@ -4094,6 +4253,7 @@ function wireButtons() {
     el.unobservedInput.value = "";
     el.qualityGrade.value = "";
     el.sortMode.value = "recent";
+    if (el.filterMyReview) el.filterMyReview.value = "all";
     el.mediaPhotos.checked = true;
     el.mediaSounds.checked = false;
     el.uploadedDays.value = "";

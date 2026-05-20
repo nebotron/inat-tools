@@ -11,7 +11,7 @@
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="stylesheet" href="styles.css?v=card-img-no-link1" />
+    <link rel="stylesheet" href="styles.css?v=obs-review-filter1" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -129,6 +129,15 @@
               </div>
 
               <div class="field">
+                <label for="filter-my-review">My review (Identify)</label>
+                <select id="filter-my-review">
+                  <option value="all" selected>All observations</option>
+                  <option value="unreviewed">Not yet reviewed by me</option>
+                </select>
+                <p class="field-hint muted">Requires API sign-in below. Matches iNaturalist’s personal “reviewed” state.</p>
+              </div>
+
+              <div class="field">
                 <label for="observed-days">Observed within last N days</label>
                 <input id="observed-days" type="number" min="1" max="3650" step="1" placeholder="e.g. 7" />
               </div>
@@ -242,6 +251,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=map-zoom-heat-stable1" type="module"></script>
+    <script src="app.js?v=obs-review-filter1" type="module"></script>
   </body>
 </html>
