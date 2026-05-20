@@ -11,7 +11,7 @@
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="stylesheet" href="styles.css?v=explorer-remove-months-evidence-1" />
+    <link rel="stylesheet" href="styles.css?v=explorer-auth-dock-2" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -64,20 +64,6 @@
                 <input id="unobserved-input" class="input-login" type="text" placeholder="Username" autocapitalize="none" autocomplete="username" spellcheck="false" />
               </div>
 
-              <fieldset class="months-fieldset inat-api-auth-fieldset">
-                <legend>API token (optional)</legend>
-                <p class="inat-api-auth-hint">
-                  <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer">Get a token</a> — paste the JSON or the JWT alone. Only the JWT is stored here; it unlocks <strong>Agree</strong> and review filters on cards.
-                </p>
-                <label for="inat-api-token">Token</label>
-                <textarea id="inat-api-token" class="inat-api-token" rows="4" spellcheck="false" autocomplete="off" placeholder='{"api_token":"…"} or eyJ…'></textarea>
-                <div class="inat-api-auth-actions">
-                  <button type="button" id="btn-inat-api-token-apply" class="btn secondary">Apply</button>
-                  <button type="button" id="btn-inat-api-token-clear" class="btn secondary">Clear</button>
-                </div>
-                <p id="inat-api-auth-status" class="inat-api-auth-status" role="status" aria-live="polite"></p>
-              </fieldset>
-
               <fieldset class="months-fieldset establishment-fieldset">
                 <legend>Establishment</legend>
                 <p class="establishment-fieldset-hint">Uncheck a type to hide it from results.</p>
@@ -116,7 +102,7 @@
                   <option value="all" selected>All</option>
                   <option value="unreviewed">Unreviewed by me</option>
                 </select>
-                <p class="field-hint muted">Uses Identify “reviewed” state. Needs a token above.</p>
+                <p class="field-hint muted">Uses Identify “reviewed” state. Sign in below to use this filter.</p>
               </div>
 
               <div class="field">
@@ -160,6 +146,27 @@
               </div>
             </form>
           </section>
+          <div class="explorer-auth-dock">
+            <button type="button" id="btn-explorer-auth-toggle" class="btn explorer-auth-toggle" aria-expanded="false">
+              Log in
+            </button>
+            <div id="explorer-auth-panel" class="explorer-auth-panel" hidden role="region" aria-labelledby="explorer-auth-legend">
+              <fieldset class="months-fieldset inat-api-auth-fieldset explorer-auth-panel-fieldset">
+                <legend id="explorer-auth-legend">iNaturalist sign-in</legend>
+                <p class="inat-api-auth-hint">
+                  <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer">Get a token</a> — paste the JSON or the JWT alone. Only the JWT is stored in this browser; it unlocks <strong>Agree</strong>, <strong>Mark reviewed</strong>, and the “Unreviewed by me” filter.
+                </p>
+                <label for="inat-api-token">Token</label>
+                <textarea id="inat-api-token" class="inat-api-token" rows="4" spellcheck="false" autocomplete="off" placeholder='{"api_token":"…"} or eyJ…'></textarea>
+                <div class="inat-api-auth-actions">
+                  <button type="button" id="btn-inat-api-token-apply" class="btn secondary">Apply</button>
+                  <button type="button" id="btn-inat-api-token-clear" class="btn secondary">Clear token</button>
+                  <button type="button" id="btn-explorer-auth-panel-close" class="btn secondary">Close</button>
+                </div>
+                <p id="inat-api-auth-status" class="inat-api-auth-status" role="status" aria-live="polite"></p>
+              </fieldset>
+            </div>
+          </div>
           <footer class="site-footer">
             <p><a href="https://www.inaturalist.org/">iNaturalist</a> data via API — not affiliated. <a href="../tree/">Taxonomy tree</a></p>
           </footer>
@@ -223,6 +230,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=explorer-place-before-observer-1" type="module"></script>
+    <script src="app.js?v=explorer-auth-dock-2" type="module"></script>
   </body>
 </html>

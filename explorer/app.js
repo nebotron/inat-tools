@@ -237,6 +237,9 @@ const el = {
   btnInatApiTokenApply: document.getElementById("btn-inat-api-token-apply"),
   btnInatApiTokenClear: document.getElementById("btn-inat-api-token-clear"),
   inatApiAuthStatus: document.getElementById("inat-api-auth-status"),
+  btnExplorerAuthToggle: document.getElementById("btn-explorer-auth-toggle"),
+  explorerAuthPanel: document.getElementById("explorer-auth-panel"),
+  btnExplorerAuthPanelClose: document.getElementById("btn-explorer-auth-panel-close"),
   radiusKm: document.getElementById("radius-km"),
   nearbyControls: document.getElementById("nearby-controls"),
   lat: document.getElementById("lat"),
@@ -2372,54 +2375,119 @@ function renderInatApiAuthStatusEl(message, variant = "neutral") {
   stat.classList.toggle("inat-api-auth-status--ok", variant === "ok");
 }
 
+function explorerAuthPanelIsOpen() {
+  return Boolean(el.explorerAuthPanel && !el.explorerAuthPanel.hidden);
+}
+
+function explorerIsSignedIn() {
+  return Boolean(inatApiJwtAuthorizationValue() && inatAuthUser && inatAuthUser.id != null);
+}
+
+function setExplorerAuthPanelOpen(open) {
+  if (!el.explorerAuthPanel || !el.btnExplorerAuthToggle) return;
+  el.explorerAuthPanel.hidden = !open;
+  if (explorerIsSignedIn()) {
+    el.btnExplorerAuthToggle.removeAttribute("aria-expanded");
+    return;
+  }
+  el.btnExplorerAuthToggle.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function closeExplorerAuthPanel() {
+  setExplorerAuthPanelOpen(false);
+}
+
+/**
+ * Opens the Filters tab and the sign-in panel (e.g. auth-required filter or card action).
+ * @param {{ reason?: string }} [options]
+ */
+async function openExplorerAuthPanel(options = {}) {
+  const { reason } = options;
+  if (!el.explorerAuthPanel) return;
+  if (currentView !== "filters") await switchView("filters");
+  setExplorerAuthPanelOpen(true);
+  await refreshInatAuthUser();
+  if (reason) renderInatApiAuthStatusEl(reason, "neutral");
+  if (el.inatApiToken && typeof el.inatApiToken.focus === "function") {
+    try {
+      el.inatApiToken.focus({ preventScroll: false });
+    } catch {
+      el.inatApiToken.focus();
+    }
+  }
+  try {
+    el.explorerAuthPanel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  } catch {
+    /* ignore */
+  }
+}
+
+function syncExplorerAuthChrome() {
+  if (!el.btnExplorerAuthToggle) return;
+  const signedIn = explorerIsSignedIn();
+  el.btnExplorerAuthToggle.textContent = signedIn ? "Log out" : "Log in";
+  el.btnExplorerAuthToggle.setAttribute("aria-label", signedIn ? "Log out of iNaturalist" : "Log in to iNaturalist");
+  if (signedIn) {
+    setExplorerAuthPanelOpen(false);
+    el.btnExplorerAuthToggle.removeAttribute("aria-expanded");
+  } else {
+    el.btnExplorerAuthToggle.setAttribute("aria-expanded", explorerAuthPanelIsOpen() ? "true" : "false");
+  }
+}
+
 /** Loads `inatAuthUser` from `GET /users/me` when a JWT is stored; updates the Filters status line. */
 async function refreshInatAuthUser() {
-  const jwt = getStoredInatApiJwt();
-  if (!jwt) {
-    inatAuthUser = null;
-    renderInatApiAuthStatusEl("Not signed in. Paste a token (JSON or JWT), then Apply.", "neutral");
-    return;
-  }
-  const format = validateInatJwtFormat(jwt);
-  if (!format.ok) {
-    inatAuthUser = null;
+  try {
+    const jwt = getStoredInatApiJwt();
+    if (!jwt) {
+      inatAuthUser = null;
+      if (!explorerAuthPanelIsOpen()) renderInatApiAuthStatusEl("", "neutral");
+      else renderInatApiAuthStatusEl("Not signed in. Paste a token (JSON or JWT), then Apply.", "neutral");
+      return;
+    }
+    const format = validateInatJwtFormat(jwt);
+    if (!format.ok) {
+      inatAuthUser = null;
+      renderInatApiAuthStatusEl(
+        `Token format: ${format.error} Clear it and paste valid JSON or a JWT from iNaturalist.`,
+        "error"
+      );
+      return;
+    }
+    let res;
+    try {
+      res = await fetchUsersMeWithStoredJwt();
+    } catch {
+      inatAuthUser = null;
+      renderInatApiAuthStatusEl("Could not reach iNaturalist to verify the saved token.", "error");
+      return;
+    }
+    if (!res.ok) {
+      inatAuthUser = null;
+      const detail = await formatInatHttpErrorForDisplay(res);
+      renderInatApiAuthStatusEl(`Token rejected. ${detail} Clear it or paste a new one.`, "error");
+      return;
+    }
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      inatAuthUser = null;
+      renderInatApiAuthStatusEl("Token check failed (bad response). Clear it or paste a new JWT.", "error");
+      return;
+    }
+    const u = data && Array.isArray(data.results) ? data.results[0] : null;
+    inatAuthUser = u && typeof u === "object" ? u : null;
+    const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
     renderInatApiAuthStatusEl(
-      `Token format: ${format.error} Clear it and paste valid JSON or a JWT from iNaturalist.`,
-      "error"
+      login
+        ? `Signed in as ${login}. Turn on “Identify controls” (Details shown) for Agree and Mark reviewed on cards.`
+        : "Signed in.",
+      "ok"
     );
-    return;
+  } finally {
+    syncExplorerAuthChrome();
   }
-  let res;
-  try {
-    res = await fetchUsersMeWithStoredJwt();
-  } catch {
-    inatAuthUser = null;
-    renderInatApiAuthStatusEl("Could not reach iNaturalist to verify the saved token.", "error");
-    return;
-  }
-  if (!res.ok) {
-    inatAuthUser = null;
-    const detail = await formatInatHttpErrorForDisplay(res);
-    renderInatApiAuthStatusEl(`Token rejected. ${detail} Clear it or paste a new one.`, "error");
-    return;
-  }
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    inatAuthUser = null;
-    renderInatApiAuthStatusEl("Token check failed (bad response). Clear it or paste a new JWT.", "error");
-    return;
-  }
-  const u = data && Array.isArray(data.results) ? data.results[0] : null;
-  inatAuthUser = u && typeof u === "object" ? u : null;
-  const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
-  renderInatApiAuthStatusEl(
-    login
-      ? `Signed in as ${login}. Turn on “Identify controls” (Details shown) for Agree and Mark reviewed on cards.`
-      : "Signed in.",
-    "ok"
-  );
 }
 
 /**
@@ -2460,7 +2528,7 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
   const taxonId = Number(taxonIdStr);
   if (!Number.isFinite(obsId) || obsId <= 0 || !Number.isFinite(taxonId) || taxonId <= 0) return;
   if (!inatApiJwtAuthorizationValue()) {
-    window.alert("Add your API token on Filters, then Apply.");
+    void openExplorerAuthPanel({ reason: "Sign in with an API token to use Agree on observation cards." });
     return;
   }
   removeObservationCardFromGridAfterWrite(button);
@@ -2508,7 +2576,7 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
   const obsId = Number(obsIdStr);
   if (!Number.isFinite(obsId) || obsId <= 0) return;
   if (!inatApiJwtAuthorizationValue()) {
-    window.alert("Add your API token on Filters, then Apply.");
+    void openExplorerAuthPanel({ reason: "Sign in with an API token to use Mark reviewed on observation cards." });
     return;
   }
   removeObservationCardFromGridAfterWrite(button);
@@ -2804,7 +2872,13 @@ async function runObservationSearch(reset) {
   try {
     if (observationListNeedsAuthForReviewFilter()) {
       if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
-        showError("obs", "Pick “Unreviewed by me” only after a token is saved on Filters.");
+        showError(
+          "obs",
+          "Pick “Unreviewed by me” only after you sign in with an API token (Log in at the bottom of Filters).",
+        );
+        void openExplorerAuthPanel({
+          reason: "Sign in with an API token to use the “Unreviewed by me” filter.",
+        });
         return;
       }
     }
@@ -2940,7 +3014,13 @@ async function runSpeciesSearch(reset) {
   try {
     if (observationListNeedsAuthForReviewFilter()) {
       if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
-        showError("species", "Pick “Unreviewed by me” only after a token is saved on Filters.");
+        showError(
+          "species",
+          "Pick “Unreviewed by me” only after you sign in with an API token (Log in at the bottom of Filters).",
+        );
+        void openExplorerAuthPanel({
+          reason: "Sign in with an API token to use the “Unreviewed by me” filter.",
+        });
         return;
       }
     }
@@ -4285,6 +4365,33 @@ function wireObservationAgreeClicks() {
   });
 }
 
+/** Bottom-of-Filters Log in / Log out and panel open/close. */
+function wireExplorerAuthDock() {
+  if (!el.btnExplorerAuthToggle) return;
+  el.btnExplorerAuthToggle.addEventListener("click", () => {
+    if (explorerIsSignedIn()) {
+      clearStoredInatApiJwt();
+      if (el.inatApiToken) el.inatApiToken.value = "";
+      if (el.filterMyReview) el.filterMyReview.value = "all";
+      closeExplorerAuthPanel();
+      void (async () => {
+        await refreshInatAuthUser();
+        syncUrl();
+        refreshResultPanelsIfMetaChanged();
+      })();
+      return;
+    }
+    if (explorerAuthPanelIsOpen()) {
+      closeExplorerAuthPanel();
+      return;
+    }
+    void openExplorerAuthPanel({});
+  });
+  if (el.btnExplorerAuthPanelClose) {
+    el.btnExplorerAuthPanelClose.addEventListener("click", () => closeExplorerAuthPanel());
+  }
+}
+
 /** Filters tab: store JWT, verify with `GET /users/me`, refresh observation cards when auth changes. */
 function wireExplorerApiAuth() {
   if (el.btnInatApiTokenApply && el.inatApiToken) {
@@ -4396,7 +4503,9 @@ function wireFilterExtras() {
     el.filterMyReview.addEventListener("change", () => {
       if (el.filterMyReview.value === "unreviewed" && (!inatAuthUser || !inatApiJwtAuthorizationValue())) {
         el.filterMyReview.value = "all";
-        window.alert("Apply an API token on Filters first to use “Unreviewed by me”.");
+        void openExplorerAuthPanel({
+          reason: "Sign in with an API token to use the “Unreviewed by me” filter.",
+        });
         return;
       }
       lastMapFilterKey = null;
@@ -4428,7 +4537,20 @@ function wireFilterExtras() {
   if (el.metaPhotoPage) el.metaPhotoPage.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
   if (el.metaObserver) el.metaObserver.addEventListener("change", onMeta);
-  if (el.metaIdentifyControls) el.metaIdentifyControls.addEventListener("change", onMeta);
+  if (el.metaIdentifyControls) {
+    el.metaIdentifyControls.addEventListener("change", () => {
+      if (el.metaIdentifyControls.checked && !explorerIsSignedIn()) {
+        el.metaIdentifyControls.checked = false;
+        queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+        void openExplorerAuthPanel({
+          reason:
+            "Sign in with an API token to use “Identify controls” (Agree and Mark reviewed on observation cards).",
+        });
+        return;
+      }
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
 
   const onEstablishmentChange = () => {
     lastMapFilterKey = null;
@@ -4724,6 +4846,7 @@ async function boot() {
   wireSpeciesGridScrollImagePreload();
   wireObservationAgreeClicks();
   wireFilterExtras();
+  wireExplorerAuthDock();
   wireExplorerApiAuth();
   wireButtons();
   if (el.btnRefreshMap) {

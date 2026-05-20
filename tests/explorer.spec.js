@@ -21,14 +21,16 @@ test.describe("explorer", () => {
 
   test("unreviewed filter requires API sign-in (select reverts without JWT)", async ({ page }) => {
     await expect(page.locator("#filter-my-review")).toBeVisible();
-    page.once("dialog", (d) => d.accept());
     await page.locator("#filter-my-review").selectOption("unreviewed");
-    /* Without a stored JWT the UI reverts the select and shows an alert. */
     await expect(page.locator("#filter-my-review")).toHaveValue("all");
+    await expect(page.locator("#explorer-auth-panel")).toBeVisible();
+    await expect(page.locator("#inat-api-auth-status")).toContainText(/sign in with an api token/i);
   });
 
-  test("API sign-in fieldset is available for JWT and Agree", async ({ page }) => {
-    await expect(page.getByRole("group", { name: /API token/i })).toBeVisible();
+  test("API sign-in is available from Log in at bottom of Filters", async ({ page }) => {
+    await expect(page.locator("#btn-explorer-auth-toggle")).toHaveText("Log in");
+    await page.locator("#btn-explorer-auth-toggle").click();
+    await expect(page.getByRole("group", { name: /iNaturalist sign-in/i })).toBeVisible();
     await expect(page.locator("#inat-api-token")).toBeVisible();
     await expect(page.locator("#inat-api-auth-status")).toContainText(/not signed in/i);
   });
