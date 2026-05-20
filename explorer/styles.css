@@ -648,16 +648,18 @@ a.card-open-inat-app {
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .card-agree .fa {
   pointer-events: none;
 }
 
-.card-agree:hover:not(:disabled) {
-  background: rgba(27, 67, 50, 0.92);
-  border-color: rgba(200, 245, 220, 0.6);
-  color: #e8f5e9;
+.card-agree:hover:not(:disabled),
+.card-agree:active:not(:disabled) {
+  background: rgba(0, 0, 0, 0.45);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
 }
 
 .card-agree:disabled {
@@ -681,24 +683,17 @@ a.card-open-inat-app {
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .card-mark-reviewed .fa {
   pointer-events: none;
 }
 
-/* Keep the same face on press as at rest (no browser default “pressed” tint). */
+.card-mark-reviewed:hover:not(:disabled),
 .card-mark-reviewed:active:not(:disabled) {
   background: rgba(0, 0, 0, 0.45);
   border-color: rgba(255, 255, 255, 0.35);
-  color: #fff;
-}
-
-/* Neutral hover: after a card is removed from the grid, the next row often sits under
-   the same pointer position; a strong green hover looked like “reviewed” carried over. */
-.card-mark-reviewed:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.55);
   color: #fff;
 }
 
