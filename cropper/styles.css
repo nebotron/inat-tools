@@ -70,6 +70,8 @@ body.app-body-fit .app-main--flow {
 /** Crop step: one viewport-height column — no outer scroll; chrome stays under the image. */
 body.app-body-fit .app-main--flow:has(#page-crop:not([hidden])) {
   overflow: hidden;
+  /** Flush to top: only respect the notch; no extra slate band above the crop area. */
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /** Full-screen while IndexedDB session is being rehydrated */
@@ -329,7 +331,8 @@ a:hover {
 
 .app-page--crop {
   width: 100%;
-  padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+  /** Bottom safe area is applied on `.crop-toolbar` so controls can sit flush with the viewport. */
+  padding-bottom: 0;
 }
 
 .previews-card--minimal {
@@ -664,12 +667,13 @@ body.app-body-fit .preview-legend {
 }
 
 body.app-body-fit .app-page--crop .previews-card {
-  padding-top: 0.5rem;
-  padding-bottom: 0.75rem;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 body.app-body-fit .app-page--crop .preview-row {
-  padding: 0.35rem 0 0;
+  padding: 0;
+  gap: 0;
   border: none;
 }
 
@@ -829,7 +833,8 @@ body.app-body-fit .app-page--crop .crop-review-done {
   justify-content: center;
   gap: 0.45rem;
   flex: 0 0 auto;
-  padding: 0.35rem max(1rem, env(safe-area-inset-right, 0px)) max(0.45rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
+  /** Bottom padding is only the home-indicator inset — no extra slate band below the controls. */
+  padding: 0.35rem max(1rem, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(1rem, env(safe-area-inset-left, 0px));
 }
 
 .crop-toolbar__progress {
@@ -1229,8 +1234,9 @@ body.app-body-fit .app-page--crop .crop-review-done {
   align-items: center;
   gap: 0.45rem;
   flex: 0 0 auto;
-  padding: 0.35rem max(1rem, env(safe-area-inset-right, 0px)) 0.3rem max(1rem, env(safe-area-inset-left, 0px));
-  background: var(--bg);
+  padding: 0.25rem max(1rem, env(safe-area-inset-right, 0px)) 0.2rem max(1rem, env(safe-area-inset-left, 0px));
+  /** Match `.crop-editor` so the zoom strip is not a lighter “grey” band under the viewport. */
+  background: #020617;
   border-bottom: 1px solid var(--border);
   touch-action: manipulation;
 }
