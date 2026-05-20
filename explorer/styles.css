@@ -687,30 +687,24 @@ a.card-open-inat-app {
   pointer-events: none;
 }
 
+/* Keep the same face on press as at rest (no browser default “pressed” tint). */
+.card-mark-reviewed:active:not(:disabled) {
+  background: rgba(0, 0, 0, 0.45);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
 /* Neutral hover: after a card is removed from the grid, the next row often sits under
    the same pointer position; a strong green hover looked like “reviewed” carried over. */
-.card-mark-reviewed:hover:not(:disabled):not(.card-mark-reviewed--done) {
+.card-mark-reviewed:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.16);
   border-color: rgba(255, 255, 255, 0.55);
   color: #fff;
 }
 
-.card-mark-reviewed--done,
-.card-mark-reviewed--done:disabled {
-  background: rgba(27, 67, 50, 0.92);
-  border-color: rgba(200, 245, 220, 0.6);
-  color: #e8f5e9;
-  opacity: 1;
-  cursor: default;
-}
-
 .card-mark-reviewed:disabled {
-  opacity: 0.65;
-  cursor: default;
-}
-
-.card-mark-reviewed--done:disabled {
   opacity: 1;
+  cursor: wait;
 }
 
 .card a:not(.card-link):not(.card-open-inat-app) {

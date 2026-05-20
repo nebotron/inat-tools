@@ -2410,9 +2410,6 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
       button.innerHTML = prevHtml;
       return;
     }
-    button.innerHTML = '<i class="fa fa-thumbs-up" aria-hidden="true"></i>';
-    button.setAttribute("aria-label", "You agreed with this observation");
-    button.setAttribute("title", "You agreed");
     removeObservationCardFromGridAfterWrite(button);
   } catch (e) {
     window.alert(e && e.message ? e.message : "Network error while agreeing.");
@@ -2466,10 +2463,6 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
       button.innerHTML = prevHtml;
       return;
     }
-    button.classList.add("card-mark-reviewed--done");
-    button.innerHTML = '<i class="fa fa-check" aria-hidden="true"></i>';
-    button.setAttribute("aria-label", "Marked reviewed on iNaturalist");
-    button.setAttribute("title", "Marked reviewed");
     removeObservationCardFromGridAfterWrite(button);
   } catch (e) {
     window.alert(e && e.message ? e.message : "Network error while marking reviewed.");
