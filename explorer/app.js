@@ -323,30 +323,6 @@ let taxonHighlight = -1;
 let placeHighlight = -1;
 let unobsHighlight = -1;
 
-/**
- * While the window or visual viewport is resizing (pinch / page zoom), skip heavy synchronous
- * layout reads on large observation grids — WebKit can kill the tab when these run in a tight loop.
- */
-let explorerViewportLayoutBusyUntil = 0;
-function markExplorerViewportLayoutBusy() {
-  explorerViewportLayoutBusyUntil = performance.now() + 550;
-}
-function isExplorerViewportLayoutBusy() {
-  return performance.now() < explorerViewportLayoutBusyUntil;
-}
-
-function wireExplorerViewportLayoutBusySignals() {
-  const mark = () => {
-    markExplorerViewportLayoutBusy();
-  };
-  window.addEventListener("resize", mark, { passive: true });
-  const vv = window.visualViewport;
-  if (vv) {
-    vv.addEventListener("resize", mark, { passive: true });
-    vv.addEventListener("scroll", mark, { passive: true });
-  }
-}
-
 function escapeHtml(s) {
   const d = document.createElement("div");
   d.textContent = s || "";
@@ -4273,29 +4249,6 @@ function readObsScrollMemory() {
   }
 }
 
-function findObsCardIdNearViewportCenter() {
-  if (!el.panelObs || !el.resultsGrid) return null;
-  if (isExplorerViewportLayoutBusy()) return null;
-  const panel = el.panelObs;
-  const prect = panel.getBoundingClientRect();
-  const midY = prect.top + prect.height / 2;
-  const cards = el.resultsGrid.querySelectorAll(".card[data-obs-id]");
-  let bestId = null;
-  let bestDist = Infinity;
-  for (const c of cards) {
-    const cr = c.getBoundingClientRect();
-    if (cr.bottom < prect.top || cr.top > prect.bottom) continue;
-    const cy = cr.top + cr.height / 2;
-    const d = Math.abs(cy - midY);
-    if (d < bestDist) {
-      bestDist = d;
-      const oid = Number(c.dataset.obsId);
-      if (Number.isFinite(oid) && oid > 0) bestId = oid;
-    }
-  }
-  return bestId;
-}
-
 function writeObsScrollMemory(obsId, scrollTop) {
   const prev = readObsScrollMemory();
   const id = obsId != null && Number.isFinite(obsId) && obsId > 0 ? Math.floor(obsId) : prev.id;
@@ -4311,11 +4264,9 @@ function writeObsScrollMemory(obsId, scrollTop) {
 function flushObsScrollMemorySave() {
   obsScrollSaveDebounce = null;
   if (!el.panelObs || currentView !== "observations") return;
-  if (isExplorerViewportLayoutBusy()) return;
   const st = el.panelObs.scrollTop;
-  const centerId = findObsCardIdNearViewportCenter();
   const prev = readObsScrollMemory();
-  writeObsScrollMemory(centerId != null ? centerId : prev.id, st);
+  writeObsScrollMemory(prev.id, st);
 }
 
 function scheduleObsScrollMemorySave() {
@@ -4323,7 +4274,7 @@ function scheduleObsScrollMemorySave() {
   obsScrollSaveDebounce = setTimeout(() => {
     obsScrollSaveDebounce = null;
     flushObsScrollMemorySave();
-  }, 200);
+  }, 500);
 }
 
 function wireObservationScrollMemory() {
@@ -4864,7 +4815,6 @@ async function boot() {
   wireAutocomplete();
   wirePlaceField();
   wireTabs();
-  wireExplorerViewportLayoutBusySignals();
   wireInfiniteScroll();
   wireObservationScrollMemory();
   wireObservationAgreeClicks();

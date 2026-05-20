@@ -456,11 +456,14 @@ main {
   container-name: explorer-results;
   /* Reserve scrollbar space so column count does not flip when scroll position toggles the vertical bar (avoids ResizeObserver ↔ layout loops during page zoom). */
   scrollbar-gutter: stable;
+  /* Reduce WebKit scroll-anchoring fighting reflow while page zoom changes column count. */
+  overflow-anchor: none;
 }
 
 .results-grid {
   display: grid;
   width: 100%;
+  contain: layout;
   /* Hairline gutters: each cell is an exact (100% − gaps) / N fraction of the panel width. */
   gap: 1px;
   background: var(--border);
