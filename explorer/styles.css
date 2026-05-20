@@ -564,6 +564,8 @@ main {
 }
 
 .card-open-inat-app {
+  box-sizing: border-box;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -597,6 +599,8 @@ a.card-open-inat-app {
 
 /* First-photo page on iNaturalist — matches open-app control; info icon only. */
 a.card-photo-page-link {
+  box-sizing: border-box;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -811,7 +815,7 @@ a.card-photo-page-link .fa {
   cursor: wait;
 }
 
-.card a:not(.card-link):not(.card-open-inat-app) {
+.card a:not(.card-link):not(.card-open-inat-app):not(.card-photo-page-link) {
   display: block;
   width: 100%;
   height: auto;
