@@ -1478,6 +1478,30 @@ body.app-body-fit .app-page--crop .crop-review-done {
   background: rgba(15, 23, 42, 0.5);
 }
 
+.inat-group-gap-drop {
+  flex: 0 0 16px;
+  align-self: stretch;
+  min-height: 120px;
+  box-sizing: border-box;
+  margin: 8px 0;
+  border-radius: 8px;
+  border: 1px dashed transparent;
+  background: transparent;
+  transition: outline-color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out;
+}
+
+.inat-upload-grouping-strip--dnd .inat-group-gap-drop {
+  border-color: rgba(71, 85, 105, 0.55);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.inat-group-gap-drop--over {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 0;
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(14, 165, 233, 0.45);
+}
+
 .inat-group-card {
   flex: 1 1 200px;
   min-width: min(100%, 160px);

@@ -311,7 +311,6 @@ const inatUploadTokenField = document.getElementById("inat-upload-token-field");
 const inatUploadToken = document.getElementById("inat-upload-token");
 const btnInatUploadTokenApply = document.getElementById("btn-inat-upload-token-apply");
 const btnInatUploadTokenClear = document.getElementById("btn-inat-upload-token-clear");
-const btnInatAddObservationGroup = document.getElementById("btn-inat-add-observation-group");
 const inatUploadGrouping = document.getElementById("inat-upload-grouping");
 const inatUploadGroupingStrip = document.getElementById("inat-upload-grouping-strip");
 const inatUploadProgressWrap = document.getElementById("inat-upload-progress-wrap");
@@ -2360,13 +2359,30 @@ function normalizeInatUploadGroupsRemoveEmpty() {
   if (inatUploadGroups.length === 0) initInatUploadGroups();
 }
 
-/** Append an empty card as an extra drop target (photos stay assigned until dragged here). */
-function addInatObservationGroupFromUi() {
-  clearError();
+/**
+ * Move one photo out of its group and insert a new single-photo observation at a gap (insertBeforeGroup index 0..n).
+ * @param {number} photoIdx
+ * @param {number} fromG
+ * @param {number} fromPos
+ * @param {number} insertBeforeGroup
+ */
+function insertPhotoAsNewGroupAtGap(photoIdx, fromG, fromPos, insertBeforeGroup) {
   validateInatUploadGroupsOrInit();
-  inatUploadGroups.push({ indices: [], species: "", taxonId: "" });
-  hideAllInatGroupSpeciesSuggests();
-  renderInatPhotoGroupingStrip();
+  const n = inatUploadGroups.length;
+  if (insertBeforeGroup < 0 || insertBeforeGroup > n) return;
+  const src = inatUploadGroups[fromG];
+  if (!src || fromPos < 0 || fromPos >= src.indices.length) return;
+  if (src.indices[fromPos] !== photoIdx) return;
+
+  const groups = inatUploadGroups.map((g) => ({
+    species: g.species || "",
+    taxonId: g.taxonId || "",
+    indices: [...g.indices],
+  }));
+  groups[fromG].indices.splice(fromPos, 1);
+  groups.splice(insertBeforeGroup, 0, { indices: [photoIdx], species: "", taxonId: "" });
+  inatUploadGroups = groups.filter((g) => g.indices && g.indices.length > 0);
+  if (inatUploadGroups.length === 0) initInatUploadGroups();
 }
 
 /**
@@ -2587,15 +2603,15 @@ function scheduleInatSpeciesAutocompleteQuery(card, q) {
 function clearInatDnDDropHighlight() {
   if (inatDnDDropHighlightEl) {
     try {
-      inatDnDDropHighlightEl.classList.remove("inat-group-drop--over");
+      inatDnDDropHighlightEl.classList.remove("inat-group-drop--over", "inat-group-gap-drop--over");
     } catch {
       /* ignore */
     }
   }
   inatDnDDropHighlightEl = null;
   if (inatUploadGroupingStrip) {
-    for (const el of inatUploadGroupingStrip.querySelectorAll(".inat-group-drop--over")) {
-      el.classList.remove("inat-group-drop--over");
+    for (const el of inatUploadGroupingStrip.querySelectorAll(".inat-group-drop--over, .inat-group-gap-drop--over")) {
+      el.classList.remove("inat-group-drop--over", "inat-group-gap-drop--over");
     }
     inatUploadGroupingStrip.classList.remove("inat-upload-grouping-strip--dnd");
   }
@@ -2688,21 +2704,50 @@ function wireInatUploadGroupingDelegated() {
     if (!(t instanceof Node) || !inatUploadGroupingStrip.contains(t)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    const drop = "closest" in t ? t.closest(".inat-group-drop") : null;
+    const drop = "closest" in t ? t.closest(".inat-group-gap-drop, .inat-group-drop") : null;
     if (inatDnDDropHighlightEl !== drop) {
-      if (inatDnDDropHighlightEl) inatDnDDropHighlightEl.classList.remove("inat-group-drop--over");
+      if (inatDnDDropHighlightEl) {
+        inatDnDDropHighlightEl.classList.remove("inat-group-drop--over", "inat-group-gap-drop--over");
+      }
       inatDnDDropHighlightEl = drop;
-      if (drop) drop.classList.add("inat-group-drop--over");
+      if (drop) drop.classList.add(drop.classList.contains("inat-group-gap-drop") ? "inat-group-gap-drop--over" : "inat-group-drop--over");
     }
   });
 
   inatUploadGroupingStrip.addEventListener("drop", (e) => {
-    const drop = e.target && "closest" in e.target ? e.target.closest(".inat-group-drop") : null;
-    if (!drop || !(e instanceof DragEvent) || !e.dataTransfer) return;
-    e.preventDefault();
-    clearInatDnDDropHighlight();
+    if (!(e instanceof DragEvent) || !e.dataTransfer) return;
     const photoIdx = parseInt(e.dataTransfer.getData("application/x-inat-photo-idx") || e.dataTransfer.getData("text/plain") || "", 10);
     if (!Number.isFinite(photoIdx)) return;
+
+    const gap = e.target && "closest" in e.target ? e.target.closest(".inat-group-gap-drop") : null;
+    if (gap) {
+      e.preventDefault();
+      clearInatDnDDropHighlight();
+      const insertBeforeGroup = parseInt(gap.dataset.insertBeforeGroup || "", 10);
+      if (!Number.isFinite(insertBeforeGroup)) return;
+
+      let fromG = -1;
+      let fromPos = -1;
+      for (let g = 0; g < inatUploadGroups.length; g++) {
+        const p = inatUploadGroups[g].indices.indexOf(photoIdx);
+        if (p >= 0) {
+          fromG = g;
+          fromPos = p;
+          break;
+        }
+      }
+      if (fromG < 0) return;
+
+      insertPhotoAsNewGroupAtGap(photoIdx, fromG, fromPos, insertBeforeGroup);
+      hideAllInatGroupSpeciesSuggests();
+      renderInatPhotoGroupingStrip();
+      return;
+    }
+
+    const drop = e.target && "closest" in e.target ? e.target.closest(".inat-group-drop") : null;
+    if (!drop) return;
+    e.preventDefault();
+    clearInatDnDDropHighlight();
     const card = drop.closest(".inat-group-card");
     if (!card) return;
     const toG = parseInt(card.dataset.groupIdx || "", 10);
@@ -2752,7 +2797,18 @@ function renderInatPhotoGroupingStrip() {
   clearInatDnDDropHighlight();
   inatUploadGroupingStrip.replaceChildren();
 
+  /** @param {number} insertBefore */
+  const appendGap = (insertBefore) => {
+    const gap = document.createElement("div");
+    gap.className = "inat-group-gap-drop";
+    gap.dataset.insertBeforeGroup = String(insertBefore);
+    gap.setAttribute("aria-label", "Drop a thumbnail here to start a new observation with that photo");
+    gap.title = "New observation";
+    inatUploadGroupingStrip.appendChild(gap);
+  };
+
   for (let g = 0; g < inatUploadGroups.length; g++) {
+    appendGap(g);
     const grp = inatUploadGroups[g];
     const card = document.createElement("section");
     card.className = "inat-group-card";
@@ -2799,7 +2855,7 @@ function renderInatPhotoGroupingStrip() {
 
     const drop = document.createElement("div");
     drop.className = "inat-group-drop";
-    drop.setAttribute("aria-label", "Photo thumbnails — drag between cards to regroup");
+    drop.setAttribute("aria-label", "Photo thumbnails — drag onto another card to combine, or onto a dashed strip between cards for a new observation");
     for (const ix of grp.indices) {
       if (ix < 0 || ix >= workItems.length) continue;
       const file = workItems[ix];
@@ -2829,6 +2885,7 @@ function renderInatPhotoGroupingStrip() {
     card.appendChild(drop);
     inatUploadGroupingStrip.appendChild(card);
   }
+  appendGap(inatUploadGroups.length);
 
   wireInatUploadGroupingDelegated();
 }
@@ -4939,12 +4996,6 @@ if (btnInatUploadTokenClear) {
       renderInatPhotoGroupingStrip();
     }
     void refreshInatUploadAuthUi();
-  });
-}
-
-if (btnInatAddObservationGroup) {
-  btnInatAddObservationGroup.addEventListener("click", () => {
-    addInatObservationGroupFromUi();
   });
 }
 
