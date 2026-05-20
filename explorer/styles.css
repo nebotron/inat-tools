@@ -497,11 +497,11 @@ main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 3.375rem;
+  height: 3.375rem;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 6px;
+  border-radius: 9px;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
   cursor: pointer;
@@ -517,7 +517,7 @@ main {
 
 .card-open-inat-app .fa {
   pointer-events: none;
-  font-size: 1.12rem;
+  font-size: 1.68rem;
 }
 
 .inat-api-auth-fieldset .inat-api-auth-hint {
@@ -580,14 +580,14 @@ main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 3.375rem;
+  height: 3.375rem;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 6px;
+  border-radius: 9px;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
-  font-size: 1rem;
+  font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
@@ -611,20 +611,20 @@ main {
 
 .card-mark-reviewed {
   position: absolute;
-  top: 2.85rem;
+  top: 4rem;
   left: 0.4rem;
   z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 3.375rem;
+  height: 3.375rem;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 6px;
+  border-radius: 9px;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
-  font-size: 1rem;
+  font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
