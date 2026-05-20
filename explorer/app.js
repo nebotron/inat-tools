@@ -3652,7 +3652,8 @@ async function setNearbySelection() {
   el.lat.value = "";
   el.lng.value = "";
   setCommittedPlaceDisplay("Nearby");
-  hideSuggestion("place");
+  /* Defer closing the list so the originating click/mouseup sequence finishes (avoids desktop ghost clicks). */
+  queueMicrotask(() => hideSuggestion("place"));
   updatePlaceNearbyUI();
   await requestNearbyGeolocation();
 }
@@ -3666,7 +3667,8 @@ function setPlaceSelection(id, label, options = {}) {
   setCommittedPlaceDisplay(label);
   el.lat.value = "";
   el.lng.value = "";
-  hideSuggestion("place");
+  if (!fromHydrate) queueMicrotask(() => hideSuggestion("place"));
+  else hideSuggestion("place");
   if (fromHydrate) {
     syncUrl();
     return;
@@ -3686,6 +3688,15 @@ function hideSuggestion(kind) {
     placeHighlight = -1;
     el.placeInput.setAttribute("aria-expanded", "false");
   }
+}
+
+/** True if a UI event target is still inside the place / nearby filter (not only the text field). */
+function placeFilterUiContainsTarget(node) {
+  if (!(node instanceof Node)) return false;
+  if (el.placeInputWrap && el.placeInputWrap.contains(node)) return true;
+  if (el.placeSuggestions && el.placeSuggestions.contains(node)) return true;
+  if (el.nearbyControls && el.nearbyControls.contains(node)) return true;
+  return false;
 }
 
 function renderSuggestions(kind, items) {
@@ -3733,15 +3744,17 @@ function renderSuggestions(kind, items) {
     } else if (kind === "place") {
       if (item === NEARBY_SUGGESTION) {
         li.innerHTML = `<span>Nearby</span>`;
-        li.addEventListener("mousedown", (ev) => {
+        li.addEventListener("click", (ev) => {
           ev.preventDefault();
+          ev.stopPropagation();
           void setNearbySelection();
         });
       } else {
         const label = item.display_name || item.name;
         li.innerHTML = `<span>${escapeHtml(label)}</span>`;
-        li.addEventListener("mousedown", (ev) => {
+        li.addEventListener("click", (ev) => {
           ev.preventDefault();
+          ev.stopPropagation();
           setPlaceSelection(item.id, label);
         });
       }
@@ -3812,7 +3825,7 @@ function wireAutocomplete() {
 
   document.addEventListener("click", (e) => {
     if (!el.taxonInput.contains(e.target) && !el.taxonSuggestions.contains(e.target)) hideSuggestion("taxon");
-    if (!el.placeInput.contains(e.target) && !el.placeSuggestions.contains(e.target)) hideSuggestion("place");
+    if (!placeFilterUiContainsTarget(e.target)) hideSuggestion("place");
   });
 
   el.taxonInput.addEventListener("keydown", (e) => {
@@ -3850,7 +3863,7 @@ function wireAutocomplete() {
       items[placeHighlight].scrollIntoView({ block: "nearest" });
     } else if (e.key === "Enter" && placeHighlight >= 0) {
       e.preventDefault();
-      items[placeHighlight].dispatchEvent(new MouseEvent("mousedown"));
+      items[placeHighlight].dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     } else if (e.key === "Escape") {
       hideSuggestion("place");
     }
