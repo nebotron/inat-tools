@@ -2148,6 +2148,74 @@ function getOrCreateFilePreviewUrl(file) {
   return url;
 }
 
+/** Longest edge when decoding for iNat grouping strip thumbnails (~112px); avoids many parallel full-res buffers. */
+const INAT_GROUP_THUMB_DECODE_MAX_EDGE = 512;
+
+/** Serialize grouping-thumb encodes so opening the strip does not decode every file at once. */
+let inatGroupingThumbEncodeChain = /** @type {Promise<unknown>} */ (Promise.resolve());
+/** @type {Map<string, Promise<string>>} */
+const inatGroupingThumbEncodeInflight = new Map();
+
+/**
+ * Decode to a drawable source for a grouping thumbnail; prefers EXIF-sized `createImageBitmap` resize over full decode.
+ * @param {File} file
+ * @returns {Promise<{ source: CanvasImageSource, w: number, h: number, close?: () => void }>}
+ */
+async function decodeSourceForInatGroupingThumb(file) {
+  const cap = INAT_GROUP_THUMB_DECODE_MAX_EDGE;
+
+  const downscaleDecodedIfNeeded = (raw) => {
+    const maxD = Math.max(raw.w, raw.h);
+    if (maxD <= cap) return raw;
+    const s = cap / maxD;
+    const tw = Math.max(1, Math.round(raw.w * s));
+    const th = Math.max(1, Math.round(raw.h * s));
+    const canvas = document.createElement("canvas");
+    canvas.width = tw;
+    canvas.height = th;
+    const ctx = canvas.getContext("2d", { willReadFrequently: false, alpha: false });
+    if (!ctx) {
+      disposeDecodedBundle(raw);
+      throw new Error("No canvas context.");
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "medium";
+    ctx.drawImage(raw.source, 0, 0, tw, th);
+    disposeDecodedBundle(raw);
+    return { source: canvas, w: tw, h: th };
+  };
+
+  if (typeof createImageBitmap === "function" && !isHeicLike(file)) {
+    try {
+      const dims = await tryGetImagePixelSizeFromFile(file);
+      if (dims && dims.w > 0 && dims.h > 0) {
+        const m = Math.max(dims.w, dims.h);
+        if (m > cap) {
+          const sc = cap / m;
+          const rw = Math.max(1, Math.round(dims.w * sc));
+          const rh = Math.max(1, Math.round(dims.h * sc));
+          const bm = await createImageBitmap(file, { resizeWidth: rw, resizeHeight: rh });
+          return { source: bm, w: bm.width, h: bm.height, close: () => bm.close() };
+        }
+        const bm = await createImageBitmap(file);
+        const mx = Math.max(bm.width, bm.height);
+        if (mx <= cap) return { source: bm, w: bm.width, h: bm.height, close: () => bm.close() };
+        const s = cap / mx;
+        const rw = Math.max(1, Math.round(bm.width * s));
+        const rh = Math.max(1, Math.round(bm.height * s));
+        const out = await createImageBitmap(bm, 0, 0, bm.width, bm.height, { resizeWidth: rw, resizeHeight: rh });
+        bm.close();
+        return { source: out, w: out.width, h: out.height, close: () => out.close() };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const raw = await decodeForPipeline(file);
+  return downscaleDecodedIfNeeded(raw);
+}
+
 /**
  * Small square JPEG object URL for iNat grouping thumbnails (uses current `cropState` square).
  * @param {File} file
@@ -2156,15 +2224,41 @@ async function ensureInatGroupingThumbUrl(file) {
   const key = fileCacheKey(file);
   const cached = inatGroupingThumbUrlByKey.get(key);
   if (cached) return cached;
+  let inflight = inatGroupingThumbEncodeInflight.get(key);
+  if (inflight) return inflight;
+  inflight = inatGroupingThumbEncodeChain
+    .then(() => buildInatGroupingThumbObjectUrl(file))
+    .finally(() => {
+      inatGroupingThumbEncodeInflight.delete(key);
+    });
+  inatGroupingThumbEncodeInflight.set(key, inflight);
+  inatGroupingThumbEncodeChain = inflight.catch(() => {});
+  return inflight;
+}
+
+/**
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+async function buildInatGroupingThumbObjectUrl(file) {
+  const key = fileCacheKey(file);
+  const hit = inatGroupingThumbUrlByKey.get(key);
+  if (hit) return hit;
   const st = cropState.get(key);
-  const raw = await decodeForPipeline(file);
+  const raw = await decodeSourceForInatGroupingThumb(file);
   try {
     const w = raw.w;
     const h = raw.h;
     const side0 = Math.min(w, h);
+    const fullW = st && typeof st.w === "number" && st.w > 0 ? st.w : null;
+    const fullH = st && typeof st.h === "number" && st.h > 0 ? st.h : null;
     const pick =
-      st && st.hasCrop !== false
-        ? { left: st.left, top: st.top, side: st.side }
+      st && st.hasCrop !== false && fullW && fullH
+        ? {
+            left: Math.max(0, Math.min(w - 1, Math.round((st.left * w) / fullW))),
+            top: Math.max(0, Math.min(h - 1, Math.round((st.top * h) / fullH))),
+            side: Math.max(1, Math.round((st.side * w) / fullW)),
+          }
         : { left: Math.round((w - side0) / 2), top: Math.round((h - side0) / 2), side: side0 };
     const edge = 112;
     const canvas = document.createElement("canvas");
@@ -2174,7 +2268,8 @@ async function ensureInatGroupingThumbUrl(file) {
     if (!ctx) throw new Error("No canvas context.");
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(raw.source, pick.left, pick.top, pick.side, pick.side, 0, 0, edge, edge);
+    const sideDraw = Math.max(1, Math.min(pick.side, w - pick.left, h - pick.top));
+    ctx.drawImage(raw.source, pick.left, pick.top, sideDraw, sideDraw, 0, 0, edge, edge);
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob(
         (b) => {
@@ -2191,6 +2286,29 @@ async function ensureInatGroupingThumbUrl(file) {
     return url;
   } finally {
     disposeDecodedBundle(raw);
+  }
+}
+
+/** After crop review, drop full-res prefetch bitmaps and blob URLs — export uses small iNat thumbs and `File` objects for ZIP. */
+function releaseCropPrefetchAfterReviewFinished() {
+  bumpPrefetchToken();
+  for (const bm of cropPreviewBitmapByKey.values()) {
+    try {
+      bm.close();
+    } catch {
+      /* ignore */
+    }
+  }
+  cropPreviewBitmapByKey.clear();
+  for (const [k, u] of [...filePreviewUrlByKey.entries()]) {
+    try {
+      URL.revokeObjectURL(u);
+    } catch {
+      /* ignore */
+    }
+    filePreviewUrlByKey.delete(k);
+    const pi = previewObjectUrls.indexOf(u);
+    if (pi >= 0) previewObjectUrls.splice(pi, 1);
   }
 }
 
@@ -2569,6 +2687,7 @@ function updateCropExportActionsVisibility() {
   if (exportFooterBar) exportFooterBar.hidden = !show;
   if (inatUploadSection) inatUploadSection.hidden = !show;
   if (show) {
+    releaseCropPrefetchAfterReviewFinished();
     renderInatPhotoGroupingStrip();
   } else if (inatUploadGrouping && inatUploadGroupingStrip) {
     inatUploadGrouping.hidden = true;
@@ -3996,12 +4115,14 @@ function renderInatPhotoGroupingStrip() {
       img.loading = "lazy";
       img.draggable = false;
       try {
-        img.src = getOrCreateFilePreviewUrl(file);
         void ensureInatGroupingThumbUrl(file)
           .then((u) => {
             img.src = u;
           })
-          .catch(() => {});
+          .catch(() => {
+            thumb.textContent = "◆";
+            thumb.classList.add("inat-dnd-tile__thumb--fallback");
+          });
       } catch {
         /* ignore */
       }
