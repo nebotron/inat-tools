@@ -3088,7 +3088,11 @@ function bringMapUserLocationToFront() {
   if (!mapUserLocationLayer || !map || !map.hasLayer(mapUserLocationLayer)) return;
   /* `L.layerGroup` has no `bringToFront` in Leaflet 1.9; bring child layers up instead. */
   mapUserLocationLayer.eachLayer((layer) => {
-    if (typeof layer.bringToFront === "function") layer.bringToFront();
+    try {
+      if (typeof layer.bringToFront === "function") layer.bringToFront();
+    } catch {
+      /* ignore — layer may be mid-teardown during rapid map updates */
+    }
   });
 }
 
@@ -3150,11 +3154,19 @@ function ensureMap() {
   pinsLayer = L.layerGroup().addTo(map);
   ensureMapUserLocationLayer();
   map.on("moveend zoomend", () => {
-    if (currentView !== "map") return;
-    syncUrl();
+    if (currentView !== "map" || !map) return;
+    try {
+      syncUrl();
+    } catch {
+      /* avoid breaking Leaflet event chain if URL/history throws */
+    }
     clearTimeout(mapMoveTimer);
     mapMoveTimer = setTimeout(() => {
-      runMapSearch(false);
+      mapMoveTimer = null;
+      if (currentView !== "map" || !map) return;
+      void runMapSearch(false).catch(() => {
+        /* surfaced via showError inside runMapSearch when seq still current */
+      });
     }, 400);
   });
 }
@@ -3243,6 +3255,7 @@ function clearMapPins() {
 }
 
 function swapPinsLayer(newLayer) {
+  if (!map || !newLayer) return;
   const oldLayer = pinsLayer;
   newLayer.addTo(map);
   pinsLayer = newLayer;
@@ -3268,20 +3281,26 @@ function clearMapOverlays() {
 }
 
 async function mapAreaParams() {
-  const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
-  p.delete("place_id");
-  p.delete("lat");
-  p.delete("lng");
-  p.delete("radius");
-  p.delete("geo");
-  const b = map.getBounds();
-  p.set("nelat", String(b.getNorth()));
-  p.set("nelng", String(b.getEast()));
-  p.set("swlat", String(b.getSouth()));
-  p.set("swlng", String(b.getWest()));
-  p.set("geo", "true");
-  return p;
+  try {
+    if (!map) return null;
+    const kc = await ensureKingCountyNoxiousData();
+    const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+    p.delete("place_id");
+    p.delete("lat");
+    p.delete("lng");
+    p.delete("radius");
+    p.delete("geo");
+    const b = map.getBounds();
+    if (!b || typeof b.getNorth !== "function" || (typeof b.isValid === "function" && !b.isValid())) return null;
+    p.set("nelat", String(b.getNorth()));
+    p.set("nelng", String(b.getEast()));
+    p.set("swlat", String(b.getSouth()));
+    p.set("swlng", String(b.getWest()));
+    p.set("geo", "true");
+    return p;
+  } catch {
+    return null;
+  }
 }
 
 function decodeUtfGridIndex(ch) {
@@ -3292,6 +3311,10 @@ function decodeUtfGridIndex(ch) {
 }
 
 function installHeatGridLayer(url, onReady) {
+  if (!map) {
+    if (onReady) onReady();
+    return;
+  }
   if (url === currentHeatUrl && heatGridLayer && map.hasLayer(heatGridLayer)) {
     if (onReady) onReady();
     return;
@@ -3312,22 +3335,39 @@ function installHeatGridLayer(url, onReady) {
 
   const oldHeat = heatGridLayer;
   if (!oldHeat) {
-    heatGridLayer = L.tileLayer(url, heatLayerOpts).addTo(map);
-    heatGridLayer.once("load", () => { if (onReady) onReady(); });
+    try {
+      heatGridLayer = L.tileLayer(url, heatLayerOpts).addTo(map);
+      heatGridLayer.once("load", () => {
+        if (onReady) onReady();
+      });
+    } catch {
+      heatGridLayer = null;
+      if (onReady) onReady();
+    }
     return;
   }
 
-  const newHeat = L.tileLayer(url, { ...heatLayerOpts, opacity: 0 }).addTo(map);
+  let newHeat;
+  try {
+    newHeat = L.tileLayer(url, { ...heatLayerOpts, opacity: 0 }).addTo(map);
+  } catch {
+    if (onReady) onReady();
+    return;
+  }
   pendingHeatLayer = newHeat;
   let swapped = false;
   const swap = () => {
-    if (swapped || pendingHeatLayer !== newHeat) return;
-    swapped = true;
-    pendingHeatLayer = null;
-    newHeat.setOpacity(0.5);
-    if (map.hasLayer(oldHeat)) map.removeLayer(oldHeat);
-    heatGridLayer = newHeat;
-    if (onReady) onReady();
+    try {
+      if (swapped || pendingHeatLayer !== newHeat || !map) return;
+      swapped = true;
+      pendingHeatLayer = null;
+      newHeat.setOpacity(0.5);
+      if (map.hasLayer(oldHeat)) map.removeLayer(oldHeat);
+      heatGridLayer = newHeat;
+      if (onReady) onReady();
+    } catch {
+      /* ignore — stale swap after pan/zoom or tab switch */
+    }
   };
   newHeat.once("load", swap);
   setTimeout(swap, 4000);
@@ -3351,10 +3391,12 @@ async function mapFilterKey() {
 
 async function runMapSearch(forceRecheck) {
   ensureMap();
+  if (!map || currentView !== "map") return;
 
   const prevMapMode = mapMode;
 
   const filterKey = await mapFilterKey();
+  if (!map || currentView !== "map") return;
   const filtersChanged = filterKey !== lastMapFilterKey;
   lastMapFilterKey = filterKey;
 
@@ -3364,14 +3406,15 @@ async function runMapSearch(forceRecheck) {
   let spinnerShown = false;
   try {
     const area = await mapAreaParams();
+    if (!area || seq !== mapSearchSeq || !map || currentView !== "map") return;
     const countParams = new URLSearchParams(area);
     countParams.set("per_page", "1");
     countParams.set("page", "1");
     const countRes = await inatFetch(`observations?${countParams.toString()}`);
-    if (seq !== mapSearchSeq) return;
+    if (seq !== mapSearchSeq || !map || currentView !== "map") return;
     if (!countRes.ok) throw new Error(`Request failed (${countRes.status})`);
     const countData = await countRes.json();
-    if (seq !== mapSearchSeq) return;
+    if (seq !== mapSearchSeq || !map || currentView !== "map") return;
     const totalInArea = countData.total_results || 0;
 
     const pinEstablishmentFilter = establishmentClientFilterActive();
@@ -3392,13 +3435,14 @@ async function runMapSearch(forceRecheck) {
       pinsParams.set("per_page", String(MAP_PIN_THRESHOLD));
       pinsParams.set("page", "1");
       const pinRes = await inatFetch(`observations?${pinsParams.toString()}`);
-      if (seq !== mapSearchSeq) return;
+      if (seq !== mapSearchSeq || !map || currentView !== "map") return;
       if (!pinRes.ok) throw new Error(`Request failed (${pinRes.status})`);
       const pinData = await pinRes.json();
-      if (seq !== mapSearchSeq) return;
+      if (seq !== mapSearchSeq || !map || currentView !== "map") return;
       let observations = pinData.results || [];
       if (pinEstablishmentFilter) {
         const kcPins = await ensureKingCountyNoxiousData();
+        if (seq !== mapSearchSeq || !map || currentView !== "map") return;
         observations = observations.filter((o) => observationPassesEstablishmentCheckboxes(o, kcPins));
       }
 
@@ -3428,12 +3472,14 @@ async function runMapSearch(forceRecheck) {
         });
         marker.addTo(newPins);
       });
+      if (seq !== mapSearchSeq || !map || currentView !== "map") return;
       swapPinsLayer(newPins);
       bringMapUserLocationToFront();
     } else {
       if (seq !== mapSearchSeq) return;
       mapMode = "heat";
       const kcHeat = await ensureKingCountyNoxiousData();
+      if (seq !== mapSearchSeq || !map || currentView !== "map") return;
       const heatParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcHeat) });
       /* Random `_cb` forced a new tile URL on every pan/zoom so the heat layer was torn down and rebuilt (felt like a refresh). */
       const bustHeatTiles = forceRecheck || filtersChanged || prevMapMode !== "heat";
@@ -3442,13 +3488,18 @@ async function runMapSearch(forceRecheck) {
       }
       const url = `${API}/grid/{z}/{x}/{y}.png?${heatParams}`; /* density grid tiles (not colored_heatmap) */
       installHeatGridLayer(url, () => {
+        if (!map || currentView !== "map") return;
         clearMapPins();
         bringMapUserLocationToFront();
       });
     }
 
-    bringMapUserLocationToFront();
-    syncUrl();
+    try {
+      bringMapUserLocationToFront();
+      syncUrl();
+    } catch {
+      /* ignore — map mid-transition */
+    }
   } catch (err) {
     if (seq === mapSearchSeq) {
       showError("map", err.message || "Could not load map data.");
@@ -3520,6 +3571,11 @@ async function switchView(view) {
   currentView = view;
   if (prevView === "map" && view !== "map") {
     stopMapUserLocationWatch();
+    if (mapMoveTimer != null) {
+      clearTimeout(mapMoveTimer);
+      mapMoveTimer = null;
+    }
+    mapSearchSeq += 1;
   }
   setActiveTabUI();
   syncUrl();
@@ -3651,9 +3707,15 @@ function syncUrl() {
   }
 
   if (map) {
-    q.set("mlat", map.getCenter().lat);
-    q.set("mlng", map.getCenter().lng);
-    q.set("zoom", map.getZoom());
+    try {
+      q.set("mlat", map.getCenter().lat);
+      q.set("mlng", map.getCenter().lng);
+      q.set("zoom", map.getZoom());
+    } catch {
+      q.delete("mlat");
+      q.delete("mlng");
+      q.delete("zoom");
+    }
   }
 
   u.search = q.toString();
