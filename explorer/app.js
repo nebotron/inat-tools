@@ -15,11 +15,12 @@ import {
  * Report an exception via fatal full-page dump (see fatal-dump-bootstrap.js).
  * @param {unknown} reason
  * @param {string} [contextLabel]
+ * @param {string} [appendix] Optional extra text appended to the dump (e.g. diagnostics).
  */
-function explorerFatal(reason, contextLabel = "") {
+function explorerFatal(reason, contextLabel = "", appendix) {
   const g = typeof globalThis !== "undefined" ? globalThis : undefined;
   if (g && typeof g.explorerReportFatalException === "function") {
-    g.explorerReportFatalException(reason, contextLabel || "(no context)");
+    g.explorerReportFatalException(reason, contextLabel || "(no context)", appendix);
     return;
   }
   const err = reason instanceof Error ? reason : new Error(String(reason));

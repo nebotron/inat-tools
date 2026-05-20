@@ -20,6 +20,73 @@
     }
   }
 
+  function formatErrorEvent(ev) {
+    if (!ev || typeof ev !== "object") return "(no ErrorEvent)";
+    var lines = [];
+    lines.push("type: " + String(ev.type || ""));
+    lines.push("message: " + String(typeof ev.message === "string" ? ev.message : ""));
+    lines.push("filename: " + String(typeof ev.filename === "string" ? ev.filename : ""));
+    lines.push("lineno: " + String(ev.lineno != null ? ev.lineno : ""));
+    lines.push("colno: " + String(ev.colno != null ? ev.colno : ""));
+    if (ev.error != null && ev.error !== undefined) {
+      lines.push("ev.error (typeof): " + typeof ev.error);
+      if (ev.error instanceof Error) {
+        lines.push("ev.error.name: " + String(ev.error.name || ""));
+        lines.push("ev.error.message: " + String(ev.error.message || ""));
+        if (ev.error.stack) lines.push("ev.error.stack:\n" + ev.error.stack);
+      } else {
+        lines.push("ev.error (value): " + safeString(ev.error));
+      }
+    } else {
+      lines.push("ev.error: (absent)");
+    }
+    return lines.join("\n");
+  }
+
+  function formatCauseValue(cur) {
+    if (cur == null) return String(cur);
+    if (typeof ErrorEvent !== "undefined" && cur instanceof ErrorEvent) return formatErrorEvent(cur);
+    if (typeof Event !== "undefined" && cur instanceof Event) {
+      return (
+        "Event:\n" +
+        "  type: " +
+        String(cur.type || "") +
+        "\n  defaultPrevented: " +
+        String(!!cur.defaultPrevented) +
+        "\n  isTrusted: " +
+        String(!!cur.isTrusted)
+      );
+    }
+    return safeString(cur);
+  }
+
+  function recentScriptResourceUrls() {
+    try {
+      if (typeof performance === "undefined" || !performance.getEntriesByType) return "";
+      var entries = performance.getEntriesByType("resource");
+      var out = [];
+      var i;
+      var max = 20;
+      for (i = entries.length - 1; i >= 0 && out.length < max; i -= 1) {
+        var e = entries[i];
+        var n = String(e.name);
+        if (!/\.js(\?|$|#)/i.test(n) && e.initiatorType !== "script") continue;
+        out.push(n + "  [" + String(e.initiatorType || "?") + "]");
+      }
+      return out.length ? out.reverse().join("\n") : "";
+    } catch (x) {
+      return "(could not read performance entries: " + String(x && x.message ? x.message : x) + ")";
+    }
+  }
+
+  function isOpaqueCrossOriginScriptError(ev, err) {
+    var msg = ev && typeof ev.message === "string" ? ev.message : "";
+    if (msg === "Script error.") return true;
+    if (err && err instanceof Error && err.message === "Script error.") return true;
+    if (msg === "" && ev && !ev.filename && (ev.lineno === 0 || ev.lineno === undefined)) return true;
+    return false;
+  }
+
   function formatErrorChain(err) {
     var parts = [];
     var cur = err;
@@ -31,11 +98,11 @@
           "--- Error (" + depth + ") ---\n" +
             "name: " + (cur.name || "(anonymous)") + "\n" +
             "message: " + (cur.message || "") + "\n" +
-            (cur.stack ? "stack:\n" + cur.stack + "\n" : "")
+            (cur.stack ? "stack:\n" + cur.stack + "\n" : "(no stack on this Error)\n")
         );
         cur = cur.cause;
       } else {
-        parts.push("--- Non-Error cause (" + depth + ") ---\n" + safeString(cur) + "\n");
+        parts.push("--- Non-Error cause (" + depth + ") ---\n" + formatCauseValue(cur) + "\n");
         break;
       }
     }
@@ -47,7 +114,7 @@
     return safeString(r);
   }
 
-  function buildDump(reason, contextLabel) {
+  function buildDump(reason, contextLabel, appendix) {
     var lines = [];
     lines.push("iNaturalist observation browser — fatal error report");
     lines.push("Generated (ISO): " + new Date().toISOString());
@@ -82,12 +149,27 @@
     lines.push("");
     lines.push("Context label (from app): " + (contextLabel || "(none)"));
     lines.push("");
+    var appendixStr = appendix ? String(appendix).trim() : "";
+    var diagFirst = appendixStr.indexOf('--- ErrorEvent (window "error") ---') === 0;
+    if (diagFirst) {
+      lines.push(
+        "--- Diagnostics (window error; cross-origin script throws hide filename/line on the primary Error) ---"
+      );
+      lines.push(appendixStr);
+      lines.push("");
+    }
+    lines.push("--- Primary exception ---");
     if (reason instanceof Error) {
       lines.push(formatErrorChain(reason));
     } else {
       lines.push("Thrown / rejected value:\n" + safeString(reason));
     }
     lines.push("");
+    if (!diagFirst && appendixStr) {
+      lines.push("--- Additional diagnostics ---");
+      lines.push(appendixStr);
+      lines.push("");
+    }
     lines.push("--- document.readyState ---");
     lines.push(typeof document !== "undefined" ? document.readyState : "(no document)");
     return lines.join("\n");
@@ -177,12 +259,12 @@
     installCopyShortcut();
   }
 
-  function report(reason, contextLabel) {
+  function report(reason, contextLabel, appendix) {
     if (shown) return;
     shown = true;
     var text;
     try {
-      text = buildDump(reason, contextLabel);
+      text = buildDump(reason, contextLabel, appendix);
     } catch (e) {
       text =
         "While building the primary error report, a second error occurred:\n\n" +
@@ -209,6 +291,7 @@
     }
   }
 
+  /** @param {unknown} reason @param {string} [contextLabel] @param {string} [appendix] */
   window.explorerReportFatalException = report;
 
   /**
@@ -245,11 +328,46 @@
         }
         return;
       }
-      var err = ev.error;
-      if (!(err instanceof Error)) {
-        err = new Error(ev.message || "window error event", { cause: ev });
+      var rawErr = ev.error;
+      var err;
+      if (rawErr instanceof Error && !isOpaqueCrossOriginScriptError(ev, rawErr)) {
+        err = rawErr;
+      } else if (rawErr instanceof Error && isOpaqueCrossOriginScriptError(ev, rawErr)) {
+        err = new Error(
+          "Script error. (browser omitted source location, often cross-origin). See Diagnostics for ErrorEvent fields and recent script URLs.",
+          { cause: rawErr }
+        );
+      } else {
+        err = new Error(
+          isOpaqueCrossOriginScriptError(ev, null)
+            ? "Script error. (browser omitted details). See Diagnostics below."
+            : typeof ev.message === "string" && ev.message
+              ? ev.message
+              : "window error event"
+        );
       }
-      report(err, 'window "error" event (filename: ' + (ev.filename || "?") + ", line: " + (ev.lineno || "?") + ")");
+      var evBlock = "--- ErrorEvent (window \"error\") ---\n" + formatErrorEvent(ev);
+      var appendix = evBlock;
+      if (isOpaqueCrossOriginScriptError(ev, err)) {
+        appendix +=
+          "\n\n--- Cross-origin / sanitized script errors ---\n" +
+          "Browsers often report only \"Script error.\" with no filename or line when the throw site is in another\n" +
+          "origin (classic script without CORS) or when details are withheld. The stack on a synthetic Error below\n" +
+          "points at this fatal reporter, not the original file.\n";
+        var scripts = recentScriptResourceUrls();
+        if (scripts) appendix += "\n--- Recent JS-related resource URLs (Performance API) ---\n" + scripts + "\n";
+      } else {
+        var scripts2 = recentScriptResourceUrls();
+        if (scripts2) appendix += "\n--- Recent JS-related resource URLs (Performance API) ---\n" + scripts2 + "\n";
+      }
+      var ctx =
+        'window "error" event — filename: ' +
+        (ev.filename || "(none)") +
+        "  line: " +
+        (ev.lineno != null ? ev.lineno : "(none)") +
+        "  col: " +
+        (ev.colno != null ? ev.colno : "(none)");
+      report(err, ctx, appendix);
     },
     true
   );
@@ -266,6 +384,9 @@
             ? r
             : "";
     if (isBenignResizeObserverLoopMessage(m)) return;
-    report(ev.reason, "unhandledrejection");
+    var appendix = "";
+    var scripts = recentScriptResourceUrls();
+    if (scripts) appendix = "--- Recent JS-related resource URLs (Performance API) ---\n" + scripts;
+    report(ev.reason, "unhandledrejection", appendix || undefined);
   });
 })();
