@@ -695,6 +695,17 @@ async function buildReappliedStateForFile(file, mapping) {
   return next;
 }
 
+/** Lets the browser paint progress updates between heavy decode steps. */
+async function yieldToMainForUi() {
+  await new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
 /**
  * @param {string} bodyText
  * @returns {Promise<boolean>} `true` when the user chooses **Yes** (apply saved mappings).
@@ -763,14 +774,24 @@ async function offerCropMappingReapply(files) {
   return matches;
 }
 
-async function applySavedCropMappingForCurrentBatch() {
+async function applySavedCropMappingForCurrentBatch(totalFilesForUi) {
   let applied = 0;
   let accepted = 0;
   let deleted = 0;
   const reappliedKeys = new Set();
-  if (!pendingReapplyMappingsByImageName.size || !workItems.length) return { applied, accepted, deleted };
+  const reapplyFailures = [];
+  if (!pendingReapplyMappingsByImageName.size || !workItems.length) {
+    return { applied, accepted, deleted, reappliedKeys, reapplyFailures };
+  }
+  let decodeTotal = 0;
+  for (const file of workItems) {
+    const mapping = getMappingForFile(file, pendingReapplyMappingsByImageName);
+    if (mapping && !mapping.deleted && mapping.crop) decodeTotal++;
+  }
+  let decodeDone = 0;
   const nextWorkItems = [];
   for (const file of workItems) {
+    const dispName = (file && file.name) || "photo";
     const mapping = getMappingForFile(file, pendingReapplyMappingsByImageName);
     if (!mapping) {
       nextWorkItems.push(file);
@@ -780,7 +801,25 @@ async function applySavedCropMappingForCurrentBatch() {
       deleted++;
       continue;
     }
-    const nextState = await buildReappliedStateForFile(file, mapping);
+    if (mapping.crop && decodeTotal > 0) {
+      decodeDone++;
+      const pct = Math.min(99, ((decodeDone - 0.5) / decodeTotal) * 100);
+      setProgress(true, pct, `Applying saved crops · ${decodeDone}/${decodeTotal} — ${dispName}`, {
+        indeterminate: false,
+      });
+      if (fileSummary) {
+        fileSummary.textContent = `Preparing · ${totalFilesForUi} photo(s) · saved crops ${decodeDone}/${decodeTotal}`;
+      }
+      await yieldToMainForUi();
+    }
+    let nextState = null;
+    try {
+      nextState = await buildReappliedStateForFile(file, mapping);
+    } catch (e) {
+      console.warn("applySavedCropMappingForCurrentBatch: remap failed", e);
+      reapplyFailures.push({ name: dispName, err: e });
+      nextState = null;
+    }
     if (!nextState) {
       nextWorkItems.push(file);
       continue;
@@ -798,7 +837,19 @@ async function applySavedCropMappingForCurrentBatch() {
     applied++;
   }
   workItems = nextWorkItems;
-  return { applied, accepted, deleted, reappliedKeys };
+  if (reapplyFailures.length) {
+    const sample = reapplyFailures
+      .slice(0, 3)
+      .map((f) => `${f.name}: ${errorDetailForUser(f.err, 100)}`)
+      .join(" · ");
+    const more =
+      reapplyFailures.length > 3 ? ` (+${reapplyFailures.length - 3} more)` : "";
+    showError(
+      `${reapplyFailures.length} saved crop${reapplyFailures.length === 1 ? "" : "s"} could not be remapped — those photos will be analyzed normally. ${sample}${more}`,
+      reapplyFailures[0] && reapplyFailures[0].err
+    );
+  }
+  return { applied, accepted, deleted, reappliedKeys, reapplyFailures };
 }
 
 /**
@@ -4645,9 +4696,12 @@ async function runAutoCrop() {
   }
 
   const totalFiles = workItems.length;
-  fileSummary.textContent = `Preparing · ${totalFiles} photo(s)`;
+  if (fileSummary) fileSummary.textContent = `Preparing · ${totalFiles} photo(s)`;
   clearError();
-  const reapplied = await applySavedCropMappingForCurrentBatch();
+  /** Progress bar lives on `page-crop`; stay on setup until here and users saw only `file-summary` with no bar. */
+  setCurrentPage("crop");
+  setProgress(true, 0, `Preparing · ${totalFiles} photo(s)…`, { indeterminate: true });
+  const reapplied = await applySavedCropMappingForCurrentBatch(totalFiles);
   const reappliedDeleted = reapplied.deleted || 0;
   if (fileSummary) {
     fileSummary.textContent = fileSummaryTextAfterReapply(
