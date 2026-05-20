@@ -37,11 +37,6 @@
                 <div id="taxon-selected-stack" class="taxon-selected-stack" aria-label="Selected taxa"></div>
               </div>
 
-              <div class="field">
-                <label for="user-login">Observer</label>
-                <input id="user-login" class="input-login" type="text" placeholder="Username" autocapitalize="none" autocomplete="username" spellcheck="false" />
-              </div>
-
               <div class="field place-field">
                 <label for="place-input">Place</label>
                 <div id="place-input-wrap" class="place-input-wrap">
@@ -58,6 +53,11 @@
                 <input type="hidden" id="lng" value="" />
               </div>
               <p id="error-banner-place" class="error-banner error-banner--place" role="alert" aria-live="assertive" hidden></p>
+
+              <div class="field">
+                <label for="user-login">Observer</label>
+                <input id="user-login" class="input-login" type="text" placeholder="Username" autocapitalize="none" autocomplete="username" spellcheck="false" />
+              </div>
 
               <div class="field taxon-field">
                 <label for="unobserved-input">Unseen by</label>
@@ -223,6 +223,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=explorer-no-day-placeholders-1" type="module"></script>
+    <script src="app.js?v=explorer-place-before-observer-1" type="module"></script>
   </body>
 </html>
