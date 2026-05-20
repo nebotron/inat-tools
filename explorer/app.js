@@ -2447,12 +2447,13 @@ function buildCardImageBlockFromUrls(urls) {
   if (urls.length === 1) {
     return cardPhotoImgTagFromMediumUrl(urls[0], "lazy");
   }
+  const nPhotos = urls.length;
   const dotsHtml = urls
     .map(
       (_, i) =>
-        `<span class="card-media-carousel__dot-slot" data-dot-index="${i}" aria-hidden="true"><span class="card-media-carousel__dot${
+        `<button type="button" class="card-media-carousel__dot-slot" data-dot-index="${i}" aria-label="Show photo ${i + 1} of ${nPhotos}" title="Photo ${i + 1}"><span class="card-media-carousel__dot${
           i === 0 ? " card-media-carousel__dot--active" : ""
-        }"></span></span>`
+        }" aria-hidden="true"></span></button>`
     )
     .join("");
   const slidesHtml = urls
@@ -2461,7 +2462,7 @@ function buildCardImageBlockFromUrls(urls) {
       return `<div class="card-media-carousel__slide">${inner}</div>`;
     })
     .join("");
-  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${slidesHtml}<div class="card-media-carousel__dots" aria-hidden="true">${dotsHtml}</div></div>`;
+  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${slidesHtml}<div class="card-media-carousel__dots" role="group" aria-label="Choose photo">${dotsHtml}</div></div>`;
 }
 
 /**
@@ -2555,6 +2556,27 @@ function wireObservationCardPhotoCarousel(card) {
   root.addEventListener("scrollend", () => {
     scheduleSyncDots();
   });
+
+  const dotRow = root.querySelector(":scope > .card-media-carousel__dots");
+  if (dotRow) {
+    const goToSlideIndex = (j) => {
+      if (!Number.isFinite(j) || j < 0 || j >= n) return;
+      const w = pageW();
+      root.scrollTo({ left: j * w, behavior: "smooth" });
+      blockNav(220);
+      scheduleSyncDots();
+    };
+    dotRow.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      const btn = t.closest("button.card-media-carousel__dot-slot");
+      if (!btn || !dotRow.contains(btn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const di = btn.getAttribute("data-dot-index");
+      goToSlideIndex(di != null ? Number(di) : NaN);
+    });
+  }
 
   linkSurface.addEventListener(
     "click",
