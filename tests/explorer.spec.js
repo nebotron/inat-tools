@@ -81,3 +81,59 @@ test.describe("explorer", () => {
     await expect(page.locator(".map-user-location-marker")).toBeVisible({ timeout: 30_000 });
   });
 });
+
+test.describe("explorer near_me session restore", () => {
+  test("writes near_me to URL before geolocation resolves", async ({ page, context }) => {
+    const origin = test.info().project.use.baseURL;
+    if (!origin) throw new Error("Playwright baseURL is required for geolocation permission");
+    await context.grantPermissions(["geolocation"], { origin });
+    await page.addInitScript(() => {
+      navigator.geolocation.getCurrentPosition = (success) => {
+        setTimeout(() => {
+          success({
+            coords: {
+              latitude: 47.606_138,
+              longitude: -122.332_056,
+              accuracy: 10,
+              altitude: null,
+              altitudeAccuracy: null,
+              heading: null,
+              speed: null,
+            },
+            timestamp: Date.now(),
+          });
+        }, 3000);
+      };
+    });
+    await page.goto("/explorer/?view=filters", { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".view-tabs")).toBeVisible();
+    await page.waitForFunction(() => window.__EXPLORER_BOOT__ != null, { timeout: 60_000 });
+    await page.evaluate(() => window.__EXPLORER_BOOT__);
+    await page.locator("#place-input").focus();
+    await page.getByRole("option", { name: "Nearby" }).click();
+    await expect(page).toHaveURL(/near_me=1/, { timeout: 2000 });
+  });
+
+  test("restores Nearby lat/lng from sessionStorage when URL uses near_me=1", async ({ page }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem(
+        "inatExplorerNearMeGeo",
+        JSON.stringify({
+          v: 2,
+          lat: 47.606_138,
+          lng: -122.332_056,
+          intentKey: "near_me|25",
+          savedAt: Date.now(),
+        }),
+      );
+    });
+    await page.goto("/explorer/?near_me=1&radius=25&view=filters", { waitUntil: "domcontentloaded" });
+    await expect(page.locator(".view-tabs")).toBeVisible();
+    await page.waitForFunction(() => window.__EXPLORER_BOOT__ != null, { timeout: 60_000 });
+    await page.evaluate(() => window.__EXPLORER_BOOT__);
+    await expect(page.locator("#place-input")).toHaveValue("Nearby");
+    await expect(page.locator("#lat")).toHaveValue(/47\.606/);
+    await expect(page.locator("#lng")).toHaveValue(/-122\.332/);
+    await expect(page.locator("#nearby-controls")).toBeVisible();
+  });
+});

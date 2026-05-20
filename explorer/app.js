@@ -30,6 +30,14 @@ function noteExplorerLocationHrefApplied() {
 const OBS_SCROLL_SESSION_ID = "inatExplorerObsScrollId";
 const OBS_SCROLL_SESSION_TOP = "inatExplorerObsScrollTop";
 
+/**
+ * When `near_me=1` is in the URL, lat/lng are omitted for shareability. Persist them in sessionStorage
+ * so a same-tab full reload can restore the filter without a second geolocation prompt.
+ */
+const EXPLORER_NEAR_ME_GEO_KEY = "inatExplorerNearMeGeo";
+/** Discard stashed coordinates after this many milliseconds (stale GPS). */
+const EXPLORER_NEAR_ME_GEO_STASH_MAX_MS = 24 * 60 * 60 * 1000;
+
 /** iNaturalist controlled term "Evidence of Presence" (`GET /controlled_terms`). */
 const EVIDENCE_OF_PRESENCE_TERM_ID = 22;
 /** `term_value_id` for each filter option (Organism = animal present; Construction = nests, burrows, etc.). */
@@ -454,6 +462,72 @@ function effectiveRadiusKm() {
   return clampRadiusKm(raw);
 }
 
+function clearExplorerNearMeGeoStash() {
+  try {
+    sessionStorage.removeItem(EXPLORER_NEAR_ME_GEO_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Stable key for “this nearby URL” so we do not reuse coordinates after the radius / near_me URL changed. */
+function nearMeIntentKeyFromQuery(q) {
+  const r = String(clampRadiusKm(q.get("radius") || "25"));
+  return `near_me|${r}`;
+}
+
+function stashExplorerNearMeGeoAfterUrlSynced() {
+  const la = Number(el.lat.value);
+  const ln = Number(el.lng.value);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return;
+  if (Math.abs(la) > 90 || Math.abs(ln) > 180) return;
+  let intentKey = "";
+  try {
+    intentKey = nearMeIntentKeyFromQuery(new URLSearchParams(window.location.search));
+  } catch {
+    return;
+  }
+  if (!intentKey) return;
+  try {
+    sessionStorage.setItem(
+      EXPLORER_NEAR_ME_GEO_KEY,
+      JSON.stringify({
+        v: 2,
+        lat: la,
+        lng: ln,
+        intentKey,
+        savedAt: Date.now(),
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * @param {URLSearchParams} q
+ * @returns {{ lat: string, lng: string } | null}
+ */
+function tryRestoreExplorerNearMeGeoFromStash(q) {
+  const intentKey = nearMeIntentKeyFromQuery(q);
+  if (!intentKey) return null;
+  try {
+    const raw = sessionStorage.getItem(EXPLORER_NEAR_ME_GEO_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || o.v !== 2 || o.intentKey !== intentKey) return null;
+    const la = Number(o.lat);
+    const ln = Number(o.lng);
+    const savedAt = Number(o.savedAt);
+    if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+    if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
+    if (!Number.isFinite(savedAt) || Date.now() - savedAt > EXPLORER_NEAR_ME_GEO_STASH_MAX_MS) return null;
+    return { lat: String(la), lng: String(ln) };
+  } catch {
+    return null;
+  }
+}
+
 function updatePlaceNearbyUI() {
   if (el.nearbyControls) el.nearbyControls.hidden = !placeNearbyMode;
 }
@@ -471,6 +545,7 @@ function setCommittedPlaceDisplay(text) {
 }
 
 function clearPlaceFilter() {
+  clearExplorerNearMeGeoStash();
   placeNearbyMode = false;
   nearMeSource = "none";
   el.placeId.value = "";
@@ -3609,28 +3684,41 @@ function readUrl() {
   renderTaxonSelectedStack();
   el.userLogin.value = (q.get("observer") || "").toLowerCase();
 
+  const rFromQuery = q.get("radius") || "25";
+  el.radiusKm.value = String(clampRadiusKm(rFromQuery));
+
   const pid = q.get("place_id");
   if (pid) el.placeId.value = pid;
 
   const nearMeFlag = q.get("near_me") === "1" || q.get("near_me") === "true";
   if (pid) {
+    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
     el.lat.value = "";
     el.lng.value = "";
   } else if (nearMeFlag) {
-    nearMeSource = "url";
-    placeNearbyMode = true;
-    el.lat.value = "";
-    el.lng.value = "";
+    const restored = tryRestoreExplorerNearMeGeoFromStash(q);
+    if (restored) {
+      nearMeSource = "button";
+      placeNearbyMode = true;
+      el.lat.value = restored.lat;
+      el.lng.value = restored.lng;
+      setCommittedPlaceDisplay("Nearby");
+    } else {
+      nearMeSource = "url";
+      placeNearbyMode = true;
+      el.lat.value = "";
+      el.lng.value = "";
+      setCommittedPlaceDisplay("Nearby");
+    }
   } else {
+    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     el.lat.value = q.get("lat") || "";
     el.lng.value = q.get("lng") || "";
     placeNearbyMode = Boolean(el.lat.value.trim() && el.lng.value.trim());
   }
-  const r = q.get("radius") || "25";
-  el.radiusKm.value = String(clampRadiusKm(r));
   updatePlaceNearbyUI();
 
   el.unobservedInput.value = (q.get("unobserved") || "").toLowerCase();
@@ -3684,7 +3772,11 @@ async function hydrateSelections() {
 }
 
 async function setNearbySelection() {
-  nearMeSource = "none";
+  /**
+   * Use `button` immediately so `syncUrl` keeps `near_me=1` in the address bar while geolocation is pending.
+   * If `near_me` were omitted (treated like "no location filter"), a refresh mid-request would drop Nearby.
+   */
+  nearMeSource = "button";
   placeNearbyMode = true;
   el.placeId.value = "";
   el.lat.value = "";
@@ -3693,11 +3785,13 @@ async function setNearbySelection() {
   /* Defer closing the list so the originating click/mouseup sequence finishes (avoids desktop ghost clicks). */
   queueMicrotask(() => hideSuggestion("place"));
   updatePlaceNearbyUI();
+  syncUrl();
   await requestNearbyGeolocation();
 }
 
 function setPlaceSelection(id, label, options = {}) {
   const fromHydrate = options.fromHydrate === true;
+  clearExplorerNearMeGeoStash();
   nearMeSource = "none";
   placeNearbyMode = false;
   updatePlaceNearbyUI();
@@ -3843,6 +3937,7 @@ function wireAutocomplete() {
 
   el.placeInput.addEventListener("input", () => {
     if (placeInputCommitted && el.placeInput.value !== placeInputCommitted) {
+      clearExplorerNearMeGeoStash();
       el.placeId.value = "";
       el.lat.value = "";
       el.lng.value = "";
@@ -3956,7 +4051,9 @@ async function requestNearbyGeolocation() {
     applyGeoPosition(pos);
     nearMeSource = "button";
     await onLocationFilterChanged();
+    stashExplorerNearMeGeoAfterUrlSynced();
   } catch {
+    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
     el.lat.value = "";
@@ -3973,7 +4070,9 @@ async function resolveNearMeFromUrl() {
     applyGeoPosition(pos);
     nearMeSource = "url";
     await onLocationFilterChanged();
+    stashExplorerNearMeGeoAfterUrlSynced();
   } catch {
+    clearExplorerNearMeGeoStash();
     nearMeSource = "none";
     placeNearbyMode = false;
     el.lat.value = "";
@@ -4321,6 +4420,7 @@ function wireButtons() {
     });
   }
   el.btnReset.addEventListener("click", () => {
+    clearExplorerNearMeGeoStash();
     el.taxonInput.value = "";
     taxonIncludeFilters = [];
     taxonExcludeFilters = [];
@@ -4646,6 +4746,7 @@ async function boot() {
         nearMeSource === "url" &&
         (!el.lat.value.trim() || !el.lng.value.trim())
       ) {
+        clearExplorerNearMeGeoStash();
         nearMeSource = "none";
         placeNearbyMode = false;
         el.lat.value = "";
@@ -4695,6 +4796,7 @@ async function resyncAppFromCurrentUrlAfterBfcache() {
         nearMeSource === "url" &&
         (!el.lat.value.trim() || !el.lng.value.trim())
       ) {
+        clearExplorerNearMeGeoStash();
         nearMeSource = "none";
         placeNearbyMode = false;
         el.lat.value = "";
