@@ -14,7 +14,7 @@
     <title>Square crop</title>
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
-    <link rel="stylesheet" href="./styles.css?v=inatcv11" />
+    <link rel="stylesheet" href="./styles.css?v=inatcv12" />
   </head>
   <body class="app-body-fit">
     <div
@@ -132,6 +132,14 @@
                 <div id="inat-upload-grouping" class="inat-upload-grouping" hidden>
                   <div class="inat-upload-grouping-toolbar">
                     <h4 class="inat-upload-subheading" id="inat-upload-subheading">Observations</h4>
+                    <button
+                      type="button"
+                      id="btn-inat-cv-all"
+                      class="btn secondary"
+                      title="Run iNaturalist computer vision on the first photo in each observation"
+                    >
+                      Vision all
+                    </button>
                   </div>
                   <p class="inat-upload-grouping-hint muted">
                     Photos taken within 30 seconds are grouped into one observation. Drag thumbnails to regroup, or drop
@@ -299,6 +307,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=inatcv10" type="module"></script>
+    <script src="./app.js?v=inatcv12" type="module"></script>
   </body>
 </html>

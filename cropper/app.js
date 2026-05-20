@@ -346,6 +346,7 @@ const btnInatUploadTokenApply = document.getElementById("btn-inat-upload-token-a
 const btnInatUploadTokenClear = document.getElementById("btn-inat-upload-token-clear");
 const inatUploadGrouping = document.getElementById("inat-upload-grouping");
 const inatUploadGroupingStrip = document.getElementById("inat-upload-grouping-strip");
+const btnInatCvAll = document.getElementById("btn-inat-cv-all");
 const inatUploadProgressWrap = document.getElementById("inat-upload-progress-wrap");
 const inatUploadProgressLine = document.getElementById("inat-upload-progress-line");
 const inatUploadProgressBar = document.getElementById("inat-upload-progress-bar");
@@ -356,6 +357,8 @@ let cropToolbarProgressEl = null;
 /** `GET /users/me` succeeded with stored JWT — enables Upload to iNaturalist. */
 let inatUploadAuthOk = false;
 let inatUploadInProgress = false;
+/** True while running computer vision across every observation row (blocks upload / per-row Vision). */
+let inatBulkCvInProgress = false;
 /**
  * Each observation group: workItem indices (0..n-1) and per-group species / taxon for iNat create.
  * @type {{ indices: number[], species: string, taxonId: string }[]}
@@ -2542,7 +2545,12 @@ function updateButtons() {
           : "Share JPEGs only";
   }
   if (btnInatUploadObs) {
-    btnInatUploadObs.disabled = !zipReady || !inatUploadAuthOk || inatUploadInProgress;
+    btnInatUploadObs.disabled =
+      !zipReady || !inatUploadAuthOk || inatUploadInProgress || inatBulkCvInProgress;
+  }
+  if (btnInatCvAll) {
+    btnInatCvAll.disabled =
+      !zipReady || !inatUploadAuthOk || inatUploadInProgress || inatBulkCvInProgress;
   }
   updateCropExportActionsVisibility();
   updateSharePrepUiDisplay();
@@ -2958,6 +2966,27 @@ async function fetchInatComputervisionFirstGuessForFile(file) {
 }
 
 /**
+ * @param {number} g
+ * @param {{ id: string; label: string }} guess
+ */
+function applyInatCvGuessToGroupUi(g, guess) {
+  const card = inatUploadGroupingStrip?.querySelector(`.inat-group-card[data-group-idx="${g}"]`);
+  inatSpeciesSelectingProgrammatic = true;
+  if (inatUploadGroups[g]) {
+    inatUploadGroups[g].species = guess.label;
+    inatUploadGroups[g].taxonId = guess.id;
+  }
+  if (card) {
+    const inp = card.querySelector(".inat-group-species");
+    const hid = card.querySelector(".inat-group-taxon-id");
+    if (inp) inp.value = guess.label;
+    if (hid) hid.value = guess.id;
+    hideInatGroupSpeciesSuggest(card);
+  }
+  inatSpeciesSelectingProgrammatic = false;
+}
+
+/**
  * @param {HTMLElement} card
  * @param {HTMLButtonElement} btn
  * @param {number} g
@@ -2966,6 +2995,10 @@ async function handleInatGroupCvClick(card, btn, g) {
   clearError();
   if (inatUploadInProgress) {
     showError("Wait for the current upload to finish, then try again.");
+    return;
+  }
+  if (inatBulkCvInProgress) {
+    showError("Wait for Vision all to finish, then try again.");
     return;
   }
   if (!inatApiJwtAuthorizationValue() || !inatUploadAuthOk) {
@@ -2984,15 +3017,7 @@ async function handleInatGroupCvClick(card, btn, g) {
   btn.setAttribute("aria-busy", "true");
   try {
     const guess = await fetchInatComputervisionFirstGuessForFile(file);
-    const inp = card.querySelector(".inat-group-species");
-    const hid = card.querySelector(".inat-group-taxon-id");
-    inatSpeciesSelectingProgrammatic = true;
-    if (inp) inp.value = guess.label;
-    if (hid) hid.value = guess.id;
-    inatUploadGroups[g].species = guess.label;
-    inatUploadGroups[g].taxonId = guess.id;
-    inatSpeciesSelectingProgrammatic = false;
-    hideInatGroupSpeciesSuggest(card);
+    applyInatCvGuessToGroupUi(g, guess);
   } catch (err) {
     console.error(err);
     const msg = err && typeof err === "object" && "message" in err ? String(err.message) : String(err);
@@ -3000,6 +3025,51 @@ async function handleInatGroupCvClick(card, btn, g) {
   } finally {
     btn.disabled = false;
     btn.removeAttribute("aria-busy");
+  }
+}
+
+/** Run computer vision on the first photo of every observation row (sequential, with a short delay between API calls). */
+async function runInatCvForAllObservations() {
+  clearError();
+  if (inatUploadInProgress) {
+    showError("Wait for the current upload to finish, then try again.");
+    return;
+  }
+  if (inatBulkCvInProgress) return;
+  if (!inatApiJwtAuthorizationValue() || !inatUploadAuthOk) {
+    showError("Apply a valid API token first.");
+    return;
+  }
+  validateInatUploadGroupsOrInit();
+  const nonempty = inatUploadGroups.filter((g) => g && g.indices && g.indices.length > 0);
+  if (!nonempty.length) {
+    showError("No observation rows with photos to run computer vision on.");
+    return;
+  }
+  inatBulkCvInProgress = true;
+  updateButtons();
+  if (btnInatCvAll) btnInatCvAll.setAttribute("aria-busy", "true");
+  try {
+    let afterFirst = false;
+    for (let g = 0; g < inatUploadGroups.length; g++) {
+      const grp = inatUploadGroups[g];
+      if (!grp || !grp.indices.length) continue;
+      if (afterFirst) await new Promise((r) => setTimeout(r, 350));
+      afterFirst = true;
+      const ix = grp.indices[0];
+      const file = workItems[ix];
+      if (!file) continue;
+      const guess = await fetchInatComputervisionFirstGuessForFile(file);
+      applyInatCvGuessToGroupUi(g, guess);
+    }
+  } catch (err) {
+    console.error(err);
+    const msg = err && typeof err === "object" && "message" in err ? String(err.message) : String(err);
+    showError(msg);
+  } finally {
+    inatBulkCvInProgress = false;
+    if (btnInatCvAll) btnInatCvAll.removeAttribute("aria-busy");
+    updateButtons();
   }
 }
 
@@ -3929,6 +3999,10 @@ async function runInatObservationUpload() {
   clearError();
   if (!inatApiJwtAuthorizationValue() || !inatUploadAuthOk) {
     showError("Apply a valid API token first.");
+    return;
+  }
+  if (inatBulkCvInProgress) {
+    showError("Wait for Vision all to finish before uploading.");
     return;
   }
   const n = workItems.length;
@@ -6107,6 +6181,12 @@ if (btnInatUploadTokenClear) {
 if (btnInatUploadObs) {
   btnInatUploadObs.addEventListener("click", () => {
     void runInatObservationUpload();
+  });
+}
+
+if (btnInatCvAll) {
+  btnInatCvAll.addEventListener("click", () => {
+    void runInatCvForAllObservations();
   });
 }
 

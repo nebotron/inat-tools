@@ -1570,6 +1570,11 @@ body.app-body-fit .app-page--crop .crop-review-done {
   pointer-events: none;
 }
 
+#btn-inat-cv-all[aria-busy="true"] {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .inat-species-suggest {
   position: absolute;
   left: 0;
