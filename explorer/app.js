@@ -319,12 +319,36 @@ let unobsDebounce = null;
 /** Debounce URL updates from the Filters tab (no iNaturalist list/map API calls until a result tab is opened). */
 let urlSyncDebounce = null;
 let obsScrollSaveDebounce = null;
-/** `requestAnimationFrame` ids for coalescing grid image preloads on scroll. */
-let obsGridImagePreloadRaf = 0;
-let speciesGridImagePreloadRaf = 0;
+/** Debounced timers for grid image preload (avoid layout thrash during pinch / page zoom). */
+let obsGridImagePreloadDebounce = null;
+let speciesGridImagePreloadDebounce = null;
 let taxonHighlight = -1;
 let placeHighlight = -1;
 let unobsHighlight = -1;
+
+/**
+ * While the window or visual viewport is resizing (pinch / page zoom), skip heavy synchronous
+ * layout reads on large observation grids — WebKit can kill the tab when these run in a tight loop.
+ */
+let explorerViewportLayoutBusyUntil = 0;
+function markExplorerViewportLayoutBusy() {
+  explorerViewportLayoutBusyUntil = performance.now() + 550;
+}
+function isExplorerViewportLayoutBusy() {
+  return performance.now() < explorerViewportLayoutBusyUntil;
+}
+
+function wireExplorerViewportLayoutBusySignals() {
+  const mark = () => {
+    markExplorerViewportLayoutBusy();
+  };
+  window.addEventListener("resize", mark, { passive: true });
+  const vv = window.visualViewport;
+  if (vv) {
+    vv.addEventListener("resize", mark, { passive: true });
+    vv.addEventListener("scroll", mark, { passive: true });
+  }
+}
 
 function escapeHtml(s) {
   const d = document.createElement("div");
@@ -686,12 +710,14 @@ function clientRectsIntersect(a, b) {
  * @param {number} [ahead]
  */
 function preloadUpcomingGridCardImages(scrollRoot, gridRoot, ahead = GRID_CARD_IMAGE_PRELOAD_AHEAD) {
+  if (isExplorerViewportLayoutBusy()) return;
   if (!scrollRoot || !gridRoot) return;
   const imgs = gridRoot.querySelectorAll("img.card-photo");
   if (!imgs.length) return;
   const rootRect = scrollRoot.getBoundingClientRect();
   let lastIntersecting = -1;
-  for (let i = 0; i < imgs.length; i += 1) {
+  const stride = imgs.length > 200 ? 2 : 1;
+  for (let i = 0; i < imgs.length; i += stride) {
     const ir = imgs[i].getBoundingClientRect();
     if (clientRectsIntersect(rootRect, ir)) lastIntersecting = i;
   }
@@ -710,20 +736,26 @@ function preloadUpcomingGridCardImages(scrollRoot, gridRoot, ahead = GRID_CARD_I
 
 function scheduleObsGridImagePreloads() {
   if (!el.panelObs || !el.resultsGrid) return;
-  if (obsGridImagePreloadRaf) return;
-  obsGridImagePreloadRaf = requestAnimationFrame(() => {
-    obsGridImagePreloadRaf = 0;
-    preloadUpcomingGridCardImages(el.panelObs, el.resultsGrid);
-  });
+  if (obsGridImagePreloadDebounce != null) clearTimeout(obsGridImagePreloadDebounce);
+  obsGridImagePreloadDebounce = setTimeout(() => {
+    obsGridImagePreloadDebounce = null;
+    if (isExplorerViewportLayoutBusy()) return;
+    requestAnimationFrame(() => {
+      preloadUpcomingGridCardImages(el.panelObs, el.resultsGrid);
+    });
+  }, 160);
 }
 
 function scheduleSpeciesGridImagePreloads() {
   if (!el.panelSpecies || !el.speciesGrid) return;
-  if (speciesGridImagePreloadRaf) return;
-  speciesGridImagePreloadRaf = requestAnimationFrame(() => {
-    speciesGridImagePreloadRaf = 0;
-    preloadUpcomingGridCardImages(el.panelSpecies, el.speciesGrid);
-  });
+  if (speciesGridImagePreloadDebounce != null) clearTimeout(speciesGridImagePreloadDebounce);
+  speciesGridImagePreloadDebounce = setTimeout(() => {
+    speciesGridImagePreloadDebounce = null;
+    if (isExplorerViewportLayoutBusy()) return;
+    requestAnimationFrame(() => {
+      preloadUpcomingGridCardImages(el.panelSpecies, el.speciesGrid);
+    });
+  }, 160);
 }
 
 function wireSpeciesGridScrollImagePreload() {
@@ -2891,19 +2923,6 @@ function wireObservationCardPhotoCarousel(card) {
     }
   });
 
-  try {
-    let roTimer = null;
-    const ro = new ResizeObserver(() => {
-      if (roTimer != null) clearTimeout(roTimer);
-      roTimer = setTimeout(() => {
-        roTimer = null;
-        scheduleSyncDots();
-      }, 120);
-    });
-    ro.observe(scrollEl);
-  } catch (ex) {
-    explorerFatal(ex, "wireCardMediaCarousel:ResizeObserver");
-  }
   scheduleSyncDots();
 }
 
@@ -4360,6 +4379,7 @@ function readObsScrollMemory() {
 
 function findObsCardIdNearViewportCenter() {
   if (!el.panelObs || !el.resultsGrid) return null;
+  if (isExplorerViewportLayoutBusy()) return null;
   const panel = el.panelObs;
   const prect = panel.getBoundingClientRect();
   const midY = prect.top + prect.height / 2;
@@ -4395,6 +4415,7 @@ function writeObsScrollMemory(obsId, scrollTop) {
 function flushObsScrollMemorySave() {
   obsScrollSaveDebounce = null;
   if (!el.panelObs || currentView !== "observations") return;
+  if (isExplorerViewportLayoutBusy()) return;
   const st = el.panelObs.scrollTop;
   const centerId = findObsCardIdNearViewportCenter();
   const prev = readObsScrollMemory();
@@ -4949,6 +4970,7 @@ async function boot() {
   wireAutocomplete();
   wirePlaceField();
   wireTabs();
+  wireExplorerViewportLayoutBusySignals();
   wireInfiniteScroll();
   wireObservationScrollMemory();
   wireSpeciesGridScrollImagePreload();
