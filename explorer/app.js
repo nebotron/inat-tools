@@ -569,15 +569,21 @@ function originalPhotoUrl(url) {
   return url.replace(/\/(square|thumb|small|medium|large|original)\./i, "/original.");
 }
 
-/** Display URL for grid cards: always the original photo file when `rawUrl` is present. */
+/** Medium derivative for in-grid display (many decoded originals while scrolling can OOM low-memory tabs). */
+function mediumPhotoUrl(url) {
+  if (!url) return "";
+  return url.replace(/\/(square|thumb|small|medium|large|original)\./i, "/medium.");
+}
+
+/** Display URL for grid/detail hero cards when `rawUrl` is present. */
 function observationCardPhotoDisplayUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== "string") return "";
   const trimmed = rawUrl.trim();
   if (!trimmed) return "";
-  return originalPhotoUrl(trimmed);
+  return mediumPhotoUrl(trimmed);
 }
 
-/** Original-size display URLs for each observation photo, in API order. */
+/** Display URLs for each observation photo (grid carousel), in API order. */
 function observationPhotoDisplayUrlsFromObs(obs) {
   const photos = obs && Array.isArray(obs.photos) ? obs.photos : [];
   const out = [];
@@ -614,7 +620,7 @@ function clientRectsIntersect(a, b) {
 
 /**
  * After the last grid photo intersecting `scrollRoot`, start loading the next `ahead` `img.card-photo` URLs
- * (browser cache + decode warm-up for originals already used as `src`).
+ * (browser cache + decode warm-up for the same URLs already used as `src`).
  * @param {Element} scrollRoot
  * @param {ParentNode} gridRoot
  * @param {number} [ahead]
