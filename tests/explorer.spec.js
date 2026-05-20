@@ -27,6 +27,14 @@ test.describe("explorer", () => {
     await expect(page.locator("#inat-api-auth-status")).toContainText(/sign in with an api token/i);
   });
 
+  test("favorited by me filter requires API sign-in (checkbox reverts without JWT)", async ({ page }) => {
+    await expect(page.locator("#filter-faved-by-me")).toBeVisible();
+    await page.locator("#filter-faved-by-me").click();
+    await expect(page.locator("#filter-faved-by-me")).not.toBeChecked();
+    await expect(page.locator("#explorer-auth-panel")).toBeVisible();
+    await expect(page.locator("#inat-api-auth-status")).toContainText(/sign in/i);
+  });
+
   test("API sign-in is available from Log in at bottom of Filters", async ({ page }) => {
     await expect(page.locator("#btn-explorer-auth-toggle")).toHaveText("Log in");
     await page.locator("#btn-explorer-auth-toggle").click();

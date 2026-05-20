@@ -9,6 +9,7 @@ import {
   formatInatHttpErrorForDisplay,
   fetchUsersMeWithStoredJwt,
   inatFetch,
+  inatPostV2MethodOverrideGet,
 } from "../lib/inat-api-client.js";
 
 /**
@@ -250,6 +251,7 @@ const el = {
   qualityGrade: document.getElementById("quality-grade"),
   sortMode: document.getElementById("sort-mode"),
   filterMyReview: document.getElementById("filter-my-review"),
+  filterFavedByMe: document.getElementById("filter-faved-by-me"),
   mediaPhotos: document.getElementById("media-photos"),
   mediaSounds: document.getElementById("media-sounds"),
   observedDays: document.getElementById("observed-days"),
@@ -1240,7 +1242,9 @@ function commonParams(options = {}) {
 }
 
 function observationListNeedsAuthForReviewFilter() {
-  return el.filterMyReview && el.filterMyReview.value === "unreviewed";
+  const unreviewed = el.filterMyReview && el.filterMyReview.value === "unreviewed";
+  const faved = el.filterFavedByMe && el.filterFavedByMe.checked;
+  return Boolean(unreviewed || faved);
 }
 
 /**
@@ -1543,6 +1547,80 @@ async function inatFetchWithRetry(pathAndQuery, opts = {}) {
   return res;
 }
 
+/** True when “Favorited by me” is on and we have a user id (POST /v2 search with nested `votes` filter). */
+function observationSearchUsesV2FavoritesPost() {
+  return Boolean(
+    el.filterFavedByMe && el.filterFavedByMe.checked && inatAuthUser && inatAuthUser.id != null,
+  );
+}
+
+function urlSearchParamsToPlainJsonObject(sp) {
+  const o = {};
+  for (const key of new Set([...sp.keys()])) {
+    const vals = sp.getAll(key);
+    if (vals.length === 1) o[key] = vals[0];
+    else o[key] = vals;
+  }
+  return o;
+}
+
+function favoritedByMeNestedVoteFilter(userId) {
+  const uid = Math.floor(Number(userId));
+  return {
+    nested: {
+      path: "votes",
+      query: {
+        bool: {
+          filter: [
+            { term: { "votes.user_id": uid } },
+            { bool: { must_not: { exists: { field: "votes.vote_scope" } } } },
+          ],
+        },
+      },
+    },
+  };
+}
+
+function applyFavoritedNestedFilterToPostBody(body) {
+  if (!observationSearchUsesV2FavoritesPost()) return;
+  const uid = inatAuthUser && inatAuthUser.id != null ? Number(inatAuthUser.id) : NaN;
+  if (!Number.isFinite(uid) || uid <= 0) return;
+  const nested = favoritedByMeNestedVoteFilter(uid);
+  const existing = Array.isArray(body.filters) ? body.filters : [];
+  body.filters = [nested, ...existing];
+}
+
+async function inatV2PostMethodOverrideGetWithRetry(relPath, body, opts = {}) {
+  const retries = opts.retries ?? 4;
+  let res = null;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    res = await inatPostV2MethodOverrideGet(relPath, body, opts);
+    if (res.ok) return res;
+    const retry = res.status === 429 || res.status === 502 || res.status === 503 || res.status === 504;
+    if (retry && attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+      continue;
+    }
+    return res;
+  }
+  return res;
+}
+
+/**
+ * GET v1 or POST v2 (JSON body) for observation search endpoints, depending on “Favorited by me”.
+ * @param {"observations"|"observations/species_counts"|"observations/histogram"} relPath
+ * @param {URLSearchParams} searchParams
+ */
+async function inatObservationQueryFetchWithRetry(relPath, searchParams, opts = {}) {
+  if (!observationSearchUsesV2FavoritesPost()) {
+    return inatFetchWithRetry(`${relPath}?${searchParams.toString()}`, opts);
+  }
+  const body = urlSearchParamsToPlainJsonObject(searchParams);
+  applyFavoritedNestedFilterToPostBody(body);
+  if (relPath === "observations") body.fields = "all";
+  return inatV2PostMethodOverrideGetWithRetry(relPath, body, opts);
+}
+
 /** Params for listing observations in observed-on order (Stats local aggregation). */
 async function statsObservationListParams() {
   const kc = await ensureKingCountyNoxiousData();
@@ -1580,7 +1658,7 @@ async function fetchAllObservationsForStatsAggregation() {
   while (page <= maxPages) {
     const p = new URLSearchParams(base);
     p.set("page", String(page));
-    const res = await inatFetchWithRetry(`observations?${p}`);
+    const res = await inatObservationQueryFetchWithRetry("observations", p, observationListAuthFetchOptions());
     if (!res.ok) throw new Error(`Observations request failed (${res.status})`);
     const j = await res.json();
     const rows = j.results || [];
@@ -1664,7 +1742,7 @@ function parseHistogramYearBuckets(yearObj) {
  */
 async function cumulativeDistinctSpeciesOverTime() {
   const countP = await observationCountParams();
-  const countRes = await inatFetchWithRetry(`observations?${countP}`);
+  const countRes = await inatObservationQueryFetchWithRetry("observations", countP, observationListAuthFetchOptions());
   if (!countRes.ok) throw new Error(`Observation count failed (${countRes.status})`);
   const countJson = await countRes.json();
   const totalObs = Number(countJson.total_results) || 0;
@@ -1674,7 +1752,7 @@ async function cumulativeDistinctSpeciesOverTime() {
 
   if (totalObs <= STATS_LOCAL_MAX_TOTAL) {
     const histParams = await monthHistogramParamsForStats();
-    const histRes = await inatFetchWithRetry(`observations/histogram?${histParams}`);
+    const histRes = await inatObservationQueryFetchWithRetry("observations/histogram", histParams, observationListAuthFetchOptions());
     if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
     const histJson = await histRes.json();
     const activeMonths = parseHistogramMonthBuckets(histJson.results?.month);
@@ -1690,7 +1768,7 @@ async function cumulativeDistinctSpeciesOverTime() {
   }
 
   const histParams = await yearHistogramParamsForStats();
-  const histRes = await inatFetchWithRetry(`observations/histogram?${histParams}`);
+  const histRes = await inatObservationQueryFetchWithRetry("observations/histogram", histParams, observationListAuthFetchOptions());
   if (!histRes.ok) throw new Error(`Histogram request failed (${histRes.status})`);
   const histJson = await histRes.json();
   const activeYears = parseHistogramYearBuckets(histJson.results?.year);
@@ -1712,7 +1790,7 @@ async function cumulativeDistinctSpeciesOverTime() {
       slice.map(async (y) => {
         const d2 = endOfCalendarMonthStr(y, 12);
         const p = await speciesCountTotalParamsForEndDate(d2);
-        const r = await inatFetchWithRetry(`observations/species_counts?${p}`);
+        const r = await inatObservationQueryFetchWithRetry("observations/species_counts", p, observationListAuthFetchOptions());
         if (!r.ok) throw new Error(`Species count failed (${r.status})`);
         const j = await r.json();
         return Number(j.total_results) || 0;
@@ -1948,7 +2026,7 @@ async function fetchObservationTaxonById(taxonIds) {
     p.set("order_by", "created_at");
     p.set("order", "desc");
     try {
-      const res = await inatFetch(`observations?${p.toString()}`);
+      const res = await inatObservationQueryFetchWithRetry("observations", p, observationListAuthFetchOptions());
       if (!res.ok) continue;
       const data = await res.json();
       const want = new Set(slice);
@@ -1970,7 +2048,7 @@ async function fetchObservationTaxonById(taxonIds) {
     p.set("per_page", "1");
     p.set("page", "1");
     try {
-      const res = await inatFetch(`observations?${p.toString()}`);
+      const res = await inatObservationQueryFetchWithRetry("observations", p, observationListAuthFetchOptions());
       if (!res.ok) continue;
       const data = await res.json();
       const obs = (data.results || [])[0];
@@ -2840,10 +2918,10 @@ async function runObservationSearch(reset) {
       if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
         showError(
           "obs",
-          "Pick “Unreviewed by me” only after you sign in with an API token (Log in at the bottom of Filters).",
+          "Pick “Unreviewed by me” or “Favorited by me” only after you sign in with an API token (Log in at the bottom of Filters).",
         );
         void openExplorerAuthPanel({
-          reason: "Sign in with an API token to use the “Unreviewed by me” filter.",
+          reason: "Sign in with an API token to use the “Unreviewed by me” or “Favorited by me” filters.",
         });
         return;
       }
@@ -2874,12 +2952,13 @@ async function runObservationSearch(reset) {
 
     while (innerAttempts < maxInnerAttempts) {
       innerAttempts += 1;
-      const res = await inatFetch(
-        `observations?${(await observationParams({
+      const res = await inatObservationQueryFetchWithRetry(
+        "observations",
+        await observationParams({
           idBelow: obsListCursorId,
           idAbove: obsListCursorAscId,
-        })).toString()}`,
-        observationListAuthFetchOptions()
+        }),
+        observationListAuthFetchOptions(),
       );
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = await res.json();
@@ -2940,9 +3019,10 @@ async function runObservationSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const sRes = await inatFetch(
-            `observations/species_counts?${(await speciesCountParams()).toString()}`,
-            observationListAuthFetchOptions()
+          const sRes = await inatObservationQueryFetchWithRetry(
+            "observations/species_counts",
+            await speciesCountParams(),
+            observationListAuthFetchOptions(),
           );
           if (!sRes.ok) return;
           const sData = await sRes.json();
@@ -2978,10 +3058,10 @@ async function runSpeciesSearch(reset) {
       if (!inatAuthUser || inatAuthUser.id == null || !inatApiJwtAuthorizationValue()) {
         showError(
           "species",
-          "Pick “Unreviewed by me” only after you sign in with an API token (Log in at the bottom of Filters).",
+          "Pick “Unreviewed by me” or “Favorited by me” only after you sign in with an API token (Log in at the bottom of Filters).",
         );
         void openExplorerAuthPanel({
-          reason: "Sign in with an API token to use the “Unreviewed by me” filter.",
+          reason: "Sign in with an API token to use the “Unreviewed by me” or “Favorited by me” filters.",
         });
         return;
       }
@@ -2996,9 +3076,10 @@ async function runSpeciesSearch(reset) {
       el.speciesGrid.innerHTML = "";
     }
 
-    const res = await inatFetch(
-      `observations/species_counts?${(await speciesParams(speciesPage)).toString()}`,
-      observationListAuthFetchOptions()
+    const res = await inatObservationQueryFetchWithRetry(
+      "observations/species_counts",
+      await speciesParams(speciesPage),
+      observationListAuthFetchOptions(),
     );
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
     const data = await res.json();
@@ -3008,9 +3089,10 @@ async function runSpeciesSearch(reset) {
     if (reset) {
       void (async () => {
         try {
-          const oRes = await inatFetch(
-            `observations?${(await observationCountParams()).toString()}`,
-            observationListAuthFetchOptions()
+          const oRes = await inatObservationQueryFetchWithRetry(
+            "observations",
+            await observationCountParams(),
+            observationListAuthFetchOptions(),
           );
           if (!oRes.ok) return;
           const oData = await oRes.json();
@@ -3321,6 +3403,7 @@ async function mapAreaParams() {
     p.set("swlat", String(b.getSouth()));
     p.set("swlng", String(b.getWest()));
     p.set("geo", "true");
+    applyUnreviewedByMeObservationParams(p);
     return p;
   } catch (ex) {
     explorerFatal(ex, "mapAreaParams");
@@ -3397,6 +3480,8 @@ async function mapFilterKey() {
   p.delete("radius");
   p.delete("geo");
   p.set("_sort", el.sortMode.value);
+  applyUnreviewedByMeObservationParams(p);
+  p.set("_faved", el.filterFavedByMe && el.filterFavedByMe.checked ? "1" : "0");
   const est = formatEstablishmentForUrl();
   if (est) p.set("_est", est);
   else p.delete("_est");
@@ -3425,7 +3510,11 @@ async function runMapSearch(forceRecheck) {
     const countParams = new URLSearchParams(area);
     countParams.set("per_page", "1");
     countParams.set("page", "1");
-    const countRes = await inatFetch(`observations?${countParams.toString()}`);
+    const countRes = await inatObservationQueryFetchWithRetry(
+      "observations",
+      countParams,
+      observationListAuthFetchOptions(),
+    );
     if (seq !== mapSearchSeq || !map || currentView !== "map") return;
     if (!countRes.ok) throw new Error(`Request failed (${countRes.status})`);
     const countData = await countRes.json();
@@ -3433,7 +3522,8 @@ async function runMapSearch(forceRecheck) {
     const totalInArea = countData.total_results || 0;
 
     const pinEstablishmentFilter = establishmentClientFilterActive();
-    const usePins = totalInArea < MAP_PIN_THRESHOLD || pinEstablishmentFilter;
+    const usePins =
+      totalInArea < MAP_PIN_THRESHOLD || pinEstablishmentFilter || observationSearchUsesV2FavoritesPost();
     const nextMapMode = usePins ? "pins" : "heat";
     const modeChanged = prevMapMode !== nextMapMode;
 
@@ -3449,7 +3539,7 @@ async function runMapSearch(forceRecheck) {
       const pinsParams = new URLSearchParams(area);
       pinsParams.set("per_page", String(MAP_PIN_THRESHOLD));
       pinsParams.set("page", "1");
-      const pinRes = await inatFetch(`observations?${pinsParams.toString()}`);
+      const pinRes = await inatObservationQueryFetchWithRetry("observations", pinsParams, observationListAuthFetchOptions());
       if (seq !== mapSearchSeq || !map || currentView !== "map") return;
       if (!pinRes.ok) throw new Error(`Request failed (${pinRes.status})`);
       const pinData = await pinRes.json();
@@ -3691,6 +3781,14 @@ function syncUrl() {
     }
   }
 
+  if (el.filterFavedByMe) {
+    if (el.filterFavedByMe.checked && inatAuthUser && inatAuthUser.id != null) {
+      q.set("faved_me", "1");
+    } else {
+      q.delete("faved_me");
+    }
+  }
+
   const est = formatEstablishmentForUrl();
   if (est) q.set("est", est);
   else q.delete("est");
@@ -3782,6 +3880,9 @@ function readUrl() {
   }
   if (el.filterMyReview) {
     el.filterMyReview.value = q.get("unreviewed") === "1" ? "unreviewed" : "all";
+  }
+  if (el.filterFavedByMe) {
+    el.filterFavedByMe.checked = q.get("faved_me") === "1";
   }
   applyMediaFromQuery(q);
   el.uploadedDays.value = q.get("days") || "";
@@ -4235,6 +4336,7 @@ function wireExplorerAuthDock() {
       clearStoredInatApiJwt();
       if (el.inatApiToken) el.inatApiToken.value = "";
       if (el.filterMyReview) el.filterMyReview.value = "all";
+      if (el.filterFavedByMe) el.filterFavedByMe.checked = false;
       closeExplorerAuthPanel();
       void (async () => {
         await refreshInatAuthUser();
@@ -4281,6 +4383,7 @@ function wireExplorerApiAuth() {
       clearStoredInatApiJwt();
       if (el.inatApiToken) el.inatApiToken.value = "";
       if (el.filterMyReview) el.filterMyReview.value = "all";
+      if (el.filterFavedByMe) el.filterFavedByMe.checked = false;
       void (async () => {
         await refreshInatAuthUser();
         syncUrl();
@@ -4376,6 +4479,21 @@ function wireFilterExtras() {
     });
   }
 
+  if (el.filterFavedByMe) {
+    el.filterFavedByMe.addEventListener("change", () => {
+      if (el.filterFavedByMe.checked && (!inatAuthUser || !inatApiJwtAuthorizationValue())) {
+        el.filterFavedByMe.checked = false;
+        void openExplorerAuthPanel({
+          reason: "Sign in with an API token to use the “Favorited by me” filter.",
+        });
+        return;
+      }
+      lastMapFilterKey = null;
+      scheduleUrlSync();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
+
   const lowerLogin = (e) => {
     e.target.value = e.target.value.toLowerCase();
   };
@@ -4451,6 +4569,7 @@ function wireButtons() {
     el.qualityGrade.value = "";
     el.sortMode.value = "recent";
     if (el.filterMyReview) el.filterMyReview.value = "all";
+    if (el.filterFavedByMe) el.filterFavedByMe.checked = false;
     el.mediaPhotos.checked = true;
     el.mediaSounds.checked = false;
     el.uploadedDays.value = "";
@@ -4513,11 +4632,14 @@ async function sampleHourOfDayFromObservations(baseParams, maxSamples = 150, max
     hp.set("order_by", "created_at");
     hp.set("order", "desc");
     pagePromises.push(
-      inatFetch(`observations?${hp}`).then(async (r) => ({
-        page,
-        ok: r.ok,
-        json: r.ok ? await r.json() : null,
-      }))
+      (async () => {
+        const r = await inatObservationQueryFetchWithRetry("observations", hp, observationListAuthFetchOptions());
+        return {
+          page,
+          ok: r.ok,
+          json: r.ok ? await r.json() : null,
+        };
+      })(),
     );
   }
   const pages = await Promise.all(pagePromises);
@@ -4665,7 +4787,11 @@ async function showSpeciesDetail(taxon, obsCount) {
 
   try {
     const monthParams = await monthOfYearHistogramParams(taxon.id);
-    const monthRes = await inatFetch(`observations/histogram?${monthParams}`);
+    const monthRes = await inatObservationQueryFetchWithRetry(
+      "observations/histogram",
+      monthParams,
+      observationListAuthFetchOptions(),
+    );
     if (monthRes.ok) {
       const monthData = await monthRes.json();
       const moy = monthData.results?.month_of_year || {};

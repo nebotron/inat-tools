@@ -106,6 +106,14 @@
               </div>
 
               <div class="field">
+                <label class="card-meta-label">
+                  <input type="checkbox" id="filter-faved-by-me" />
+                  Favorited by me
+                </label>
+                <p class="field-hint muted">Only observations you have starred on iNaturalist. Sign in below to use this filter.</p>
+              </div>
+
+              <div class="field">
                 <label for="observed-days">Observed within (days)</label>
                 <input id="observed-days" type="number" min="1" max="3650" step="1" />
               </div>
@@ -167,7 +175,7 @@
               <fieldset class="months-fieldset inat-api-auth-fieldset explorer-auth-panel-fieldset">
                 <legend id="explorer-auth-legend">iNaturalist sign-in</legend>
                 <p class="inat-api-auth-hint">
-                  <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer">Get a token</a> — paste the JSON or the JWT alone. Only the JWT is stored in this browser; it unlocks <strong>Agree</strong>, <strong>Mark reviewed</strong>, <strong>Favorite</strong> on cards (when enabled under Controls shown), and the “Unreviewed by me” filter.
+                  <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer">Get a token</a> — paste the JSON or the JWT alone. Only the JWT is stored in this browser; it unlocks <strong>Agree</strong>, <strong>Mark reviewed</strong>, <strong>Favorite</strong> on cards (when enabled under Controls shown), and the “Unreviewed by me” / “Favorited by me” filters.
                 </p>
                 <label for="inat-api-token">Token</label>
                 <textarea id="inat-api-token" class="inat-api-token" rows="4" spellcheck="false" autocomplete="off" placeholder='{"api_token":"…"} or eyJ…'></textarea>
