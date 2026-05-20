@@ -473,84 +473,49 @@ main {
   /* Hairline gutters: each cell is an exact (100% − gaps) / N fraction of the panel width. */
   gap: 1px;
   background: var(--border);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Phone: one full-width tile; wider panels step up toward ~4 columns on desktop. */
+  grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 
-@container explorer-results (min-width: 360px) {
+@container explorer-results (min-width: 400px) {
+  .results-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container explorer-results (min-width: 560px) {
   .results-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@container explorer-results (min-width: 520px) {
+@container explorer-results (min-width: 720px) {
   .results-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@container explorer-results (min-width: 700px) {
-  .results-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-@container explorer-results (min-width: 880px) {
-  .results-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-}
-
-@container explorer-results (min-width: 1080px) {
-  .results-grid {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-  }
-}
-
-@container explorer-results (min-width: 1280px) {
-  .results-grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 }
 
 /* Browsers without container queries: approximate with viewport-based columns. */
 @supports not (container-type: inline-size) {
   .results-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(1, minmax(0, 1fr));
   }
 
-  @media (min-width: 420px) {
+  @media (min-width: 400px) {
+    .results-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 560px) {
     .results-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
 
-  @media (min-width: 600px) {
+  @media (min-width: 720px) {
     .results-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 780px) {
-    .results-grid {
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 960px) {
-    .results-grid {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 1140px) {
-    .results-grid {
-      grid-template-columns: repeat(7, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 1320px) {
-    .results-grid {
-      grid-template-columns: repeat(8, minmax(0, 1fr));
     }
   }
 }
