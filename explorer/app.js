@@ -2219,6 +2219,40 @@ function agreeTargetTaxonIdForObservation(obs) {
 }
 
 /**
+ * Taxon payload for the ID returned by {@link agreeTargetTaxonIdForObservation} (card / community / current ID).
+ * @param {object | null | undefined} obs
+ * @param {number} targetTaxonId
+ * @returns {object | null}
+ */
+function agreeTargetTaxonFromObservation(obs, targetTaxonId) {
+  if (!obs || typeof obs !== "object" || !Number.isFinite(targetTaxonId) || targetTaxonId <= 0) return null;
+  const matchId = (t) => t && t.id != null && Number(t.id) === targetTaxonId;
+  if (matchId(obs.taxon)) return obs.taxon;
+  if (obs.community_taxon && matchId(obs.community_taxon)) return obs.community_taxon;
+  const rows = Array.isArray(obs.identifications) ? obs.identifications : [];
+  for (const row of rows) {
+    if (!row || !row.current || row.hidden) continue;
+    const tid = row.taxon_id != null ? Number(row.taxon_id) : NaN;
+    if (tid !== targetTaxonId) continue;
+    if (row.taxon && matchId(row.taxon)) return row.taxon;
+  }
+  return null;
+}
+
+/**
+ * True when the taxon is species rank or finer (iNaturalist `rank_level` ≤ 10; genus is typically 20+).
+ * @param {object | null | undefined} taxon
+ */
+function taxonIsSpeciesLevelOrFiner(taxon) {
+  if (!taxon || typeof taxon !== "object") return false;
+  const rl = taxon.rank_level != null ? Number(taxon.rank_level) : NaN;
+  if (Number.isFinite(rl) && rl > 0) return rl <= 10;
+  const r = typeof taxon.rank === "string" ? taxon.rank.trim().toLowerCase() : "";
+  return r === "species" || r === "subspecies" || r === "variety" || r === "form" || r === "hybrid";
+}
+
+/**
+ * Whether the signed-in user already has a current identification at `taxonId`.
  * @param {object | null | undefined} obs
  * @param {number} userId
  * @param {number} taxonId
@@ -2250,6 +2284,8 @@ function observationAgreeButtonHtml(obs) {
   if (Number.isFinite(ownerId) && ownerId === meId) return "";
   const taxonId = agreeTargetTaxonIdForObservation(obs);
   if (taxonId == null) return "";
+  const agreeTaxon = agreeTargetTaxonFromObservation(obs, taxonId);
+  if (!taxonIsSpeciesLevelOrFiner(agreeTaxon)) return "";
   if (userHasCurrentIdentificationAtTaxon(obs, meId, taxonId)) return "";
   const oid = obs && obs.id != null ? Number(obs.id) : NaN;
   if (!Number.isFinite(oid) || oid <= 0) return "";
