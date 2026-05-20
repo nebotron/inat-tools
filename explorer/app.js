@@ -2498,7 +2498,7 @@ function buildCardImageBlockFromUrls(urls) {
       return `<div class="card-media-carousel__slide">${inner}</div>`;
     })
     .join("");
-  return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${slidesHtml}<div class="card-media-carousel__dots" role="group" aria-label="Choose photo">${dotsHtml}</div></div>`;
+  return `<div class="card-media-carousel" role="group" aria-label="Observation photos"><div class="card-media-carousel__scroll">${slidesHtml}</div><div class="card-media-carousel__dots" role="group" aria-label="Choose photo">${dotsHtml}</div></div>`;
 }
 
 /**
@@ -2507,19 +2507,20 @@ function buildCardImageBlockFromUrls(urls) {
  */
 function wireObservationCardPhotoCarousel(card) {
   const root = card.querySelector(".card-media-carousel");
+  const scrollEl = root?.querySelector(":scope > .card-media-carousel__scroll");
   const linkSurface = card.querySelector(".card-link");
-  if (!root || !linkSurface) return;
-  const slides = root.querySelectorAll(":scope > .card-media-carousel__slide");
+  if (!root || !scrollEl || !linkSurface) return;
+  const slides = scrollEl.querySelectorAll(":scope > .card-media-carousel__slide");
   const n = slides.length;
   if (n < 2) return;
 
-  const pageW = () => (root.clientWidth > 0 ? root.clientWidth : 1);
+  const pageW = () => (scrollEl.clientWidth > 0 ? scrollEl.clientWidth : 1);
 
   /** Index of the slide whose center is nearest the viewport center (stable with scroll-snap + subpixels). */
   const slideIndexFromScroll = () => {
     const w = pageW();
     if (w <= 0 || n < 1) return 0;
-    const x = root.scrollLeft + w * 0.5;
+    const x = scrollEl.scrollLeft + w * 0.5;
     return Math.min(n - 1, Math.max(0, Math.floor(x / w)));
   };
 
@@ -2555,33 +2556,33 @@ function wireObservationCardPhotoCarousel(card) {
   let pointerDownX = 0;
   let pointerActive = false;
 
-  root.addEventListener(
+  scrollEl.addEventListener(
     "pointerdown",
     (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
       pointerActive = true;
       pointerDownX = e.clientX;
-      scrollAtPointerDown = root.scrollLeft;
+      scrollAtPointerDown = scrollEl.scrollLeft;
     },
     { passive: true }
   );
-  root.addEventListener(
+  scrollEl.addEventListener(
     "pointerup",
     (e) => {
       if (!pointerActive) return;
       pointerActive = false;
       const dx = e.clientX - pointerDownX;
-      const ds = Math.abs(root.scrollLeft - scrollAtPointerDown);
+      const ds = Math.abs(scrollEl.scrollLeft - scrollAtPointerDown);
       if (Math.abs(dx) > 18 || ds > 6) blockNav();
       scheduleSyncDots();
     },
     { passive: true }
   );
-  root.addEventListener("pointercancel", () => {
+  scrollEl.addEventListener("pointercancel", () => {
     pointerActive = false;
   });
 
-  root.addEventListener(
+  scrollEl.addEventListener(
     "scroll",
     () => {
       scheduleSyncDots();
@@ -2589,7 +2590,7 @@ function wireObservationCardPhotoCarousel(card) {
     { passive: true }
   );
 
-  root.addEventListener("scrollend", () => {
+  scrollEl.addEventListener("scrollend", () => {
     scheduleSyncDots();
   });
 
@@ -2598,7 +2599,7 @@ function wireObservationCardPhotoCarousel(card) {
     const goToSlideIndex = (j) => {
       if (!Number.isFinite(j) || j < 0 || j >= n) return;
       const w = pageW();
-      root.scrollTo({ left: j * w, behavior: "smooth" });
+      scrollEl.scrollTo({ left: j * w, behavior: "smooth" });
       blockNav(220);
       scheduleSyncDots();
     };
@@ -2625,20 +2626,20 @@ function wireObservationCardPhotoCarousel(card) {
     true
   );
 
-  root.tabIndex = 0;
-  root.addEventListener("keydown", (e) => {
+  scrollEl.tabIndex = 0;
+  scrollEl.addEventListener("keydown", (e) => {
     if (e.key === "ArrowLeft") {
       e.preventDefault();
-      root.scrollBy({ left: -pageW(), behavior: "smooth" });
+      scrollEl.scrollBy({ left: -pageW(), behavior: "smooth" });
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
-      root.scrollBy({ left: pageW(), behavior: "smooth" });
+      scrollEl.scrollBy({ left: pageW(), behavior: "smooth" });
     }
   });
 
   try {
     const ro = new ResizeObserver(() => scheduleSyncDots());
-    ro.observe(root);
+    ro.observe(scrollEl);
   } catch {
     /* ignore */
   }

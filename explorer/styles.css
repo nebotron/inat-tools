@@ -737,9 +737,15 @@ a.card-open-inat-app {
   height: auto;
 }
 
-/* Multi-photo observation cards: horizontal swipe / scroll-snap */
+/* Multi-photo observation cards: outer shell holds dots; inner strip scrolls. */
 .card-media-carousel {
   position: relative;
+  width: 100%;
+  height: auto;
+  overflow: hidden;
+}
+
+.card-media-carousel__scroll {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
@@ -755,7 +761,7 @@ a.card-open-inat-app {
   outline: none;
 }
 
-.card-media-carousel::-webkit-scrollbar {
+.card-media-carousel__scroll::-webkit-scrollbar {
   display: none;
 }
 
