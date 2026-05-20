@@ -2373,7 +2373,9 @@ function buildCardImageBlockFromUrls(urls) {
   const dotsHtml = urls
     .map(
       (_, i) =>
-        `<span class="card-media-carousel__dot${i === 0 ? " card-media-carousel__dot--active" : ""}" data-dot-index="${i}" aria-hidden="true"></span>`
+        `<span class="card-media-carousel__dot-slot" data-dot-index="${i}" aria-hidden="true"><span class="card-media-carousel__dot${
+          i === 0 ? " card-media-carousel__dot--active" : ""
+        }"></span></span>`
     )
     .join("");
   const slidesHtml = urls
@@ -2418,10 +2420,12 @@ function wireObservationCardPhotoCarousel(card) {
     const idx = slideIndexFromScroll();
     const dotRow = root.querySelector(":scope > .card-media-carousel__dots");
     if (!dotRow) return;
-    dotRow.querySelectorAll(".card-media-carousel__dot").forEach((el) => {
-      const di = el.getAttribute("data-dot-index");
-      const i = di != null ? Number(di) : NaN;
-      el.classList.toggle("card-media-carousel__dot--active", Number.isFinite(i) && i === idx);
+    dotRow.querySelectorAll(".card-media-carousel__dot-slot").forEach((slot) => {
+      const di = slot.getAttribute("data-dot-index");
+      const j = di != null ? Number(di) : NaN;
+      const dot = slot.querySelector(".card-media-carousel__dot");
+      if (!dot) return;
+      dot.classList.toggle("card-media-carousel__dot--active", Number.isFinite(j) && j === idx);
     });
     root.setAttribute("aria-label", `Observation photos, ${idx + 1} of ${n}`);
   };
