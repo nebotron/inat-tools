@@ -360,8 +360,8 @@ function parseTaxonLabeledParam(raw) {
     let label = "";
     try {
       label = decodeURIComponent(s.slice(pipe + 1));
-    } catch (ex) {
-      explorerFatal(ex, "parseTaxonLabeledParam:decodeURIComponent");
+    } catch {
+      label = s.slice(pipe + 1);
     }
     if (Number.isFinite(id) && id > 0) out.push({ id, label: label.trim() || `Taxon ${id}` });
   }
