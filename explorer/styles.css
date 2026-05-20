@@ -316,6 +316,22 @@ main {
   accent-color: var(--accent);
 }
 
+.card-meta-label--with-icon {
+  gap: 0.3rem;
+}
+
+.card-meta-label-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  line-height: 1;
+  cursor: help;
+}
+
+.card-meta-label-icon .fa {
+  font-size: 0.95rem;
+}
+
 .taxon-field { position: relative; }
 .suggestions {
   list-style: none;
@@ -575,6 +591,35 @@ a.card-open-inat-app {
 }
 
 .card-open-inat-app .fa {
+  pointer-events: none;
+  font-size: 1.45rem;
+}
+
+/* First-photo page on iNaturalist — matches open-app control; info icon only. */
+a.card-photo-page-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.375rem;
+  height: 3.375rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  text-decoration: none;
+}
+
+a.card-photo-page-link:hover {
+  background: rgba(27, 67, 50, 0.92);
+  border-color: rgba(200, 245, 220, 0.6);
+  color: #e8f5e9;
+}
+
+a.card-photo-page-link .fa {
   pointer-events: none;
   font-size: 1.45rem;
 }
@@ -965,18 +1010,6 @@ button.card-media-carousel__dot-slot {
 }
 
 .card-meta-line a.card-meta-tag-link:hover {
-  color: #fff;
-}
-
-.card-meta-line .card-meta-photo-page-link {
-  pointer-events: auto;
-  color: #c8f5dc;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  white-space: nowrap;
-}
-
-.card-meta-line .card-meta-photo-page-link:hover {
   color: #fff;
 }
 

@@ -267,6 +267,7 @@ const el = {
   metaObsDate: document.getElementById("meta-obs-date"),
   metaPhotoPage: document.getElementById("meta-photo-page"),
   metaSciName: document.getElementById("meta-sci-name"),
+  metaFavoriteControl: document.getElementById("meta-favorite-control"),
   metaIdentifyControls: document.getElementById("meta-identify-controls"),
   searchForm: document.getElementById("search-form"),
   btnReset: document.getElementById("btn-reset"),
@@ -1038,6 +1039,7 @@ function parseCardMetaQuery(q) {
       photoPage: false,
       sciName: false,
       identifyControls: false,
+      favoriteControl: true,
     };
   }
   const raw = q.get("cardmeta") ?? "";
@@ -1054,6 +1056,7 @@ function parseCardMetaQuery(q) {
       photoPage: false,
       sciName: false,
       identifyControls: false,
+      favoriteControl: false,
     };
   }
   const set = new Set(
@@ -1062,6 +1065,7 @@ function parseCardMetaQuery(q) {
       .map((x) => x.trim())
       .filter(Boolean)
   );
+  const legacyIdc = set.has("idc");
   return {
     faves: set.has("fav"),
     speciesCount: set.has("spc"),
@@ -1074,7 +1078,10 @@ function parseCardMetaQuery(q) {
     /** `pp` = photo page link; `cam` kept for older shared URLs (same feature now). */
     photoPage: set.has("pp") || set.has("cam"),
     sciName: set.has("sci"),
-    identifyControls: set.has("idc"),
+    /** Agree + Mark reviewed. `idr` is the current URL token; `idc` is legacy (also implied favorite). */
+    identifyControls: set.has("idr") || legacyIdc,
+    /** Favorite / unfavorite on cards. `fvb` is current; legacy `idc` enabled this together with identify. */
+    favoriteControl: set.has("fvb") || legacyIdc,
   };
 }
 
@@ -1091,6 +1098,7 @@ function applyCardMetaFromQuery(q) {
   if (el.metaPhotoPage) el.metaPhotoPage.checked = o.photoPage;
   el.metaSciName.checked = o.sciName;
   if (el.metaIdentifyControls) el.metaIdentifyControls.checked = o.identifyControls;
+  if (el.metaFavoriteControl) el.metaFavoriteControl.checked = o.favoriteControl;
 }
 
 function formatCardMetaQuery() {
@@ -1104,9 +1112,10 @@ function formatCardMetaQuery() {
   const obsd = el.metaObsDate && el.metaObsDate.checked;
   const pp = el.metaPhotoPage && el.metaPhotoPage.checked;
   const sci = el.metaSciName.checked;
-  const idc = el.metaIdentifyControls && el.metaIdentifyControls.checked;
-  if (fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci && !idc) return null;
-  if (!fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci && !idc) return null;
+  const idr = el.metaIdentifyControls && el.metaIdentifyControls.checked;
+  const fvb = el.metaFavoriteControl && el.metaFavoriteControl.checked;
+  if (fav && spc && fvb && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci && !idr) return null;
+  if (!fav && spc && !fvb && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci && !idr) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
@@ -1118,7 +1127,8 @@ function formatCardMetaQuery() {
   if (obsd) parts.push("obsd");
   if (pp) parts.push("pp");
   if (sci) parts.push("sci");
-  if (idc) parts.push("idc");
+  if (fvb) parts.push("fvb");
+  if (idr) parts.push("idr");
   return parts.join(",");
 }
 
@@ -1931,6 +1941,7 @@ function getCardMetaOptions() {
     photoPage: el.metaPhotoPage && el.metaPhotoPage.checked,
     sciName: el.metaSciName.checked,
     identifyControls: Boolean(el.metaIdentifyControls && el.metaIdentifyControls.checked),
+    favoriteControl: Boolean(el.metaFavoriteControl && el.metaFavoriteControl.checked),
   };
 }
 
@@ -2141,14 +2152,6 @@ function observationMetaHtmlParts(obs, kcData) {
   if (o.grade) {
     const gl = formatQualityGradeLabel(obs.quality_grade);
     if (gl) parts.push(`<p class="card-meta-line">${escapeHtml(gl)}</p>`);
-  }
-  if (o.photoPage) {
-    const u = inatFirstPhotoPageUrlFromObs(obs);
-    if (u) {
-      parts.push(
-        `<p class="card-meta-line"><a class="card-meta-photo-page-link" href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">Photo page</a></p>`
-      );
-    }
   }
   if (o.sciName) {
     const sh = scientificNameMetaHtml(obs);
@@ -2389,7 +2392,7 @@ async function refreshInatAuthUser() {
     const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
     renderInatApiAuthStatusEl(
       login
-        ? `Signed in as ${login}. Turn on “Identify controls” (Details shown) for Agree, Mark reviewed, and Favorite on cards.`
+        ? `Signed in as ${login}. Under Controls shown, turn on “Favorite” for the star on cards, or “Agree & Mark reviewed” for those actions.`
         : "Signed in.",
       "ok"
     );
@@ -2526,7 +2529,7 @@ function currentUserHasFavedObservation(obs, meId) {
 
 /**
  * HTML for Favorite / Unfavorite on an observation card (API v1 `POST/DELETE …/fave` / `unfave`).
- * Shown with other Identify controls when signed in.
+ * Shown when “Favorite” is enabled under Controls shown and the viewer is signed in.
  * @param {object | null | undefined} obs
  */
 function observationFavoriteButtonHtml(obs) {
@@ -2838,14 +2841,20 @@ function renderCard({
       ? `<a class="card-open-inat-app" href="${escapeHtml(openInatHref)}" target="_blank" rel="noopener noreferrer" aria-label="Open this observation on iNaturalist in a new tab" title="Open on iNaturalist (new tab)"><i class="fa fa-external-link" aria-hidden="true"></i></a>`
       : "";
   const cardMetaUi = getCardMetaOptions();
+  const photoHref =
+    cardMetaUi.photoPage && agreeObservation ? inatFirstPhotoPageUrlFromObs(agreeObservation) : "";
+  const photoPageBtn =
+    photoHref
+      ? `<a class="card-photo-page-link" href="${escapeHtml(photoHref)}" target="_blank" rel="noopener noreferrer" aria-label="Open the first photo page on iNaturalist in a new tab" title="Photo page — first image on iNaturalist (new tab)"><i class="fa fa-info-circle" aria-hidden="true"></i></a>`
+      : "";
   const agreeBtn =
     cardMetaUi.identifyControls && agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
   const reviewBtn =
     cardMetaUi.identifyControls && agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
   const faveBtn =
-    cardMetaUi.identifyControls && agreeObservation ? observationFavoriteButtonHtml(agreeObservation) : "";
-  /** Upper-right stack: open iNat, favorite, mark reviewed, agree (top to bottom). */
-  const upperRightActions = [openAppBtn, faveBtn, reviewBtn, agreeBtn].filter((s) => typeof s === "string" && s.trim() !== "");
+    cardMetaUi.favoriteControl && agreeObservation ? observationFavoriteButtonHtml(agreeObservation) : "";
+  /** Upper-right stack: open iNat, photo page, favorite, mark reviewed, agree (top to bottom). */
+  const upperRightActions = [openAppBtn, photoPageBtn, faveBtn, reviewBtn, agreeBtn].filter((s) => typeof s === "string" && s.trim() !== "");
   const upperRightActionsHtml =
     upperRightActions.length > 0
       ? `<div class="card-actions-upper-right">${upperRightActions.join("")}</div>`
@@ -4436,6 +4445,7 @@ function wireFilterExtras() {
   if (el.metaPhotoPage) el.metaPhotoPage.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
   if (el.metaObserver) el.metaObserver.addEventListener("change", onMeta);
+  if (el.metaFavoriteControl) el.metaFavoriteControl.addEventListener("change", onMeta);
   if (el.metaIdentifyControls) {
     el.metaIdentifyControls.addEventListener("change", () => {
       if (el.metaIdentifyControls.checked && !explorerIsSignedIn()) {
@@ -4443,7 +4453,7 @@ function wireFilterExtras() {
         queueMicrotask(() => refreshResultPanelsIfMetaChanged());
         void openExplorerAuthPanel({
           reason:
-            "Sign in with an API token to use “Identify controls” (Agree and Mark reviewed on observation cards).",
+            "Sign in with an API token to use “Agree & Mark reviewed” on observation cards.",
         });
         return;
       }
@@ -4494,6 +4504,7 @@ function wireButtons() {
     if (el.observedDays) el.observedDays.value = "";
     el.popularOnly.checked = false;
     if (el.metaIdentifyControls) el.metaIdentifyControls.checked = false;
+    if (el.metaFavoriteControl) el.metaFavoriteControl.checked = true;
     el.metaFaves.checked = true;
     el.metaSpeciesCount.checked = true;
     if (el.metaObserver) el.metaObserver.checked = false;
