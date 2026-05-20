@@ -46,10 +46,6 @@ function noteExplorerLocationHrefApplied() {
   lastExplorerPathSearch = window.location.pathname + window.location.search;
 }
 
-
-const OBS_SCROLL_SESSION_ID = "inatExplorerObsScrollId";
-const OBS_SCROLL_SESSION_TOP = "inatExplorerObsScrollTop";
-
 /**
  * When `near_me=1` is in the URL, lat/lng are omitted for shareability. Persist them in sessionStorage
  * so a same-tab full reload can restore the filter without a second geolocation prompt.
@@ -318,7 +314,6 @@ let placeDebounce = null;
 let unobsDebounce = null;
 /** Debounce URL updates from the Filters tab (no iNaturalist list/map API calls until a result tab is opened). */
 let urlSyncDebounce = null;
-let obsScrollSaveDebounce = null;
 let taxonHighlight = -1;
 let placeHighlight = -1;
 let unobsHighlight = -1;
@@ -3392,13 +3387,6 @@ async function mapAreaParams() {
   }
 }
 
-function decodeUtfGridIndex(ch) {
-  let code = ch.charCodeAt(0);
-  if (code >= 93) code -= 1;
-  if (code >= 35) code -= 1;
-  return code - 32;
-}
-
 function installHeatGridLayer(url, onReady) {
   if (!map) {
     if (onReady) onReady();
@@ -4234,71 +4222,6 @@ function wireTabs() {
   });
 }
 
-function readObsScrollMemory() {
-  try {
-    const rawId = sessionStorage.getItem(OBS_SCROLL_SESSION_ID);
-    const rawTop = sessionStorage.getItem(OBS_SCROLL_SESSION_TOP);
-    const id = rawId != null && rawId !== "" ? Number(rawId) : NaN;
-    const scrollTop = rawTop != null && rawTop !== "" ? Number(rawTop) : 0;
-    return {
-      id: Number.isFinite(id) && id > 0 ? id : null,
-      scrollTop: Number.isFinite(scrollTop) && scrollTop > 0 ? scrollTop : 0,
-    };
-  } catch (ex) {
-    explorerFatal(ex, "readObsScrollMemory");
-  }
-}
-
-function writeObsScrollMemory(obsId, scrollTop) {
-  const prev = readObsScrollMemory();
-  const id = obsId != null && Number.isFinite(obsId) && obsId > 0 ? Math.floor(obsId) : prev.id;
-  const top = Number.isFinite(scrollTop) && scrollTop >= 0 ? Math.floor(scrollTop) : prev.scrollTop;
-  try {
-    if (id != null) sessionStorage.setItem(OBS_SCROLL_SESSION_ID, String(id));
-    sessionStorage.setItem(OBS_SCROLL_SESSION_TOP, String(Math.max(0, top)));
-  } catch (ex) {
-    explorerFatal(ex, "writeObsScrollMemory");
-  }
-}
-
-function flushObsScrollMemorySave() {
-  obsScrollSaveDebounce = null;
-  if (!el.panelObs || currentView !== "observations") return;
-  const st = el.panelObs.scrollTop;
-  const prev = readObsScrollMemory();
-  writeObsScrollMemory(prev.id, st);
-}
-
-function scheduleObsScrollMemorySave() {
-  if (obsScrollSaveDebounce != null) clearTimeout(obsScrollSaveDebounce);
-  obsScrollSaveDebounce = setTimeout(() => {
-    obsScrollSaveDebounce = null;
-    flushObsScrollMemorySave();
-  }, 500);
-}
-
-function wireObservationScrollMemory() {
-  if (!el.panelObs) return;
-  el.panelObs.addEventListener(
-    "scroll",
-    () => {
-      if (currentView !== "observations") return;
-      scheduleObsScrollMemorySave();
-    },
-    { passive: true }
-  );
-  if (el.resultsGrid) {
-    el.resultsGrid.addEventListener("pointerdown", (e) => {
-      if (currentView !== "observations") return;
-      const card = e.target && e.target.closest && e.target.closest(".card[data-obs-id]");
-      if (!card) return;
-      const oid = Number(card.dataset.obsId);
-      if (!Number.isFinite(oid) || oid <= 0) return;
-      writeObsScrollMemory(oid, el.panelObs.scrollTop);
-    });
-  }
-}
-
 /** Delegated clicks for observation-card Agree, Mark reviewed, and Favorite (authenticated iNat API writes). */
 function wireObservationAgreeClicks() {
   if (!el.resultsGrid) return;
@@ -4816,7 +4739,6 @@ async function boot() {
   wirePlaceField();
   wireTabs();
   wireInfiniteScroll();
-  wireObservationScrollMemory();
   wireObservationAgreeClicks();
   wireFilterExtras();
   wireExplorerAuthDock();
