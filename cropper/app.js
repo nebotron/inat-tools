@@ -296,7 +296,7 @@ const sharePrepProgress = document.getElementById("share-prep-progress");
 const sharePrepLine = document.getElementById("share-prep-line");
 const sharePrepBar = document.getElementById("share-prep-bar");
 const sharePrepFill = document.getElementById("share-prep-fill");
-const cropExportBar = document.getElementById("crop-export-bar");
+const exportFooterBar = document.getElementById("export-footer-bar");
 const zipDownloadPanel = document.getElementById("zip-download-panel");
 const zipDownloadLine = document.getElementById("zip-download-line");
 const zipDownloadBar = document.getElementById("zip-download-bar");
@@ -1497,14 +1497,69 @@ function formatExifDate(d) {
   return `${date.getFullYear()}:${pad(date.getMonth() + 1)}:${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+function numLikeToFinite(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = parseFloat(v.replace(/,/g, ".").trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
+
+/**
+ * EXIF GPS rational tuples: [[degNum,degDen], ...] or plain numbers after exifr revive.
+ * @param {unknown} dms
+ * @param {unknown} ref 'N'|'S'|'E'|'W' or undefined when values are already signed.
+ */
+function exifrDmsTupleToDeg(dms, ref) {
+  if (!Array.isArray(dms) || dms.length < 3) return NaN;
+  let deg = 0;
+  for (let i = 0; i < 3; i++) {
+    const part = dms[i];
+    let q = NaN;
+    if (typeof part === "number") q = part;
+    else if (Array.isArray(part) && part.length >= 2 && part[1]) q = part[0] / part[1];
+    if (!Number.isFinite(q)) return NaN;
+    deg += i === 0 ? q : i === 1 ? q / 60 : q / 3600;
+  }
+  const r = typeof ref === "string" ? ref.trim().toUpperCase().charAt(0) : "";
+  if (r === "S" || r === "W") deg = -deg;
+  return deg;
+}
+
 function latLonAltitudeFromExifr(ex) {
-  let lat = typeof ex.latitude === "number" ? ex.latitude : undefined;
-  let lon = typeof ex.longitude === "number" ? ex.longitude : undefined;
-  if ((lat == null || lon == null) && ex.gps && typeof ex.gps.latitude === "number" && typeof ex.gps.longitude === "number") {
-    lat = ex.gps.latitude; lon = ex.gps.longitude;
+  if (!ex || typeof ex !== "object") return { lat: undefined, lon: undefined, altitudeMeters: undefined };
+  let lat = typeof ex.latitude === "number" && Number.isFinite(ex.latitude) ? ex.latitude : undefined;
+  let lon = typeof ex.longitude === "number" && Number.isFinite(ex.longitude) ? ex.longitude : undefined;
+  if ((lat == null || lon == null) && ex.gps && typeof ex.gps === "object") {
+    const g = ex.gps;
+    const gla = numLikeToFinite(g.latitude);
+    const glo = numLikeToFinite(g.longitude);
+    if (Number.isFinite(gla) && Number.isFinite(glo)) {
+      lat = gla;
+      lon = glo;
+    }
+  }
+  if ((lat == null || lon == null) && ex.Position && typeof ex.Position === "object") {
+    const la = numLikeToFinite(ex.Position.latitude);
+    const lo = numLikeToFinite(ex.Position.longitude);
+    if (Number.isFinite(la) && Number.isFinite(lo)) {
+      lat = la;
+      lon = lo;
+    }
   }
   if ((lat == null || lon == null) && ex.GPSLatitude != null && ex.GPSLongitude != null) {
-    lat = ex.GPSLatitude; lon = ex.GPSLongitude;
+    if (typeof ex.GPSLatitude === "number" && typeof ex.GPSLongitude === "number") {
+      lat = ex.GPSLatitude;
+      lon = ex.GPSLongitude;
+    } else if (Array.isArray(ex.GPSLatitude) && Array.isArray(ex.GPSLongitude)) {
+      const la = exifrDmsTupleToDeg(ex.GPSLatitude, ex.GPSLatitudeRef);
+      const lo = exifrDmsTupleToDeg(ex.GPSLongitude, ex.GPSLongitudeRef);
+      if (Number.isFinite(la) && Number.isFinite(lo)) {
+        lat = la;
+        lon = lo;
+      }
+    }
   }
   let altitudeMeters = typeof ex.GPSAltitude === "number" && Number.isFinite(ex.GPSAltitude) ? ex.GPSAltitude : undefined;
   if (altitudeMeters == null && ex.gps && typeof ex.gps.GPSAltitude === "number") altitudeMeters = ex.gps.GPSAltitude;
@@ -2123,7 +2178,7 @@ function pickShareableImageFiles(files) {
 function updateCropExportActionsVisibility() {
   const onExportPage = pageExport && !pageExport.hidden;
   const show = onExportPage && workItems.length > 0 && isCropReviewFinished();
-  if (cropExportBar) cropExportBar.hidden = !show;
+  if (exportFooterBar) exportFooterBar.hidden = !show;
   if (inatUploadSection) inatUploadSection.hidden = !show;
   if (show) {
     renderInatPhotoGroupingStrip();
@@ -2933,12 +2988,52 @@ async function attachPhotoToInatObservation(obsId, jpegFile) {
 }
 
 /**
+ * EXIF / embedded metadata for an observation: prefer the first group photo’s timestamps,
+ * but merge latitude/longitude from any photo in the group that has GPS (covers merged groups).
+ * @param {File[]} sourceFiles
+ * @param {File[]} jpegFiles
+ */
+async function extractMetaForObservationFromSources(sourceFiles, jpegFiles) {
+  const combined = [];
+  for (const f of sourceFiles || []) if (f) combined.push(f);
+  for (const j of jpegFiles || []) if (j && !combined.some((x) => x === j)) combined.push(j);
+  if (!combined.length) {
+    const d = new Date();
+    return {
+      dtStr: formatExifDate(d) || "",
+      lat: undefined,
+      lon: undefined,
+      altitudeMeters: undefined,
+      lastModified: d.getTime(),
+    };
+  }
+  const metas = [];
+  for (const f of combined) metas.push(await extractMetaForEmbedding(f));
+  let merged = { ...metas[0] };
+  for (let i = 1; i < metas.length; i++) {
+    if (
+      typeof merged.lat === "number" &&
+      typeof merged.lon === "number" &&
+      Number.isFinite(merged.lat) &&
+      Number.isFinite(merged.lon)
+    ) {
+      break;
+    }
+    const m = metas[i];
+    if (typeof m.lat === "number" && typeof m.lon === "number" && Number.isFinite(m.lat) && Number.isFinite(m.lon)) {
+      merged = { ...merged, lat: m.lat, lon: m.lon };
+      if (m.altitudeMeters != null && Number.isFinite(m.altitudeMeters)) merged.altitudeMeters = m.altitudeMeters;
+    }
+  }
+  return merged;
+}
+
+/**
  * @param {(m: { kind: "observation_created" } | { kind: "photo_uploaded"; index: number; total: number }) => void} [onMilestone]
  */
 async function createInatObservationForGroup(jpegFiles, sourceFiles, speciesGuessText, taxonIdNum, onMilestone) {
   if (!jpegFiles.length) throw new Error("Empty photo group.");
-  const source0 = sourceFiles[0] || jpegFiles[0];
-  const meta = await extractMetaForEmbedding(source0);
+  const meta = await extractMetaForObservationFromSources(sourceFiles, jpegFiles);
   const observedOn = observedOnStringFromMeta(meta);
   const guess = (speciesGuessText || "").trim() || "Unknown";
   /** @type {Record<string, unknown>} */
@@ -3222,7 +3317,7 @@ function removeWorkItemAndRow(file, row) {
     cropReviewIndex = 0;
     setProgress(false, 0, "");
     if (fileSummary) fileSummary.textContent = "";
-    if (cropExportBar) cropExportBar.hidden = true;
+    if (exportFooterBar) exportFooterBar.hidden = true;
     setCurrentPage("setup");
     /**
      * Defer heavy teardown (URL revoke, TF canvas, IndexedDB) — synchronous `releaseBatchResources` here
@@ -4543,7 +4638,7 @@ function startOverFromCropFlow() {
   if (fileInput) fileInput.value = "";
   if (fileSummary) fileSummary.textContent = "";
   if (batchProgress) { batchProgress.hidden = true; batchProgress.textContent = ""; }
-  if (cropExportBar) cropExportBar.hidden = true;
+  if (exportFooterBar) exportFooterBar.hidden = true;
   lastShareInatFiles = [];
   lastShareInatSourceFiles = [];
   setProgress(false, 0, "");
@@ -4598,7 +4693,7 @@ fileInput.addEventListener("change", async () => {
 
   clearCropState();
   if (batchProgress) { batchProgress.hidden = true; batchProgress.textContent = ""; }
-  if (cropExportBar) cropExportBar.hidden = true;
+  if (exportFooterBar) exportFooterBar.hidden = true;
   if (inatUploadSection) inatUploadSection.hidden = true;
   previewGeneration++;
   releaseBatchResources();

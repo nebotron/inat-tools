@@ -74,6 +74,80 @@ body.app-body-fit .app-main--flow:has(#page-crop:not([hidden])) {
   padding-top: env(safe-area-inset-top, 0px);
 }
 
+/** Export step: allow vertical scroll (grouping can be long); footer stays under scrollable content. */
+body.app-body-fit .app-main--flow:has(#page-export:not([hidden])) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body.app-body-fit .app-page--export:not([hidden]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.app-body-fit .app-page--export:not([hidden]) .export-page-card > #share-prep-progress {
+  flex: 0 0 auto;
+}
+
+body.app-body-fit .app-page--export:not([hidden]) .export-actions-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.export-main-column {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.export-footer-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem max(0.35rem, env(safe-area-inset-left, 0px)) max(0.5rem, env(safe-area-inset-bottom, 0px))
+    max(0.35rem, env(safe-area-inset-right, 0px));
+  border-top: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.crop-export-bar--footer {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0;
+}
+
+.crop-export-bar--footer .edit-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.45rem;
+}
+
+.crop-export-bar--footer .edit-actions .btn {
+  flex: 1 1 auto;
+  min-width: min(100%, 7.5rem);
+}
+
+.export-footer-bar__upload {
+  flex: 1 1 10rem;
+  min-width: min(100%, 10rem);
+  align-self: stretch;
+}
+
+.export-main-column .inat-upload-section {
+  margin-top: 0;
+  border-top: none;
+}
+
 /** Full-screen while IndexedDB session is being rehydrated */
 .session-restore-overlay {
   position: fixed;
@@ -393,7 +467,7 @@ a:hover {
 .zip-download-panel--crop {
   width: 100%;
   max-width: none;
-  margin: 0.75rem 0 0;
+  margin: 0.5rem 0 0;
   padding-left: 0;
   padding-right: 0;
 }
