@@ -3276,10 +3276,40 @@ function startMapUserLocationWatch() {
       showUserLocationOnMap(latitude, longitude);
     },
     (geoErr) => {
-      explorerFatal(geoErr, "startMapUserLocationWatch:watchPosition");
+      /* iOS Safari can surface transient watch errors when the system UI (share sheet, app switcher)
+       * interrupts location updates — must not replace the page via explorerFatal. */
+      console.warn("startMapUserLocationWatch:watchPosition", geoErr);
     },
     { enableHighAccuracy: true, maximumAge: 20000, timeout: 20000 }
   );
+}
+
+/**
+ * Tear down Leaflet when leaving the Map tab (or on full reset). A map whose container is
+ * `display:none` still listens to `window` resize; iOS Safari’s system share sheet resizes the
+ * viewport and that combination has destabilized WebKit tabs. Recreate the map on the next visit.
+ */
+function destroyLeafletMap() {
+  if (mapMoveTimer != null) {
+    clearTimeout(mapMoveTimer);
+    mapMoveTimer = null;
+  }
+  mapSearchSeq += 1;
+  stopMapUserLocationWatch();
+  if (map) {
+    try {
+      map.remove();
+    } catch (ex) {
+      console.warn("destroyLeafletMap:map.remove", ex);
+    }
+  }
+  map = null;
+  pinsLayer = null;
+  mapUserLocationLayer = null;
+  heatGridLayer = null;
+  pendingHeatLayer = null;
+  currentHeatUrl = null;
+  mapMode = null;
 }
 
 function ensureMap() {
@@ -3707,12 +3737,7 @@ async function switchView(view) {
   const prevView = currentView;
   currentView = view;
   if (prevView === "map" && view !== "map") {
-    stopMapUserLocationWatch();
-    if (mapMoveTimer != null) {
-      clearTimeout(mapMoveTimer);
-      mapMoveTimer = null;
-    }
-    mapSearchSeq += 1;
+    destroyLeafletMap();
   }
   setActiveTabUI();
   syncUrl();
@@ -3843,7 +3868,14 @@ function syncUrl() {
     q.delete("detail_taxon");
   }
 
-  if (map) {
+  if (
+    map &&
+    currentView === "map" &&
+    el.mapContainer &&
+    el.mapContainer.isConnected &&
+    el.mapContainer.clientWidth > 0 &&
+    el.mapContainer.clientHeight > 0
+  ) {
     try {
       q.set("mlat", map.getCenter().lat);
       q.set("mlng", map.getCenter().lng);
@@ -4631,10 +4663,7 @@ function wireButtons() {
     obsListCursorId = null;
     obsListCursorAscId = null;
     obsSeenIds.clear();
-    stopMapUserLocationWatch();
-    clearMapOverlays();
-    currentHeatUrl = null;
-    mapMode = null;
+    destroyLeafletMap();
     lastMapFilterKey = null;
     clearErrors();
     speciesPage = 1;
