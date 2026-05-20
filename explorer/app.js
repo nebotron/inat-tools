@@ -16,6 +16,16 @@ const OBS_PER_PAGE = 60;
 /** Set by `refreshInatAuthUser`; used for Agree UI on observation cards. */
 let inatAuthUser = null;
 
+/**
+ * Last `location.href` after the explorer applied its filters to the address bar (`syncUrl`, etc.).
+ * Used to skip `pageshow` BFCache resync when the URL did not change (e.g. app switch / resume).
+ */
+let lastExplorerLocationHref = window.location.href;
+
+function noteExplorerLocationHrefApplied() {
+  lastExplorerLocationHref = window.location.href;
+}
+
 
 const OBS_SCROLL_SESSION_ID = "inatExplorerObsScrollId";
 const OBS_SCROLL_SESSION_TOP = "inatExplorerObsScrollTop";
@@ -2912,6 +2922,7 @@ function stripSavedMapViewFromUrl() {
   q.delete("zoom");
   u.search = q.toString();
   history.replaceState(null, "", u);
+  noteExplorerLocationHrefApplied();
 }
 
 /**
@@ -3379,6 +3390,7 @@ function syncUrl() {
 
   u.search = q.toString();
   history.replaceState(null, "", u);
+  noteExplorerLocationHrefApplied();
 }
 
 function readUrl() {
@@ -4109,6 +4121,7 @@ function wireButtons() {
     currentView = "filters";
     setActiveTabUI();
     history.replaceState(null, "", window.location.pathname);
+    noteExplorerLocationHrefApplied();
   });
 }
 
@@ -4360,6 +4373,9 @@ async function boot() {
  * When the browser restores this page from the back-forward cache (mobile Safari / WebView),
  * JavaScript state and the DOM can still reflect the *previous* visit while `location` already
  * matches the new shared link. Re-read the URL and reload the active view so the UI matches the address bar.
+ *
+ * On many mobile browsers, `pageshow` with `persisted` also fires after an app switch even when the
+ * URL never changed; comparing to `lastExplorerLocationHref` avoids a redundant full resync.
  */
 async function resyncAppFromCurrentUrlAfterBfcache() {
   readUrl();
@@ -4370,6 +4386,7 @@ async function resyncAppFromCurrentUrlAfterBfcache() {
 
 window.addEventListener("pageshow", (e) => {
   if (!e.persisted) return;
+  if (window.location.href === lastExplorerLocationHref) return;
   void resyncAppFromCurrentUrlAfterBfcache();
 });
 
