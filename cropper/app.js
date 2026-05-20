@@ -375,6 +375,8 @@ let inatSpeciesSuggestActiveCard = null;
 let inatSpeciesSuggestHighlight = -1;
 let inatSpeciesSelectingProgrammatic = false;
 let inatUploadGroupingDelegated = false;
+/** After a thumbnail drag, ignore the synthetic `click` so the crop editor does not open. */
+let inatStripSuppressNextTileClick = false;
 /** Drop zone currently highlighted during an in-flight photo drag. */
 let inatDnDDropHighlightEl = null;
 
@@ -3361,13 +3363,23 @@ function wireInatUploadGroupingDelegated() {
       return;
     }
     const btn = e.target && "closest" in e.target ? e.target.closest(".inat-group-cv-btn") : null;
-    if (!(btn instanceof HTMLButtonElement)) return;
-    e.preventDefault();
-    const card = btn.closest(".inat-group-card");
-    if (!card) return;
-    const g = parseInt(card.dataset.groupIdx || "", 10);
-    if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
-    void handleInatGroupCvClick(card, btn, g);
+    if (btn instanceof HTMLButtonElement) {
+      e.preventDefault();
+      const card = btn.closest(".inat-group-card");
+      if (!card) return;
+      const g = parseInt(card.dataset.groupIdx || "", 10);
+      if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
+      void handleInatGroupCvClick(card, btn, g);
+      return;
+    }
+    const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
+    if (tile instanceof HTMLElement && inatUploadGroupingStrip.contains(tile)) {
+      if (inatStripSuppressNextTileClick) return;
+      const ix = parseInt(tile.dataset.photoIdx || "", 10);
+      if (!Number.isFinite(ix) || ix < 0 || ix >= workItems.length || !workItems[ix]) return;
+      e.preventDefault();
+      openInatGroupingCropEditor(ix);
+    }
   });
 
   inatUploadGroupingStrip.addEventListener("dragstart", (e) => {
@@ -3396,6 +3408,10 @@ function wireInatUploadGroupingDelegated() {
     const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
     if (tile) tile.classList.remove("inat-dnd-tile--dragging");
     clearInatDnDDropHighlight();
+    inatStripSuppressNextTileClick = true;
+    window.setTimeout(() => {
+      inatStripSuppressNextTileClick = false;
+    }, 250);
   });
 
   inatUploadGroupingStrip.addEventListener("dragover", (e) => {
@@ -3492,36 +3508,6 @@ function wireInatUploadGroupingDelegated() {
     hideAllInatGroupSpeciesSuggests();
     renderInatPhotoGroupingStrip();
   });
-
-  let inatLongPressTimer = 0;
-  let inatLongPressPointerId = -1;
-  function cancelInatLongPressHold() {
-    if (inatLongPressTimer) {
-      window.clearTimeout(inatLongPressTimer);
-      inatLongPressTimer = 0;
-    }
-    inatLongPressPointerId = -1;
-  }
-  inatUploadGroupingStrip.addEventListener("pointerdown", (e) => {
-    if (!(e instanceof PointerEvent) || e.button !== 0) return;
-    const tile = e.target && "closest" in e.target ? e.target.closest(".inat-dnd-tile") : null;
-    if (!tile || !inatUploadGroupingStrip.contains(tile)) return;
-    const ix = parseInt(tile.dataset.photoIdx || "", 10);
-    if (!Number.isFinite(ix)) return;
-    cancelInatLongPressHold();
-    inatLongPressPointerId = e.pointerId;
-    const holdIdx = ix;
-    inatLongPressTimer = window.setTimeout(() => {
-      inatLongPressTimer = 0;
-      inatLongPressPointerId = -1;
-      if (!Number.isFinite(holdIdx) || holdIdx < 0 || holdIdx >= workItems.length) return;
-      if (!workItems[holdIdx]) return;
-      /** Open crop directly (no action sheet) — Safari was showing the native image preview on thumbnails. */
-      openInatGroupingCropEditor(holdIdx);
-    }, 520);
-  });
-  inatUploadGroupingStrip.addEventListener("pointerup", cancelInatLongPressHold);
-  inatUploadGroupingStrip.addEventListener("pointercancel", cancelInatLongPressHold);
 
   document.addEventListener("click", (e) => {
     const t = /** @type {Node} */ (e.target);
@@ -3936,7 +3922,10 @@ function renderInatPhotoGroupingStrip() {
 
     const drop = document.createElement("div");
     drop.className = "inat-group-drop";
-    drop.setAttribute("aria-label", "Photo thumbnails — drag onto another observation to combine, or onto a dashed row between observations for a new observation");
+    drop.setAttribute(
+      "aria-label",
+      "Photo thumbnails — tap to adjust crop; press and hold, then drag to regroup. Drop on another observation to combine, or on a dashed row for a new observation",
+    );
     for (const ix of grp.indices) {
       if (ix < 0 || ix >= workItems.length) continue;
       const file = workItems[ix];
