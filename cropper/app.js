@@ -499,6 +499,23 @@ const DETECTION_MAX_EDGE = 1280;
  * `transform: scale` so pan/zoom stays on a bounded compositor surface (full-res CSS sizes are brutal on large photos).
  */
 const CROP_VIEWPORT_MAX_DISPLAY_EDGE = isIOSOrIPadOS() ? 1920 : 2560;
+
+/**
+ * Largest positive integer `d` dividing `screenPx` with `d <= maxW`, so `screenPx / d` is an integer.
+ * Keeps the crop preview bitmap width on a clean ratio to the layout viewport width.
+ * @param {number} screenPx
+ * @param {number} maxW
+ */
+function largestDivisorOfScreenNotAbove(screenPx, maxW) {
+  const n = Math.floor(Math.max(1, screenPx));
+  const cap = Math.floor(Math.max(1, maxW));
+  let best = 1;
+  const lim = Math.min(cap, n);
+  for (let d = 1; d <= lim; d++) {
+    if (n % d === 0 && d > best) best = d;
+  }
+  return best;
+}
 /**
  * When painting a prefetched `ImageBitmap` into the editor canvas, cap the longest edge so we do not allocate
  * a full 40–60MP canvas while still mapping layout in full-resolution crop coordinates.
@@ -5221,8 +5238,23 @@ function buildCropEditor(file, state, manualNote, options) {
       if (uncMax > CROP_VIEWPORT_MAX_DISPLAY_EDGE) {
         cap = CROP_VIEWPORT_MAX_DISPLAY_EDGE / uncMax;
       }
-      const setW = Math.round(uncW * cap);
-      const setH = Math.round(uncH * cap);
+      const setWRounded = Math.round(uncW * cap);
+      const setHRounded = Math.round(uncH * cap);
+      let setW;
+      let setH;
+      /** Snap width to a divisor of the layout viewport when not using the downscale+`scale()` cap path. */
+      if (cap >= 1 - 1e-9) {
+        const docW =
+          typeof document !== "undefined" && document.documentElement
+            ? document.documentElement.clientWidth
+            : 0;
+        const screenW = Math.max(1, Math.floor(docW || window.innerWidth || vw));
+        setW = largestDivisorOfScreenNotAbove(screenW, setWRounded);
+        setH = Math.max(1, Math.round((setW * state.h) / state.w));
+      } else {
+        setW = setWRounded;
+        setH = setHRounded;
+      }
       if (setW !== lastLayoutImgW || setH !== lastLayoutImgH || cap !== lastLayoutCap) {
         lastLayoutImgW = setW;
         lastLayoutImgH = setH;
