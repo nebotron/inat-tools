@@ -3105,14 +3105,16 @@ async function mapFilterKey() {
 async function runMapSearch(forceRecheck) {
   ensureMap();
 
+  const prevMapMode = mapMode;
+
   const filterKey = await mapFilterKey();
   const filtersChanged = filterKey !== lastMapFilterKey;
   lastMapFilterKey = filterKey;
 
   const seq = ++mapSearchSeq;
-  showMapSpinner();
   showError("map", "");
 
+  let spinnerShown = false;
   try {
     const area = await mapAreaParams();
     const countParams = new URLSearchParams(area);
@@ -3127,6 +3129,13 @@ async function runMapSearch(forceRecheck) {
 
     const pinEstablishmentFilter = establishmentClientFilterActive();
     const usePins = totalInArea < MAP_PIN_THRESHOLD || pinEstablishmentFilter;
+    const nextMapMode = usePins ? "pins" : "heat";
+    const modeChanged = prevMapMode !== nextMapMode;
+
+    if (forceRecheck || filtersChanged || modeChanged) {
+      showMapSpinner();
+      spinnerShown = true;
+    }
 
     if (usePins) {
       removeHeatLayer();
@@ -3179,7 +3188,11 @@ async function runMapSearch(forceRecheck) {
       mapMode = "heat";
       const kcHeat = await ensureKingCountyNoxiousData();
       const heatParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcHeat) });
-      heatParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
+      /* Random `_cb` forced a new tile URL on every pan/zoom so the heat layer was torn down and rebuilt (felt like a refresh). */
+      const bustHeatTiles = forceRecheck || filtersChanged || prevMapMode !== "heat";
+      if (bustHeatTiles) {
+        heatParams.set("_cb", `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`);
+      }
       const url = `${API}/grid/{z}/{x}/{y}.png?${heatParams}`; /* density grid tiles (not colored_heatmap) */
       installHeatGridLayer(url, () => {
         clearMapPins();
@@ -3194,7 +3207,7 @@ async function runMapSearch(forceRecheck) {
       showError("map", err.message || "Could not load map data.");
     }
   } finally {
-    hideMapSpinner();
+    if (spinnerShown) hideMapSpinner();
   }
 }
 
