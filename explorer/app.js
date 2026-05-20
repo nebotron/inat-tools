@@ -33,6 +33,23 @@ function isAndroidBrowser() {
   return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "");
 }
 
+function isIOSOrIPadOS() {
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  if (typeof navigator !== "undefined" && navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * `navigator.share({ files })` with more than one file has caused hard tab crashes on
+ * Chrome (Android) and WebKit (iOS Safari); fall back to per-file downloads.
+ */
+function isWebShareMultiFileUnsafe() {
+  return isAndroidBrowser() || isIOSOrIPadOS();
+}
+
 const OBS_PER_PAGE = 60;
 
 /** Set by `refreshInatAuthUser`; used for Agree UI on observation cards. */
@@ -547,6 +564,17 @@ function inatObservationWebUrl(obsId) {
   return `https://www.inaturalist.org/observations/${id}`;
 }
 
+/**
+ * Observation cards open iNaturalist in a new tab. On iOS/iPadOS, use `http://` so universal links
+ * are less likely to capture the tap or destabilize the heavy observations grid (Safari).
+ */
+function inatObservationCardExternalHref(obsId) {
+  const httpsUrl = inatObservationWebUrl(obsId);
+  if (!httpsUrl) return "";
+  if (isIOSOrIPadOS()) return httpsUrl.replace(/^https:\/\//i, "http://");
+  return httpsUrl;
+}
+
 /** Full-size URL from an iNaturalist photo `url` field (CDN supports square, thumb, small, medium, large, original). */
 function originalPhotoUrl(url) {
   if (!url) return "";
@@ -842,8 +870,8 @@ async function saveObservationPhotoWithExif(obs) {
 
   const sharePayload = { files };
   if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-    if (isAndroidBrowser() && files.length > 1) {
-      /* Same multi-file + Web Share crash class as cropper — fall through to per-file downloads. */
+    if (isWebShareMultiFileUnsafe() && files.length > 1) {
+      /* Same multi-file + Web Share crash class as cropper / iOS Safari — fall through to per-file downloads. */
     } else {
       try {
         if (typeof navigator.canShare !== "function" || navigator.canShare(sharePayload)) {
@@ -2852,7 +2880,7 @@ function renderCard({
       : "";
   const appObsId = inatAppObservationId != null ? Number(inatAppObservationId) : NaN;
   const openInatHref =
-    Number.isFinite(appObsId) && appObsId > 0 ? inatObservationWebUrl(Math.floor(appObsId)) : "";
+    Number.isFinite(appObsId) && appObsId > 0 ? inatObservationCardExternalHref(Math.floor(appObsId)) : "";
   const openAppBtn =
     openInatHref
       ? `<a class="card-open-inat-app" href="${escapeHtml(openInatHref)}" target="_blank" rel="noopener noreferrer" aria-label="Open this observation on iNaturalist in a new tab" title="Open on iNaturalist (new tab)"><i class="fa fa-external-link" aria-hidden="true"></i></a>`
