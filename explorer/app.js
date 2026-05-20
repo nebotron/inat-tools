@@ -270,6 +270,7 @@ const el = {
   metaObsDate: document.getElementById("meta-obs-date"),
   metaPhotoPage: document.getElementById("meta-photo-page"),
   metaSciName: document.getElementById("meta-sci-name"),
+  metaIdentifyControls: document.getElementById("meta-identify-controls"),
   monthsGrid: document.getElementById("months-grid"),
   searchForm: document.getElementById("search-form"),
   btnReset: document.getElementById("btn-reset"),
@@ -1106,6 +1107,7 @@ function parseCardMetaQuery(q) {
       obsDate: false,
       photoPage: false,
       sciName: false,
+      identifyControls: false,
     };
   }
   const raw = q.get("cardmeta") ?? "";
@@ -1121,6 +1123,7 @@ function parseCardMetaQuery(q) {
       obsDate: false,
       photoPage: false,
       sciName: false,
+      identifyControls: false,
     };
   }
   const set = new Set(
@@ -1141,6 +1144,7 @@ function parseCardMetaQuery(q) {
     /** `pp` = photo page link; `cam` kept for older shared URLs (same feature now). */
     photoPage: set.has("pp") || set.has("cam"),
     sciName: set.has("sci"),
+    identifyControls: set.has("idc"),
   };
 }
 
@@ -1156,6 +1160,7 @@ function applyCardMetaFromQuery(q) {
   if (el.metaObsDate) el.metaObsDate.checked = o.obsDate;
   if (el.metaPhotoPage) el.metaPhotoPage.checked = o.photoPage;
   el.metaSciName.checked = o.sciName;
+  if (el.metaIdentifyControls) el.metaIdentifyControls.checked = o.identifyControls;
 }
 
 function formatCardMetaQuery() {
@@ -1169,8 +1174,9 @@ function formatCardMetaQuery() {
   const obsd = el.metaObsDate && el.metaObsDate.checked;
   const pp = el.metaPhotoPage && el.metaPhotoPage.checked;
   const sci = el.metaSciName.checked;
-  if (fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci) return null;
-  if (!fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci) return null;
+  const idc = el.metaIdentifyControls && el.metaIdentifyControls.checked;
+  if (fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci && !idc) return null;
+  if (!fav && spc && !obs && !loc && !nat && !cns && !grd && !obsd && !pp && !sci && !idc) return null;
   const parts = [];
   if (fav) parts.push("fav");
   if (spc) parts.push("spc");
@@ -1182,6 +1188,7 @@ function formatCardMetaQuery() {
   if (obsd) parts.push("obsd");
   if (pp) parts.push("pp");
   if (sci) parts.push("sci");
+  if (idc) parts.push("idc");
   return parts.join(",");
 }
 
@@ -2021,6 +2028,7 @@ function getCardMetaOptions() {
     obsDate: el.metaObsDate && el.metaObsDate.checked,
     photoPage: el.metaPhotoPage && el.metaPhotoPage.checked,
     sciName: el.metaSciName.checked,
+    identifyControls: Boolean(el.metaIdentifyControls && el.metaIdentifyControls.checked),
   };
 }
 
@@ -2420,7 +2428,9 @@ async function refreshInatAuthUser() {
   inatAuthUser = u && typeof u === "object" ? u : null;
   const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
   renderInatApiAuthStatusEl(
-    login ? `Signed in as ${login}. Agree, Mark reviewed, and “Unreviewed by me” are available.` : "Signed in. Card actions are available.",
+    login
+      ? `Signed in as ${login}. Turn on “Identify controls” (Details shown) for Agree and Mark reviewed on cards.`
+      : "Signed in.",
     "ok"
   );
 }
@@ -2748,8 +2758,11 @@ function renderCard({
     openInatHref
       ? `<a class="card-open-inat-app" href="${escapeHtml(openInatHref)}" target="_blank" rel="noopener noreferrer" aria-label="Open this observation on iNaturalist in a new tab" title="Open on iNaturalist (new tab)"><i class="fa fa-external-link" aria-hidden="true"></i></a>`
       : "";
-  const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
-  const reviewBtn = agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
+  const cardMetaUi = getCardMetaOptions();
+  const agreeBtn =
+    cardMetaUi.identifyControls && agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
+  const reviewBtn =
+    cardMetaUi.identifyControls && agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
   /** Upper-right stack: open iNat, mark reviewed, agree (top to bottom). */
   const upperRightActions = [openAppBtn, reviewBtn, agreeBtn].filter((s) => typeof s === "string" && s.trim() !== "");
   const upperRightActionsHtml =
@@ -4385,6 +4398,7 @@ function wireFilterExtras() {
   if (el.metaPhotoPage) el.metaPhotoPage.addEventListener("change", onMeta);
   el.metaSciName.addEventListener("change", onMeta);
   if (el.metaObserver) el.metaObserver.addEventListener("change", onMeta);
+  if (el.metaIdentifyControls) el.metaIdentifyControls.addEventListener("change", onMeta);
 
   const onEstablishmentChange = () => {
     lastMapFilterKey = null;
@@ -4428,6 +4442,7 @@ function wireButtons() {
     el.uploadedDays.value = "";
     if (el.observedDays) el.observedDays.value = "";
     el.popularOnly.checked = false;
+    if (el.metaIdentifyControls) el.metaIdentifyControls.checked = false;
     el.metaFaves.checked = true;
     el.metaSpeciesCount.checked = true;
     if (el.metaObserver) el.metaObserver.checked = false;
