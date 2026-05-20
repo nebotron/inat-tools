@@ -303,10 +303,6 @@ const progressBar = document.getElementById("progress-bar");
 const progressFill = document.getElementById("progress-fill");
 const errorLine = document.getElementById("error-line");
 const sessionPersistWarning = document.getElementById("session-persist-warning");
-const reapplyMappingsDialog = document.getElementById("reapply-mappings-dialog");
-const reapplyDialogBody = document.getElementById("reapply-dialog-body");
-const btnReapplyDialogYes = document.getElementById("btn-reapply-dialog-yes");
-const btnReapplyDialogNo = document.getElementById("btn-reapply-dialog-no");
 const uploadWarningsDialog = document.getElementById("inat-upload-warnings-dialog");
 const uploadWarningsBody = document.getElementById("inat-upload-warnings-body");
 const btnInatUploadWarningsUpload = document.getElementById("btn-inat-upload-warnings-upload");
@@ -849,45 +845,21 @@ async function yieldToMainForUi() {
 }
 
 /**
- * @param {string} bodyText
- * @returns {Promise<boolean>} `true` when the user chooses **Yes** (apply saved mappings).
+ * Build filename → saved mapping entries for files in this batch. Mappings are applied automatically
+ * after the user picks photos (no confirmation dialog).
+ * @param {File[]} files
  */
-function showReapplyMappingsDialog(bodyText) {
-  if (!reapplyMappingsDialog || !reapplyDialogBody || !btnReapplyDialogYes || !btnReapplyDialogNo) {
-    return Promise.resolve(window.confirm(`${bodyText}\n\nOK = Yes, Cancel = No.`));
+function offerCropMappingReapply(files) {
+  if (!Array.isArray(files) || !files.length) return new Map();
+  const matches = new Map();
+  for (const file of files) {
+    const name = normalizeImageNameForMapping(file && file.name);
+    if (!name) continue;
+    const mapping = cropNameMappingByImageName.get(name);
+    if (!mapping) continue;
+    matches.set(name, mapping);
   }
-  reapplyDialogBody.textContent = bodyText;
-  reapplyMappingsDialog.hidden = false;
-  const backdrop = reapplyMappingsDialog.querySelector(".reapply-dialog__backdrop");
-  return new Promise((resolve) => {
-    const finish = (/** @type {boolean} */ yes) => {
-      btnReapplyDialogYes.removeEventListener("click", onYes);
-      btnReapplyDialogNo.removeEventListener("click", onNo);
-      document.removeEventListener("keydown", onKey, true);
-      if (backdrop) backdrop.removeEventListener("click", onNoBackdrop);
-      reapplyMappingsDialog.hidden = true;
-      resolve(yes);
-    };
-    const onYes = () => finish(true);
-    const onNo = () => finish(false);
-    const onNoBackdrop = () => finish(false);
-    /** @param {KeyboardEvent} e */
-    const onKey = (e) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        finish(false);
-      }
-    };
-    btnReapplyDialogYes.addEventListener("click", onYes);
-    btnReapplyDialogNo.addEventListener("click", onNo);
-    document.addEventListener("keydown", onKey, true);
-    if (backdrop) backdrop.addEventListener("click", onNoBackdrop);
-    try {
-      btnReapplyDialogYes.focus();
-    } catch {
-      /* ignore */
-    }
-  });
+  return matches;
 }
 
 /**
@@ -932,32 +904,6 @@ function showInatUploadWarningsDialog(bodyText) {
       /* ignore */
     }
   });
-}
-
-async function offerCropMappingReapply(files) {
-  if (!Array.isArray(files) || !files.length) return new Map();
-  const matches = new Map();
-  let deleted = 0;
-  let accepted = 0;
-  for (const file of files) {
-    const name = normalizeImageNameForMapping(file && file.name);
-    if (!name) continue;
-    const mapping = cropNameMappingByImageName.get(name);
-    if (!mapping) continue;
-    matches.set(name, mapping);
-    if (mapping.deleted) deleted++;
-    if (mapping.accepted) accepted++;
-  }
-  if (!matches.size) return new Map();
-  const parts = [
-    `Saved crop positions exist for ${matches.size} matching file name${matches.size === 1 ? "" : "s"} in this selection.`,
-  ];
-  if (deleted) parts.push(`${deleted} ${deleted === 1 ? "was" : "were"} previously removed.`);
-  if (accepted) parts.push(`${accepted} ${accepted === 1 ? "was" : "were"} previously marked accepted.`);
-  parts.push("Apply those saved choices to this batch?");
-  const yes = await showReapplyMappingsDialog(parts.join(" "));
-  if (!yes) return new Map();
-  return matches;
 }
 
 async function applySavedCropMappingForCurrentBatch(totalFilesForUi) {
@@ -6039,7 +5985,7 @@ fileInput.addEventListener("change", async () => {
   }
 
   await cropMappingsSessionRestorePromise;
-  pendingReapplyMappingsByImageName = await offerCropMappingReapply(images);
+  pendingReapplyMappingsByImageName = offerCropMappingReapply(images);
 
   if (images.length > MAX_BATCH_FILES) {
     const n = images.length;

@@ -1803,7 +1803,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
   margin-top: 0;
 }
 
-/** Saved crop reapply prompt (Yes / No — native confirm cannot label buttons). */
+/** Modal dialogs (upload warnings, photo actions, location picker). */
 .reapply-dialog[hidden] {
   display: none !important;
 }
