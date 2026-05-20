@@ -2348,7 +2348,7 @@ function userHasCurrentIdentificationAtTaxon(obs, userId, taxonId) {
 
 /**
  * HTML for the observation-card Agree control, or empty string when not applicable.
- * Uses Font Awesome 4 `fa-thumbs-o-up` / `fa-thumbs-up` like iNaturalist web (`activity_item.jsx`).
+ * Uses Font Awesome 4 `fa-handshake-o` for a clearer “agree” metaphor than a thumbs-up.
  * @param {object | null | undefined} obs
  */
 function observationAgreeButtonHtml(obs) {
@@ -2366,7 +2366,7 @@ function observationAgreeButtonHtml(obs) {
   if (!Number.isFinite(oid) || oid <= 0) return "";
   return `<button type="button" class="card-agree" aria-label="Agree with this observation on iNaturalist" title="Agree (posts your identification at the taxon shown on this card)" data-agree-obs-id="${Math.floor(
     oid
-  )}" data-agree-taxon-id="${taxonId}"><i class="fa fa-thumbs-o-up" aria-hidden="true"></i></button>`;
+  )}" data-agree-taxon-id="${taxonId}"><i class="fa fa-handshake-o" aria-hidden="true"></i></button>`;
 }
 
 function renderInatApiAuthStatusEl(message, variant = "neutral") {
@@ -2500,7 +2500,7 @@ function observationMarkReviewedButtonHtml(obs) {
   if (!Number.isFinite(oid) || oid <= 0) return "";
   return `<button type="button" class="card-mark-reviewed" aria-label="Mark this observation as reviewed on iNaturalist" title="Mark reviewed (your Identify queue)" data-review-obs-id="${Math.floor(
     oid
-  )}"><i class="fa fa-check" aria-hidden="true"></i></button>`;
+  )}"><i class="fa fa-eye-slash" aria-hidden="true"></i></button>`;
 }
 
 /**
