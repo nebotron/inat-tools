@@ -316,6 +316,14 @@ const inatPhotoActionBody = document.getElementById("inat-photo-action-body");
 const btnInatPhotoActionCrop = document.getElementById("btn-inat-photo-action-crop");
 const btnInatPhotoActionRemove = document.getElementById("btn-inat-photo-action-remove");
 const btnInatPhotoActionCancel = document.getElementById("btn-inat-photo-action-cancel");
+const inatLocationPickerDialog = document.getElementById("inat-location-picker-dialog");
+const inatLocationMapEl = document.getElementById("inat-location-map");
+const inatLocLatInput = document.getElementById("inat-loc-lat");
+const inatLocLonInput = document.getElementById("inat-loc-lon");
+const btnInatLocationUseDevice = document.getElementById("btn-inat-location-use-device");
+const btnInatLocationClear = document.getElementById("btn-inat-location-clear");
+const btnInatLocationApply = document.getElementById("btn-inat-location-apply");
+const btnInatLocationCancel = document.getElementById("btn-inat-location-cancel");
 const batchProgress = document.getElementById("batch-progress");
 const sharePrepProgress = document.getElementById("share-prep-progress");
 const sharePrepLine = document.getElementById("share-prep-line");
@@ -950,6 +958,7 @@ function clearCropState() {
   clearSessionPersistNotice();
   inatUploadGroups = [];
   inatUploadGroupsInitializedForN = -1;
+  hideInatLocationPickerDialog();
   hideAllInatGroupSpeciesSuggests();
   clearInatDnDDropHighlight();
   workItemCaptureTimesMs = null;
@@ -2741,13 +2750,35 @@ function insertPhotoAsNewGroupAtGap(photoIdx, fromG, fromPos, insertBeforeGroup)
   if (!src || fromPos < 0 || fromPos >= src.indices.length) return;
   if (src.indices[fromPos] !== photoIdx) return;
 
-  const groups = inatUploadGroups.map((g) => ({
-    species: g.species || "",
-    taxonId: g.taxonId || "",
-    indices: [...g.indices],
-  }));
+  const groups = inatUploadGroups.map((g) => {
+    const o = {
+      species: g.species || "",
+      taxonId: g.taxonId || "",
+      indices: [...g.indices],
+    };
+    if (
+      typeof g.manualLat === "number" &&
+      Number.isFinite(g.manualLat) &&
+      typeof g.manualLon === "number" &&
+      Number.isFinite(g.manualLon)
+    ) {
+      o.manualLat = g.manualLat;
+      o.manualLon = g.manualLon;
+    }
+    return o;
+  });
   groups[fromG].indices.splice(fromPos, 1);
-  groups.splice(insertBeforeGroup, 0, { indices: [photoIdx], species: "", taxonId: "" });
+  const newG = { indices: [photoIdx], species: "", taxonId: "" };
+  if (
+    typeof src.manualLat === "number" &&
+    Number.isFinite(src.manualLat) &&
+    typeof src.manualLon === "number" &&
+    Number.isFinite(src.manualLon)
+  ) {
+    newG.manualLat = src.manualLat;
+    newG.manualLon = src.manualLon;
+  }
+  groups.splice(insertBeforeGroup, 0, newG);
   inatUploadGroups = groups.filter((g) => g.indices && g.indices.length > 0);
   if (inatUploadGroups.length === 0) initInatUploadGroups();
 }
@@ -2761,6 +2792,25 @@ function insertPhotoAsNewGroupAtGap(photoIdx, fromG, fromPos, insertBeforeGroup)
  */
 function movePhotoBetweenGroups(photoIdx, fromG, fromPos, toG, insertBeforePhotoIdx) {
   if (!inatUploadGroups[fromG] || !inatUploadGroups[toG]) return;
+  const srcGrp = inatUploadGroups[fromG];
+  const destGrp = inatUploadGroups[toG];
+  const destHasManual =
+    typeof destGrp.manualLat === "number" &&
+    Number.isFinite(destGrp.manualLat) &&
+    typeof destGrp.manualLon === "number" &&
+    Number.isFinite(destGrp.manualLon) &&
+    isValidObservationLatLon(destGrp.manualLat, destGrp.manualLon);
+  const srcHasManual =
+    typeof srcGrp.manualLat === "number" &&
+    Number.isFinite(srcGrp.manualLat) &&
+    typeof srcGrp.manualLon === "number" &&
+    Number.isFinite(srcGrp.manualLon) &&
+    isValidObservationLatLon(srcGrp.manualLat, srcGrp.manualLon);
+  const movingLastFromSrc = srcGrp.indices.length === 1;
+  const transferManualToDest =
+    fromG !== toG && movingLastFromSrc && !destHasManual && srcHasManual
+      ? { lat: srcGrp.manualLat, lon: srcGrp.manualLon }
+      : null;
   inatUploadGroups[fromG].indices.splice(fromPos, 1);
   const dest = inatUploadGroups[toG].indices;
   let insertAt = dest.length;
@@ -2770,6 +2820,10 @@ function movePhotoBetweenGroups(photoIdx, fromG, fromPos, toG, insertBeforePhoto
   }
   dest.splice(insertAt, 0, photoIdx);
   normalizeInatUploadGroupsRemoveEmpty();
+  if (transferManualToDest) {
+    destGrp.manualLat = transferManualToDest.lat;
+    destGrp.manualLon = transferManualToDest.lon;
+  }
 }
 
 function hideAllInatGroupSpeciesSuggests() {
@@ -3027,6 +3081,26 @@ function wireInatUploadGroupingDelegated() {
   });
 
   inatUploadGroupingStrip.addEventListener("click", (e) => {
+    const locClear = e.target && "closest" in e.target ? e.target.closest(".inat-group-loc-clear") : null;
+    if (locClear instanceof HTMLButtonElement) {
+      e.preventDefault();
+      const card = locClear.closest(".inat-group-card");
+      if (!card) return;
+      const g = parseInt(card.dataset.groupIdx || "", 10);
+      if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
+      clearInatLocationOverrideForGroup(g);
+      return;
+    }
+    const locBtn = e.target && "closest" in e.target ? e.target.closest(".inat-group-loc-btn") : null;
+    if (locBtn instanceof HTMLButtonElement && !locBtn.classList.contains("inat-group-loc-clear")) {
+      e.preventDefault();
+      const card = locBtn.closest(".inat-group-card");
+      if (!card) return;
+      const g = parseInt(card.dataset.groupIdx || "", 10);
+      if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
+      void openInatLocationPickerForGroup(g);
+      return;
+    }
     const btn = e.target && "closest" in e.target ? e.target.closest(".inat-group-cv-btn") : null;
     if (!(btn instanceof HTMLButtonElement)) return;
     e.preventDefault();
@@ -3269,6 +3343,259 @@ function confirmInatGroupingSingleEditAndReturn() {
   updateButtons();
 }
 
+let leafletScriptPromise = null;
+/** @type {any} */
+let inatLocationLeafletMap = null;
+/** @type {any} */
+let inatLocationLeafletMarker = null;
+let inatLocationPickerGroupIdx = -1;
+
+function loadLeafletLibraryOnce() {
+  if (typeof globalThis !== "undefined" && globalThis.L) return Promise.resolve();
+  if (leafletScriptPromise) return leafletScriptPromise;
+  leafletScriptPromise = new Promise((resolve, reject) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    link.crossOrigin = "";
+    document.head.appendChild(link);
+    const s = document.createElement("script");
+    s.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    s.crossOrigin = "";
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => {
+      leafletScriptPromise = null;
+      reject(new Error("Could not load map library."));
+    };
+    document.head.appendChild(s);
+  });
+  return leafletScriptPromise;
+}
+
+function tearDownInatLocationLeafletUi() {
+  if (inatLocationLeafletMap) {
+    try {
+      inatLocationLeafletMap.remove();
+    } catch {
+      /* ignore */
+    }
+  }
+  inatLocationLeafletMap = null;
+  inatLocationLeafletMarker = null;
+}
+
+function hideInatLocationPickerDialog() {
+  if (inatLocLatInput) inatLocLatInput.oninput = null;
+  if (inatLocLonInput) inatLocLonInput.oninput = null;
+  tearDownInatLocationLeafletUi();
+  if (inatLocationPickerDialog) inatLocationPickerDialog.hidden = true;
+  inatLocationPickerGroupIdx = -1;
+}
+
+function formatCoordForDisplay(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(5);
+}
+
+function syncInatLocationInputsFromLatLng(lat, lon) {
+  if (inatLocLatInput) inatLocLatInput.value = Number.isFinite(lat) ? String(lat) : "";
+  if (inatLocLonInput) inatLocLonInput.value = Number.isFinite(lon) ? String(lon) : "";
+}
+
+function readInatLocationInputsLatLng() {
+  const lat = inatLocLatInput ? parseFloat(String(inatLocLatInput.value).trim()) : NaN;
+  const lon = inatLocLonInput ? parseFloat(String(inatLocLonInput.value).trim()) : NaN;
+  return { lat, lon };
+}
+
+function isValidObservationLatLon(lat, lon) {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -85 &&
+    lat <= 85 &&
+    lon >= -180 &&
+    lon <= 180
+  );
+}
+
+async function groupHasEmbeddedPhotoGps(grp) {
+  if (!grp || !Array.isArray(grp.indices)) return false;
+  for (const ix of grp.indices) {
+    const file = workItems[ix];
+    if (!file) continue;
+    try {
+      const m = await extractMetaForEmbedding(file);
+      if (
+        typeof m.lat === "number" &&
+        typeof m.lon === "number" &&
+        Number.isFinite(m.lat) &&
+        Number.isFinite(m.lon)
+      ) {
+        return true;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return false;
+}
+
+async function openInatLocationPickerForGroup(groupIdx) {
+  if (!Number.isFinite(groupIdx) || groupIdx < 0 || !inatUploadGroups[groupIdx]) return;
+  inatLocationPickerGroupIdx = groupIdx;
+  const grp = inatUploadGroups[groupIdx];
+  if (!inatLocationPickerDialog) return;
+  inatLocationPickerDialog.hidden = false;
+  try {
+    await loadLeafletLibraryOnce();
+  } catch (e) {
+    console.error(e);
+    hideInatLocationPickerDialog();
+    showError("Could not load the map. Check your connection and try again.", e);
+    return;
+  }
+  const L = globalThis.L;
+  if (!L || !inatLocationMapEl) {
+    hideInatLocationPickerDialog();
+    showError("Map is unavailable in this browser.");
+    return;
+  }
+  tearDownInatLocationLeafletUi();
+  let lat =
+    typeof grp.manualLat === "number" && Number.isFinite(grp.manualLat) ? grp.manualLat : 20;
+  let lon =
+    typeof grp.manualLon === "number" && Number.isFinite(grp.manualLon) ? grp.manualLon : 0;
+  const zoom = lat === 20 && lon === 0 ? 2 : 13;
+  try {
+    inatLocationLeafletMap = L.map(inatLocationMapEl, { zoomControl: true }).setView([lat, lon], zoom);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    }).addTo(inatLocationLeafletMap);
+    inatLocationLeafletMarker = L.marker([lat, lon], { draggable: true }).addTo(inatLocationLeafletMap);
+    inatLocationLeafletMarker.on("dragend", () => {
+      const ll = inatLocationLeafletMarker.getLatLng();
+      syncInatLocationInputsFromLatLng(ll.lat, ll.lng);
+    });
+    inatLocationLeafletMap.on("click", (ev) => {
+      const ll = ev.latlng;
+      inatLocationLeafletMarker.setLatLng(ll);
+      syncInatLocationInputsFromLatLng(ll.lat, ll.lng);
+    });
+    syncInatLocationInputsFromLatLng(lat, lon);
+    const onInput = () => {
+      const { lat: la, lon: lo } = readInatLocationInputsLatLng();
+      if (isValidObservationLatLon(la, lo) && inatLocationLeafletMarker && inatLocationLeafletMap) {
+        const ll = L.latLng(la, lo);
+        inatLocationLeafletMarker.setLatLng(ll);
+        inatLocationLeafletMap.panTo(ll);
+      }
+    };
+    if (inatLocLatInput) {
+      inatLocLatInput.oninput = onInput;
+      inatLocLonInput.oninput = onInput;
+    }
+    window.setTimeout(() => {
+      try {
+        inatLocationLeafletMap.invalidateSize();
+      } catch {
+        /* ignore */
+      }
+    }, 280);
+    try {
+      btnInatLocationApply && btnInatLocationApply.focus();
+    } catch {
+      /* ignore */
+    }
+  } catch (e) {
+    console.error(e);
+    hideInatLocationPickerDialog();
+    showError("Could not start the map.", e);
+  }
+}
+
+function applyInatLocationPickerToGroup() {
+  const g = inatLocationPickerGroupIdx;
+  if (!Number.isFinite(g) || g < 0 || !inatUploadGroups[g]) {
+    hideInatLocationPickerDialog();
+    return;
+  }
+  const { lat, lon } = readInatLocationInputsLatLng();
+  if (!isValidObservationLatLon(lat, lon)) {
+    showError("Enter a valid latitude (−85…85) and longitude (−180…180), or drag the pin on the map.");
+    return;
+  }
+  inatUploadGroups[g].manualLat = lat;
+  inatUploadGroups[g].manualLon = lon;
+  hideInatLocationPickerDialog();
+  renderInatPhotoGroupingStrip();
+  updateButtons();
+}
+
+function clearInatLocationOverrideForGroup(groupIdx) {
+  if (!Number.isFinite(groupIdx) || groupIdx < 0 || !inatUploadGroups[groupIdx]) return;
+  delete inatUploadGroups[groupIdx].manualLat;
+  delete inatUploadGroups[groupIdx].manualLon;
+  renderInatPhotoGroupingStrip();
+  updateButtons();
+}
+
+function wireInatLocationPickerDialog() {
+  if (!inatLocationPickerDialog || !btnInatLocationApply || !btnInatLocationCancel) return;
+  const backdrop = inatLocationPickerDialog.querySelector(".reapply-dialog__backdrop");
+  const finishHide = () => hideInatLocationPickerDialog();
+  btnInatLocationApply.addEventListener("click", () => applyInatLocationPickerToGroup());
+  btnInatLocationCancel.addEventListener("click", finishHide);
+  if (backdrop) backdrop.addEventListener("click", finishHide);
+  if (btnInatLocationClear) {
+    btnInatLocationClear.addEventListener("click", () => {
+      const g = inatLocationPickerGroupIdx;
+      if (Number.isFinite(g) && g >= 0) clearInatLocationOverrideForGroup(g);
+      finishHide();
+    });
+  }
+  if (btnInatLocationUseDevice) {
+    btnInatLocationUseDevice.addEventListener("click", () => {
+      if (!navigator.geolocation) {
+        showError("This browser does not expose device location.");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const la = pos.coords.latitude;
+          const lo = pos.coords.longitude;
+          syncInatLocationInputsFromLatLng(la, lo);
+          if (inatLocationLeafletMarker && inatLocationLeafletMap && globalThis.L) {
+            const ll = globalThis.L.latLng(la, lo);
+            inatLocationLeafletMarker.setLatLng(ll);
+            inatLocationLeafletMap.setView(ll, 14);
+            try {
+              inatLocationLeafletMap.invalidateSize();
+            } catch {
+              /* ignore */
+            }
+          }
+        },
+        (err) => {
+          showError(`Location unavailable: ${err && err.message ? err.message : "permission or hardware"}`);
+        },
+        { enableHighAccuracy: true, maximumAge: 60_000, timeout: 20_000 }
+      );
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (inatLocationPickerDialog && !inatLocationPickerDialog.hidden && e.key === "Escape") {
+      e.preventDefault();
+      finishHide();
+    }
+  });
+}
+
+wireInatLocationPickerDialog();
+
 function renderInatPhotoGroupingStrip() {
   if (!inatUploadGrouping || !inatUploadGroupingStrip) return;
   const n = workItems.length;
@@ -3343,6 +3670,56 @@ function renderInatPhotoGroupingStrip() {
     speciesField.appendChild(hid);
     speciesField.appendChild(speciesRow);
     card.appendChild(speciesField);
+
+    const locRow = document.createElement("div");
+    locRow.className = "inat-group-location-row";
+    const summaryEl = document.createElement("div");
+    summaryEl.className = "inat-group-location-summary";
+    summaryEl.textContent = "Checking photo location…";
+    const pickBtn = document.createElement("button");
+    pickBtn.type = "button";
+    pickBtn.className = "btn secondary inat-group-loc-btn";
+    pickBtn.textContent = "Pick on map";
+    pickBtn.title = "Set latitude and longitude when photos have no GPS";
+    pickBtn.setAttribute("aria-label", "Pick observation location on map");
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "btn secondary inat-group-loc-btn inat-group-loc-clear";
+    clearBtn.textContent = "Clear map location";
+    clearBtn.title = "Remove coordinates chosen on the map";
+    clearBtn.setAttribute("aria-label", "Clear map location");
+    clearBtn.hidden = true;
+    locRow.appendChild(summaryEl);
+    locRow.appendChild(pickBtn);
+    locRow.appendChild(clearBtn);
+    card.appendChild(locRow);
+    void groupHasEmbeddedPhotoGps(grp).then((hasGps) => {
+      if (!inatUploadGroupingStrip || !inatUploadGroupingStrip.contains(card)) return;
+      if (card.dataset.groupIdx !== String(g)) return;
+      const cur = inatUploadGroups[g];
+      if (!cur) return;
+      const manual =
+        typeof cur.manualLat === "number" &&
+        Number.isFinite(cur.manualLat) &&
+        typeof cur.manualLon === "number" &&
+        Number.isFinite(cur.manualLon) &&
+        isValidObservationLatLon(cur.manualLat, cur.manualLon);
+      if (hasGps) {
+        summaryEl.textContent = "Location comes from embedded photo GPS.";
+        pickBtn.hidden = true;
+        clearBtn.hidden = !manual;
+      } else if (manual) {
+        summaryEl.textContent = `Using map location: ${formatCoordForDisplay(cur.manualLat)}, ${formatCoordForDisplay(cur.manualLon)}.`;
+        pickBtn.hidden = false;
+        pickBtn.textContent = "Edit on map";
+        clearBtn.hidden = false;
+      } else {
+        summaryEl.textContent = "No GPS in these photos — set a map location before upload (recommended).";
+        pickBtn.hidden = false;
+        pickBtn.textContent = "Pick on map";
+        clearBtn.hidden = true;
+      }
+    });
 
     const drop = document.createElement("div");
     drop.className = "inat-group-drop";
@@ -3471,8 +3848,18 @@ async function extractMetaForObservationFromSources(sourceFiles, jpegFiles) {
 
 /**
  * @param {(m: { kind: "observation_created" } | { kind: "photo_uploaded"; index: number; total: number }) => void} [onMilestone]
+ * @param {number} [manualLat] — used when source files have no embedded GPS
+ * @param {number} [manualLon]
  */
-async function createInatObservationForGroup(jpegFiles, sourceFiles, speciesGuessText, taxonIdNum, onMilestone) {
+async function createInatObservationForGroup(
+  jpegFiles,
+  sourceFiles,
+  speciesGuessText,
+  taxonIdNum,
+  onMilestone,
+  manualLat,
+  manualLon
+) {
   if (!jpegFiles.length) throw new Error("Empty photo group.");
   const meta = await extractMetaForObservationFromSources(sourceFiles, jpegFiles);
   const observedOn = observedOnStringFromMeta(meta);
@@ -3495,6 +3882,15 @@ async function createInatObservationForGroup(jpegFiles, sourceFiles, speciesGues
   ) {
     obs.latitude = meta.lat;
     obs.longitude = meta.lon;
+  } else if (
+    typeof manualLat === "number" &&
+    typeof manualLon === "number" &&
+    Number.isFinite(manualLat) &&
+    Number.isFinite(manualLon) &&
+    isValidObservationLatLon(manualLat, manualLon)
+  ) {
+    obs.latitude = manualLat;
+    obs.longitude = manualLon;
   }
   const res = await inatFetch("observations", {
     method: "POST",
@@ -3601,12 +3997,18 @@ async function runInatObservationUpload() {
       sources.push(p.sourceFile);
     }
     const meta = await extractMetaForObservationFromSources(sources, jpegs);
-    if (
-      typeof meta.lat !== "number" ||
-      typeof meta.lon !== "number" ||
-      !Number.isFinite(meta.lat) ||
-      !Number.isFinite(meta.lon)
-    ) {
+    const hasExifGps =
+      typeof meta.lat === "number" &&
+      typeof meta.lon === "number" &&
+      Number.isFinite(meta.lat) &&
+      Number.isFinite(meta.lon);
+    const hasManualGps =
+      typeof grp.manualLat === "number" &&
+      typeof grp.manualLon === "number" &&
+      Number.isFinite(grp.manualLat) &&
+      Number.isFinite(grp.manualLon) &&
+      isValidObservationLatLon(grp.manualLat, grp.manualLon);
+    if (!hasExifGps && !hasManualGps) {
       uploadWarnings.push(
         `Observation ${gi + 1}: no GPS coordinates in the photo files — add a location on the website after upload, or use photos that include embedded location.`
       );
@@ -3688,7 +4090,9 @@ async function runInatObservationUpload() {
                 `Observation ${gi + 1} of ${nonemptyGroups.length}: photo ${m.index} / ${m.total}`
               );
             }
-          }
+          },
+          typeof grp.manualLat === "number" && Number.isFinite(grp.manualLat) ? grp.manualLat : undefined,
+          typeof grp.manualLon === "number" && Number.isFinite(grp.manualLon) ? grp.manualLon : undefined
         );
         ok++;
       } catch (e) {

@@ -14,7 +14,7 @@
     <title>Square crop</title>
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
-    <link rel="stylesheet" href="./styles.css?v=inatcv9" />
+    <link rel="stylesheet" href="./styles.css?v=inatcv10" />
   </head>
   <body class="app-body-fit">
     <div
@@ -260,6 +260,45 @@
       </div>
     </div>
 
-    <script src="./app.js?v=inatcv9" type="module"></script>
+    <div
+      id="inat-location-picker-dialog"
+      class="reapply-dialog"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="inat-location-picker-title"
+      aria-describedby="inat-location-picker-desc"
+      tabindex="-1"
+    >
+      <div class="reapply-dialog__backdrop" tabindex="-1" aria-hidden="true"></div>
+      <div class="reapply-dialog__panel reapply-dialog__panel--location">
+        <h2 id="inat-location-picker-title" class="reapply-dialog__title">Observation location</h2>
+        <p id="inat-location-picker-desc" class="reapply-dialog__body muted">
+          Drag the pin or tap the map. Coordinates are sent with this observation only (not written into your JPEG
+          files).
+        </p>
+        <div id="inat-location-map" class="inat-location-map" aria-label="Map to pick coordinates"></div>
+        <div class="inat-location-coords">
+          <label class="inat-location-coords__label">
+            Latitude
+            <input id="inat-loc-lat" class="inat-upload-input" type="number" step="any" inputmode="decimal" />
+          </label>
+          <label class="inat-location-coords__label">
+            Longitude
+            <input id="inat-loc-lon" class="inat-upload-input" type="number" step="any" inputmode="decimal" />
+          </label>
+        </div>
+        <div class="inat-location-actions">
+          <button type="button" id="btn-inat-location-use-device" class="btn secondary">Use device location</button>
+          <button type="button" id="btn-inat-location-clear" class="btn secondary">Clear picked location</button>
+        </div>
+        <div class="reapply-dialog__actions">
+          <button type="button" id="btn-inat-location-apply" class="btn primary">Use this location</button>
+          <button type="button" id="btn-inat-location-cancel" class="btn secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js?v=inatcv10" type="module"></script>
   </body>
 </html>

@@ -1815,6 +1815,69 @@ body.app-body-fit .app-page--crop .crop-review-done {
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
 }
 
+.reapply-dialog__panel--location {
+  width: min(100%, 28rem);
+  max-height: min(92vh, 640px);
+  overflow: auto;
+}
+
+.inat-location-map {
+  height: 220px;
+  width: 100%;
+  margin: 0 0 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #0f172a;
+}
+
+.inat-location-map .leaflet-container {
+  font-family: inherit;
+}
+
+.inat-location-coords {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.inat-location-coords__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.inat-location-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.inat-group-location-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.inat-group-location-summary {
+  flex: 1 1 12rem;
+  line-height: 1.35;
+}
+
+.btn.inat-group-loc-btn {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.65rem;
+  min-height: var(--tap-min);
+}
+
 .reapply-dialog__title {
   margin: 0 0 0.55rem;
   font-size: 1.05rem;
