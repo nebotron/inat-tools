@@ -2406,8 +2406,8 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
     const res = await inatFetch(`observations/${Math.floor(obsId)}/review`, {
       method: "POST",
       auth: true,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ reviewed: "true" }).toString(),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reviewed: "true" }),
     });
     if (!res.ok) {
       const detail = await formatInatHttpErrorForDisplay(res);
