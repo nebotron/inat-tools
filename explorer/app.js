@@ -535,32 +535,11 @@ async function fetchPlacesForAutocomplete(query) {
     .map((row) => row.record);
 }
 
-/** Canonical HTTPS observation URL on www.inaturalist.org (used by Open in app). */
+/** Canonical HTTPS observation URL on www.inaturalist.org (used by “open on iNaturalist”). */
 function inatObservationWebUrl(obsId) {
   const id = Math.floor(Number(obsId));
   if (!Number.isFinite(id) || id <= 0) return "";
   return `https://www.inaturalist.org/observations/${id}`;
-}
-
-/**
- * Open this observation in the installed iNaturalist mobile app when possible.
- * Android: Chrome intent URL targeting `org.inaturalist.android` with HTTPS fallback.
- * Else: same HTTPS URL (iOS universal link opens the app when enabled).
- * @param {number | string} obsId
- */
-function openInatObservationInMobileApp(obsId) {
-  const httpsUrl = inatObservationWebUrl(obsId);
-  if (!httpsUrl) return;
-  const ua = navigator.userAgent || "";
-  if (/Android/i.test(ua)) {
-    const id = Math.floor(Number(obsId));
-    const fb = encodeURIComponent(httpsUrl);
-    window.location.assign(
-      `intent://www.inaturalist.org/observations/${id}#Intent;scheme=https;package=org.inaturalist.android;S.browser_fallback_url=${fb};end`
-    );
-    return;
-  }
-  window.location.assign(httpsUrl);
 }
 
 /** Full-size URL from an iNaturalist photo `url` field (CDN supports square, thumb, small, medium, large, original). */
@@ -573,6 +552,12 @@ function originalPhotoUrl(url) {
 function mediumPhotoUrl(url) {
   if (!url) return "";
   return url.replace(/\/(square|thumb|small|medium|large|original)\./i, "/medium.");
+}
+
+/** Larger derivative (~1024px) for high-DPI `srcset` alongside `medium`. */
+function largePhotoUrl(url) {
+  if (!url) return "";
+  return url.replace(/\/(square|thumb|small|medium|large|original)\./i, "/large.");
 }
 
 /** Display URL for grid/detail hero cards when `rawUrl` is present. */
@@ -2447,11 +2432,20 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
   }
 }
 
+function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
+  const raw = typeof mediumUrl === "string" ? mediumUrl.trim() : "";
+  if (!raw) return "";
+  const escSrc = escapeHtml(raw);
+  const largeU = largePhotoUrl(raw);
+  const srcset = largeU && largeU !== raw ? ` srcset="${escapeHtml(largeU)} 2x"` : "";
+  const loadAttr = loading === "eager" ? 'loading="eager"' : 'loading="lazy"';
+  return `<img class="card-photo" src="${escSrc}"${srcset} alt="" ${loadAttr} decoding="async" />`;
+}
+
 function buildCardImageBlockFromUrls(urls) {
   if (!urls.length) return `<div class="no-photo">No photo</div>`;
   if (urls.length === 1) {
-    const u = escapeHtml(urls[0]);
-    return `<img class="card-photo" src="${u}" alt="" loading="lazy" decoding="async" />`;
+    return cardPhotoImgTagFromMediumUrl(urls[0], "lazy");
   }
   const dotsHtml = urls
     .map(
@@ -2463,10 +2457,8 @@ function buildCardImageBlockFromUrls(urls) {
     .join("");
   const slidesHtml = urls
     .map((raw, slideIndex) => {
-      const u = escapeHtml(raw);
-      return `<div class="card-media-carousel__slide"><img class="card-photo" src="${u}" alt="" loading="${
-        slideIndex === 0 ? "eager" : "lazy"
-      }" decoding="async" /></div>`;
+      const inner = cardPhotoImgTagFromMediumUrl(raw, slideIndex === 0 ? "eager" : "lazy");
+      return `<div class="card-media-carousel__slide">${inner}</div>`;
     })
     .join("");
   return `<div class="card-media-carousel" role="group" aria-label="Observation photos">${slidesHtml}<div class="card-media-carousel__dots" aria-hidden="true">${dotsHtml}</div></div>`;
@@ -2625,11 +2617,11 @@ function renderCard({
       ? metaLines.map((line) => `<p class="card-meta-line">${escapeHtml(line)}</p>`).join("")
       : "";
   const appObsId = inatAppObservationId != null ? Number(inatAppObservationId) : NaN;
+  const openInatHref =
+    Number.isFinite(appObsId) && appObsId > 0 ? inatObservationWebUrl(Math.floor(appObsId)) : "";
   const openAppBtn =
-    Number.isFinite(appObsId) && appObsId > 0
-      ? `<button type="button" class="card-open-inat-app" data-inat-app-obs-id="${Math.floor(
-          appObsId
-        )}" aria-label="Open this observation in the iNaturalist mobile app" title="Open in iNaturalist app (installed app)"><i class="fa fa-mobile" aria-hidden="true"></i></button>`
+    openInatHref
+      ? `<a class="card-open-inat-app" href="${escapeHtml(openInatHref)}" target="_blank" rel="noopener noreferrer" aria-label="Open this observation on iNaturalist in a new tab" title="Open on iNaturalist (new tab)"><i class="fa fa-external-link" aria-hidden="true"></i></a>`
       : "";
   const agreeBtn = agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
   const reviewBtn = agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
@@ -2671,17 +2663,6 @@ function renderCard({
         <p class="card-title-overlay">${escapeHtml(name)}</p>
       </div>
     `;
-  }
-  const openAppEl = card.querySelector(".card-open-inat-app");
-  if (openAppEl) {
-    openAppEl.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const raw = openAppEl.getAttribute("data-inat-app-obs-id");
-      const id = raw != null ? Number(raw) : NaN;
-      if (!Number.isFinite(id) || id <= 0) return;
-      openInatObservationInMobileApp(id);
-    });
   }
   if (urls.length > 1) {
     wireObservationCardPhotoCarousel(card);
@@ -4440,9 +4421,12 @@ async function showSpeciesDetail(taxon, obsCount) {
   const name = taxon.preferred_common_name || taxon.name || "Unknown";
   const sciName = taxon.name || "";
   const rawHero = taxon.default_photo?.url || taxon.default_photo?.medium_url || "";
-  const heroUrl = observationCardPhotoDisplayUrl(rawHero);
-  const heroImg = heroUrl
-    ? `<img class="detail-hero-photo card-photo" src="${escapeHtml(heroUrl)}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" />`
+  const heroMedium = observationCardPhotoDisplayUrl(rawHero);
+  const heroLarge = largePhotoUrl(heroMedium);
+  const heroSrcset =
+    heroMedium && heroLarge && heroLarge !== heroMedium ? ` srcset="${escapeHtml(heroLarge)} 2x"` : "";
+  const heroImg = heroMedium
+    ? `<img class="detail-hero-photo card-photo" src="${escapeHtml(heroMedium)}"${heroSrcset} alt="${escapeHtml(name)}" loading="lazy" decoding="async" />`
     : "";
   const inatAppUrl = inaturalistTaxonWebUrl(taxon.id);
   const searchUrl = buildSearchUrlWithSpecies(taxon.id, taxon.preferred_common_name || taxon.name);

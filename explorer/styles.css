@@ -467,6 +467,14 @@ main {
   width: 100%;
 }
 
+/* Phone: cards span the full results width; wider viewports cap column width for readable tiles. */
+@media (min-width: 641px) {
+  .results-grid {
+    max-width: 42rem;
+    margin-inline: auto;
+  }
+}
+
 .card {
   position: relative;
   overflow: hidden;
@@ -507,6 +515,11 @@ main {
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  text-decoration: none;
+}
+
+a.card-open-inat-app {
+  color: #fff;
 }
 
 .card-open-inat-app:hover {
@@ -517,7 +530,7 @@ main {
 
 .card-open-inat-app .fa {
   pointer-events: none;
-  font-size: 1.68rem;
+  font-size: 1.45rem;
 }
 
 .inat-api-auth-fieldset .inat-api-auth-hint {
@@ -661,7 +674,7 @@ main {
   opacity: 1;
 }
 
-.card a:not(.card-link) {
+.card a:not(.card-link):not(.card-open-inat-app) {
   display: block;
   width: 100%;
   height: auto;
@@ -669,11 +682,25 @@ main {
   text-decoration: none;
 }
 
+.card a.card-open-inat-app {
+  display: inline-flex;
+  width: 3.375rem;
+  height: 3.375rem;
+  max-width: none;
+}
+
 .card img {
   width: 100%;
   max-width: 100%;
   height: auto;
   display: block;
+}
+
+/* Square crop: iNaturalist photos are rectangular; object-fit matches a square frame. */
+.card img.card-photo {
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  height: auto;
 }
 
 /* Multi-photo observation cards: horizontal swipe / scroll-snap */
@@ -712,7 +739,6 @@ main {
 .card-media-carousel__slide .card-photo {
   width: 100%;
   max-width: 100%;
-  height: auto;
   display: block;
 }
 
@@ -761,7 +787,8 @@ main {
 
 .card .no-photo {
   width: 100%;
-  min-height: 10rem;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -968,8 +995,10 @@ img.leaflet-tile.map-heat-tiles {
 }
 
 .detail-hero img {
-  width: 160px;
-  height: 160px;
+  width: min(100%, 14rem);
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+  height: auto;
   object-fit: cover;
   border-radius: 6px;
   flex-shrink: 0;
@@ -1052,13 +1081,15 @@ img.leaflet-tile.map-heat-tiles {
 }
 
 #panel-detail.detail-panel .detail-hero > img {
-  flex: 1 1 0;
+  flex: 0 0 auto;
+  height: 100%;
+  width: auto;
+  max-width: min(55vw, 22rem);
+  aspect-ratio: 1 / 1;
   min-width: 0;
-  width: 0;
-  height: auto;
-  align-self: stretch;
   min-height: 0;
-  max-height: none;
+  max-height: 100%;
+  align-self: center;
   object-fit: cover;
   border-radius: 6px;
 }
@@ -1188,7 +1219,14 @@ img.leaflet-tile.map-heat-tiles {
   .map-container { min-height: 320px; }
 
   .detail-hero { flex-direction: column; }
-  .detail-hero img { width: 100%; height: auto; max-height: 240px; }
+  .detail-hero img {
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: none;
+    height: auto;
+    object-fit: cover;
+  }
 
   .bar-count { display: none; }
   .bar-chart { height: 100px; padding-top: 0.25rem; }
@@ -1216,6 +1254,7 @@ img.leaflet-tile.map-heat-tiles {
   #panel-detail.detail-panel .detail-hero > img {
     flex: 1 1 0;
     width: 100% !important;
+    aspect-ratio: 1 / 1;
     min-height: 0;
     max-height: none !important;
     height: auto;
