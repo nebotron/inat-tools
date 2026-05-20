@@ -554,6 +554,11 @@ main {
   pointer-events: auto;
 }
 
+/* One full control height between Mark reviewed and Agree (flex gap stays below Open). */
+.card-actions-upper-right > .card-agree {
+  margin-top: 3.375rem;
+}
+
 .card-open-inat-app {
   display: inline-flex;
   align-items: center;
