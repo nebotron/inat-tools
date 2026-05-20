@@ -1780,3 +1780,65 @@ body.app-body-fit .app-page--crop .crop-review-done {
 .inat-upload-progress-bar {
   margin-top: 0;
 }
+
+/** Saved crop reapply prompt (Yes / No — native confirm cannot label buttons). */
+.reapply-dialog[hidden] {
+  display: none !important;
+}
+
+.reapply-dialog:not([hidden]) {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(0.75rem, env(safe-area-inset-top, 0px)) max(0.75rem, env(safe-area-inset-right, 0px))
+    max(0.75rem, env(safe-area-inset-bottom, 0px)) max(0.75rem, env(safe-area-inset-left, 0px));
+  box-sizing: border-box;
+}
+
+.reapply-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.reapply-dialog__panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 22rem);
+  padding: 1.1rem 1.15rem 1.15rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.reapply-dialog__title {
+  margin: 0 0 0.55rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  letter-spacing: -0.02em;
+}
+
+.reapply-dialog__body {
+  margin: 0 0 1rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+
+.reapply-dialog__actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: stretch;
+}
+
+.reapply-dialog__actions .btn {
+  flex: 1 1 auto;
+  min-height: var(--tap-min);
+}

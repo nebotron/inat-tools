@@ -291,6 +291,10 @@ const progressBar = document.getElementById("progress-bar");
 const progressFill = document.getElementById("progress-fill");
 const errorLine = document.getElementById("error-line");
 const sessionPersistWarning = document.getElementById("session-persist-warning");
+const reapplyMappingsDialog = document.getElementById("reapply-mappings-dialog");
+const reapplyDialogBody = document.getElementById("reapply-dialog-body");
+const btnReapplyDialogYes = document.getElementById("btn-reapply-dialog-yes");
+const btnReapplyDialogNo = document.getElementById("btn-reapply-dialog-no");
 const batchProgress = document.getElementById("batch-progress");
 const sharePrepProgress = document.getElementById("share-prep-progress");
 const sharePrepLine = document.getElementById("share-prep-line");
@@ -676,7 +680,49 @@ async function buildReappliedStateForFile(file, mapping) {
   return next;
 }
 
-function offerCropMappingReapply(files) {
+/**
+ * @param {string} bodyText
+ * @returns {Promise<boolean>} `true` when the user chooses **Yes** (apply saved mappings).
+ */
+function showReapplyMappingsDialog(bodyText) {
+  if (!reapplyMappingsDialog || !reapplyDialogBody || !btnReapplyDialogYes || !btnReapplyDialogNo) {
+    return Promise.resolve(window.confirm(`${bodyText}\n\nOK = Yes, Cancel = No.`));
+  }
+  reapplyDialogBody.textContent = bodyText;
+  reapplyMappingsDialog.hidden = false;
+  const backdrop = reapplyMappingsDialog.querySelector(".reapply-dialog__backdrop");
+  return new Promise((resolve) => {
+    const finish = (/** @type {boolean} */ yes) => {
+      btnReapplyDialogYes.removeEventListener("click", onYes);
+      btnReapplyDialogNo.removeEventListener("click", onNo);
+      document.removeEventListener("keydown", onKey, true);
+      if (backdrop) backdrop.removeEventListener("click", onNoBackdrop);
+      reapplyMappingsDialog.hidden = true;
+      resolve(yes);
+    };
+    const onYes = () => finish(true);
+    const onNo = () => finish(false);
+    const onNoBackdrop = () => finish(false);
+    /** @param {KeyboardEvent} e */
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+    btnReapplyDialogYes.addEventListener("click", onYes);
+    btnReapplyDialogNo.addEventListener("click", onNo);
+    document.addEventListener("keydown", onKey, true);
+    if (backdrop) backdrop.addEventListener("click", onNoBackdrop);
+    try {
+      btnReapplyDialogYes.focus();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+async function offerCropMappingReapply(files) {
   if (!Array.isArray(files) || !files.length) return new Map();
   const matches = new Map();
   let deleted = 0;
@@ -691,12 +737,14 @@ function offerCropMappingReapply(files) {
     if (mapping.accepted) accepted++;
   }
   if (!matches.size) return new Map();
-  const msg =
-    `Found saved crop mappings for ${matches.size} image name${matches.size === 1 ? "" : "s"}.` +
-    (deleted ? ` ${deleted} were previously removed.` : "") +
-    (accepted ? ` ${accepted} were previously accepted.` : "") +
-    " Reapply these saved choices?";
-  if (!window.confirm(msg)) return new Map();
+  const parts = [
+    `Saved crop positions exist for ${matches.size} matching file name${matches.size === 1 ? "" : "s"} in this selection.`,
+  ];
+  if (deleted) parts.push(`${deleted} ${deleted === 1 ? "was" : "were"} previously removed.`);
+  if (accepted) parts.push(`${accepted} ${accepted === 1 ? "was" : "were"} previously marked accepted.`);
+  parts.push("Apply those saved choices to this batch?");
+  const yes = await showReapplyMappingsDialog(parts.join(" "));
+  if (!yes) return new Map();
   return matches;
 }
 
@@ -4678,7 +4726,7 @@ fileInput.addEventListener("change", async () => {
     return;
   }
 
-  pendingReapplyMappingsByImageName = offerCropMappingReapply(images);
+  pendingReapplyMappingsByImageName = await offerCropMappingReapply(images);
 
   if (images.length > MAX_BATCH_FILES) {
     const n = images.length;
@@ -5163,11 +5211,8 @@ function installE2EHooksIfNeeded() {
 
 installE2EHooksIfNeeded();
 
-void tryRestoreSessionFromIdb().then((restored) => {
+void tryRestoreSessionFromIdb().then(() => {
   setCurrentPage("setup");
-  if (restored) {
-    setSessionPersistNotice("Saved crop mappings loaded. Upload matching filenames to reapply.");
-  }
   updateButtons();
   installE2EHooksIfNeeded();
 });

@@ -14,7 +14,7 @@
     <title>Square crop</title>
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
-    <link rel="stylesheet" href="./styles.css?v=inatcv6" />
+    <link rel="stylesheet" href="./styles.css?v=inatcv7" />
   </head>
   <body class="app-body-fit">
     <div
@@ -196,6 +196,27 @@
       </div>
     </main>
 
-    <script src="./app.js?v=inatcv5" type="module"></script>
+    <div
+      id="reapply-mappings-dialog"
+      class="reapply-dialog"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reapply-dialog-title"
+      aria-describedby="reapply-dialog-body"
+      tabindex="-1"
+    >
+      <div class="reapply-dialog__backdrop" tabindex="-1" aria-hidden="true"></div>
+      <div class="reapply-dialog__panel">
+        <h2 id="reapply-dialog-title" class="reapply-dialog__title">Apply saved crops?</h2>
+        <p id="reapply-dialog-body" class="reapply-dialog__body"></p>
+        <div class="reapply-dialog__actions">
+          <button type="button" id="btn-reapply-dialog-yes" class="btn primary">Yes</button>
+          <button type="button" id="btn-reapply-dialog-no" class="btn secondary">No</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js?v=inatcv6" type="module"></script>
   </body>
 </html>
