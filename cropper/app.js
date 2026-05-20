@@ -2855,7 +2855,7 @@ function renderInatPhotoGroupingStrip() {
 
     const drop = document.createElement("div");
     drop.className = "inat-group-drop";
-    drop.setAttribute("aria-label", "Photo thumbnails — drag onto another card to combine, or onto a dashed strip between cards for a new observation");
+    drop.setAttribute("aria-label", "Photo thumbnails — drag onto another observation to combine, or onto a dashed row between observations for a new observation");
     for (const ix of grp.indices) {
       if (ix < 0 || ix >= workItems.length) continue;
       const file = workItems[ix];

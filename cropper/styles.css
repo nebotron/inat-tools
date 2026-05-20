@@ -1565,8 +1565,8 @@ body.app-body-fit .app-page--crop .crop-review-done {
 
 .inat-upload-grouping-strip {
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  flex-direction: column;
+  flex-wrap: nowrap;
   gap: 0;
   padding: 0;
   border: 1px solid var(--border);
@@ -1574,14 +1574,18 @@ body.app-body-fit .app-page--crop .crop-review-done {
   background: rgba(15, 23, 42, 0.5);
 }
 
+/** Full-width drop slot between stacked rows (was a narrow column in the old horizontal strip). */
 .inat-group-gap-drop {
-  flex: 0 0 16px;
+  flex: 0 0 auto;
   align-self: stretch;
-  min-height: 120px;
+  width: 100%;
+  min-height: 48px;
   box-sizing: border-box;
-  margin: 8px 0;
-  border-radius: 8px;
+  margin: 0;
+  border-radius: 0;
   border: 1px dashed transparent;
+  border-left: none;
+  border-right: none;
   background: transparent;
   transition: outline-color 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out;
 }
@@ -1599,13 +1603,27 @@ body.app-body-fit .app-page--crop .crop-review-done {
 }
 
 .inat-group-card {
-  flex: 1 1 200px;
-  min-width: min(100%, 160px);
+  flex: 0 0 auto;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
   padding: 0;
-  border-radius: 10px;
-  border: 1px solid rgba(71, 85, 105, 0.55);
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid rgba(71, 85, 105, 0.55);
   background: rgba(15, 23, 42, 0.65);
+}
+
+.inat-upload-grouping-strip > .inat-group-card:last-of-type {
+  border-bottom: none;
+}
+
+.inat-upload-grouping-strip > .inat-group-gap-drop:first-child {
+  border-top: none;
+}
+
+.inat-upload-grouping-strip > .inat-group-gap-drop:last-child {
+  border-bottom: none;
 }
 
 .inat-group-drop {
