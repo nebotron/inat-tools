@@ -2359,8 +2359,9 @@ async function refreshInatAuthUser() {
 }
 
 /**
- * Remove a card from the observations grid after Agree / Mark reviewed succeeds.
- * Keeps {@link obsCardCount}, {@link totalObs}, and summary text in sync.
+ * Remove an observation card from the grid immediately (optimistic Agree / Mark reviewed).
+ * Decrements {@link obsCardCount} and {@link totalObs}. If the API call later fails, bump
+ * {@link totalObs} back with {@link revertOptimisticObservationRemovalCount}.
  * @param {HTMLElement} actionEl — control that lives inside the `.card` (e.g. button or link).
  */
 function removeObservationCardFromGridAfterWrite(actionEl) {
@@ -2380,6 +2381,11 @@ function removeObservationCardFromGridAfterWrite(actionEl) {
   });
 }
 
+function revertOptimisticObservationRemovalCount() {
+  totalObs += 1;
+  updateSearchSummaryElements();
+}
+
 /**
  * @param {HTMLButtonElement} button
  * @param {string} obsIdStr
@@ -2393,9 +2399,7 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     window.alert("Paste and apply an API token under Filters first.");
     return;
   }
-  const prevHtml = button.innerHTML;
-  button.disabled = true;
-  button.innerHTML = '<i class="fa fa-spinner fa-spin" aria-hidden="true"></i>';
+  removeObservationCardFromGridAfterWrite(button);
   try {
     const res = await inatFetch("identifications", {
       method: "POST",
@@ -2406,15 +2410,12 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     if (!res.ok) {
       const detail = await formatInatHttpErrorForDisplay(res);
       window.alert(`Could not agree. ${detail}`);
-      button.disabled = false;
-      button.innerHTML = prevHtml;
+      revertOptimisticObservationRemovalCount();
       return;
     }
-    removeObservationCardFromGridAfterWrite(button);
   } catch (e) {
     window.alert(e && e.message ? e.message : "Network error while agreeing.");
-    button.disabled = false;
-    button.innerHTML = prevHtml;
+    revertOptimisticObservationRemovalCount();
   }
 }
 
@@ -2446,9 +2447,7 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
     window.alert("Paste and apply an API token under Filters first.");
     return;
   }
-  const prevHtml = button.innerHTML;
-  button.disabled = true;
-  button.innerHTML = '<i class="fa fa-spinner fa-spin" aria-hidden="true"></i>';
+  removeObservationCardFromGridAfterWrite(button);
   try {
     const res = await inatFetch(`observations/${Math.floor(obsId)}/review`, {
       method: "POST",
@@ -2459,15 +2458,12 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
     if (!res.ok) {
       const detail = await formatInatHttpErrorForDisplay(res);
       window.alert(`Could not mark reviewed. ${detail}`);
-      button.disabled = false;
-      button.innerHTML = prevHtml;
+      revertOptimisticObservationRemovalCount();
       return;
     }
-    removeObservationCardFromGridAfterWrite(button);
   } catch (e) {
     window.alert(e && e.message ? e.message : "Network error while marking reviewed.");
-    button.disabled = false;
-    button.innerHTML = prevHtml;
+    revertOptimisticObservationRemovalCount();
   }
 }
 
