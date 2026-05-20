@@ -520,7 +520,7 @@ main {
   cursor: pointer;
 }
 
-/* Stacked controls: open iNat (top), mark reviewed, agree — upper right of card. */
+/* Stacked controls: open iNat, favorite, mark reviewed, agree — upper right of card. */
 .card-actions-upper-right {
   position: absolute;
   top: 0.4rem;
@@ -678,6 +678,52 @@ a.card-open-inat-app {
 .card-agree:disabled {
   opacity: 0.65;
   cursor: default;
+}
+
+.card-fave {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.375rem;
+  height: 3.375rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.card-fave .fa {
+  pointer-events: none;
+}
+
+.card-fave:hover:not(:disabled),
+.card-fave:active:not(:disabled) {
+  background: rgba(0, 0, 0, 0.45);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.card-fave--active {
+  color: #ffca28;
+  border-color: rgba(255, 213, 79, 0.55);
+}
+
+.card-fave--active:hover:not(:disabled),
+.card-fave--active:active:not(:disabled) {
+  color: #ffe082;
+  border-color: rgba(255, 224, 130, 0.65);
+}
+
+.card-fave:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .card-mark-reviewed {

@@ -2481,7 +2481,7 @@ async function refreshInatAuthUser() {
     const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
     renderInatApiAuthStatusEl(
       login
-        ? `Signed in as ${login}. Turn on “Identify controls” (Details shown) for Agree and Mark reviewed on cards.`
+        ? `Signed in as ${login}. Turn on “Identify controls” (Details shown) for Agree, Mark reviewed, and Favorite on cards.`
         : "Signed in.",
       "ok"
     );
@@ -2566,6 +2566,97 @@ function observationMarkReviewedButtonHtml(obs) {
   return `<button type="button" class="card-mark-reviewed" aria-label="Mark this observation as reviewed on iNaturalist" title="Mark reviewed (your Identify queue)" data-review-obs-id="${Math.floor(
     oid
   )}"><i class="fa fa-eye-slash" aria-hidden="true"></i></button>`;
+}
+
+/**
+ * Whether the signed-in user appears in the observation `faves` list (when the API includes it).
+ * @param {object | null | undefined} obs
+ * @param {number} meId
+ */
+function currentUserHasFavedObservation(obs, meId) {
+  if (!obs || typeof obs !== "object" || !Number.isFinite(meId) || meId <= 0) return false;
+  if (obs.faved_by_current_user === true) return true;
+  const rows = obs.faves;
+  if (!Array.isArray(rows)) return false;
+  for (const row of rows) {
+    const uid = row && row.user && row.user.id != null ? Number(row.user.id) : NaN;
+    if (uid === meId) return true;
+  }
+  return false;
+}
+
+/**
+ * HTML for Favorite / Unfavorite on an observation card (API v1 `POST/DELETE …/fave` / `unfave`).
+ * Shown with other Identify controls when signed in.
+ * @param {object | null | undefined} obs
+ */
+function observationFavoriteButtonHtml(obs) {
+  if (!inatAuthUser || inatAuthUser.id == null) return "";
+  const meId = Number(inatAuthUser.id);
+  if (!Number.isFinite(meId) || meId <= 0) return "";
+  const oid = obs && obs.id != null ? Number(obs.id) : NaN;
+  if (!Number.isFinite(oid) || oid <= 0) return "";
+  const faved = currentUserHasFavedObservation(obs, meId);
+  const iconClass = faved ? "fa fa-star" : "fa fa-star-o";
+  const title = faved ? "Unfavorite on iNaturalist" : "Favorite on iNaturalist";
+  const aria = faved ? "Remove favorite on iNaturalist" : "Add favorite on iNaturalist";
+  const activeClass = faved ? " card-fave--active" : "";
+  return `<button type="button" class="card-fave${activeClass}" aria-pressed="${faved ? "true" : "false"}" aria-label="${escapeHtml(
+    aria
+  )}" title="${escapeHtml(title)}" data-fave-obs-id="${Math.floor(oid)}" data-fave-active="${faved ? "1" : "0"}"><i class="${iconClass}" aria-hidden="true"></i></button>`;
+}
+
+/**
+ * @param {HTMLButtonElement} button
+ * @param {string} obsIdStr
+ * @param {boolean} currentlyFaved
+ */
+async function submitObservationFavoriteToggle(button, obsIdStr, currentlyFaved) {
+  const obsId = Number(obsIdStr);
+  if (!Number.isFinite(obsId) || obsId <= 0) return;
+  if (!inatApiJwtAuthorizationValue()) {
+    void openExplorerAuthPanel({ reason: "Sign in with an API token to favorite observations from cards." });
+    return;
+  }
+  if (button.disabled) return;
+  const wantFave = !currentlyFaved;
+  button.disabled = true;
+  try {
+    const res = wantFave
+      ? await inatFetch(`observations/${Math.floor(obsId)}/fave`, { method: "POST", auth: true })
+      : await inatFetch(`observations/${Math.floor(obsId)}/unfave`, { method: "DELETE", auth: true });
+    if (!res.ok) {
+      const detail = await formatInatHttpErrorForDisplay(res);
+      window.alert(`Could not update favorite. ${detail}`);
+      return;
+    }
+    const icon = button.querySelector("i.fa");
+    if (wantFave) {
+      button.classList.add("card-fave--active");
+      button.setAttribute("aria-pressed", "true");
+      button.setAttribute("data-fave-active", "1");
+      if (icon) {
+        icon.classList.remove("fa-star-o");
+        icon.classList.add("fa-star");
+      }
+      button.title = "Unfavorite on iNaturalist";
+      button.setAttribute("aria-label", "Remove favorite on iNaturalist");
+    } else {
+      button.classList.remove("card-fave--active");
+      button.setAttribute("aria-pressed", "false");
+      button.setAttribute("data-fave-active", "0");
+      if (icon) {
+        icon.classList.remove("fa-star");
+        icon.classList.add("fa-star-o");
+      }
+      button.title = "Favorite on iNaturalist";
+      button.setAttribute("aria-label", "Add favorite on iNaturalist");
+    }
+  } catch (e) {
+    window.alert(e && e.message ? e.message : "Network error while updating favorite.");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 /**
@@ -2825,8 +2916,10 @@ function renderCard({
     cardMetaUi.identifyControls && agreeObservation ? observationAgreeButtonHtml(agreeObservation) : "";
   const reviewBtn =
     cardMetaUi.identifyControls && agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
-  /** Upper-right stack: open iNat, mark reviewed, agree (top to bottom). */
-  const upperRightActions = [openAppBtn, reviewBtn, agreeBtn].filter((s) => typeof s === "string" && s.trim() !== "");
+  const faveBtn =
+    cardMetaUi.identifyControls && agreeObservation ? observationFavoriteButtonHtml(agreeObservation) : "";
+  /** Upper-right stack: open iNat, favorite, mark reviewed, agree (top to bottom). */
+  const upperRightActions = [openAppBtn, faveBtn, reviewBtn, agreeBtn].filter((s) => typeof s === "string" && s.trim() !== "");
   const upperRightActionsHtml =
     upperRightActions.length > 0
       ? `<div class="card-actions-upper-right">${upperRightActions.join("")}</div>`
@@ -4373,10 +4466,22 @@ function wireObservationsPanelResizeLayoutAnchor() {
   }
 }
 
-/** Delegated clicks for observation-card Agree and Mark reviewed (authenticated iNat API writes). */
+/** Delegated clicks for observation-card Agree, Mark reviewed, and Favorite (authenticated iNat API writes). */
 function wireObservationAgreeClicks() {
   if (!el.resultsGrid) return;
   el.resultsGrid.addEventListener("click", (e) => {
+    const faveRaw = e.target && e.target.closest && e.target.closest("button.card-fave");
+    const faveBtn = faveRaw instanceof HTMLButtonElement ? faveRaw : null;
+    if (faveBtn && !faveBtn.disabled) {
+      e.preventDefault();
+      e.stopPropagation();
+      const fid = faveBtn.getAttribute("data-fave-obs-id");
+      if (!fid) return;
+      const active = faveBtn.getAttribute("data-fave-active") === "1";
+      void submitObservationFavoriteToggle(faveBtn, fid, active);
+      return;
+    }
+
     const reviewRaw = e.target && e.target.closest && e.target.closest("button.card-mark-reviewed");
     const reviewBtn = reviewRaw instanceof HTMLButtonElement ? reviewRaw : null;
     if (reviewBtn && !reviewBtn.disabled) {
