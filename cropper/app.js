@@ -79,6 +79,11 @@ function isIOSOrIPadOS() {
   return false;
 }
 
+/** Chrome on Android has shipped hard crashes when `navigator.share({ files })` includes several files. */
+function isAndroidBrowser() {
+  return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "");
+}
+
 /** Cached once — `minCropSide` ran `matchMedia` every pan/zoom frame before. */
 let cachedCoarsePointer = null;
 function isCoarsePointerPrimaryInput() {
@@ -2320,16 +2325,26 @@ function updateButtons() {
       typeof navigator.share === "function" &&
       Array.isArray(shareSheetReadyFiles) &&
       shareSheetReadyFiles.length === 0;
+    const shareAndroidMultiUnsafe =
+      onExportPage &&
+      zipReady &&
+      typeof navigator.share === "function" &&
+      Array.isArray(shareSheetReadyFiles) &&
+      shareSheetReadyFiles.length > 1 &&
+      isAndroidBrowser();
     btnShareInat.disabled =
       !zipReady ||
       typeof navigator.share !== "function" ||
       sharePrepPending ||
-      shareNothingReady;
+      shareNothingReady ||
+      shareAndroidMultiUnsafe;
     btnShareInat.title = sharePrepPending
       ? "Preparing images for share…"
       : shareNothingReady
         ? "Nothing to share — use Download ZIP"
-        : "Share JPEGs only";
+        : shareAndroidMultiUnsafe
+          ? "Chrome on Android can crash when sharing several images — use Download ZIP"
+          : "Share JPEGs only";
   }
   if (btnInatUploadObs) {
     btnInatUploadObs.disabled = !zipReady || !inatUploadAuthOk || inatUploadInProgress;
@@ -5144,14 +5159,22 @@ if (btnShareInat) {
       showError("Nothing to share. Use Download ZIP.");
       return;
     }
-    const sharePromise =
-      isIOSOrIPadOS()
-        ? navigator.share({ files })
-        : navigator.share({
-            files,
-            title: "Share",
-            text: "JPEGs only · pick app in sheet",
-          });
+    if (isAndroidBrowser() && files.length > 1) {
+      showError(
+        "Chrome on Android can crash when sharing several images at once. Use Download ZIP, or save images one at a time.",
+      );
+      return;
+    }
+    let sharePromise;
+    try {
+      /* Only `files` — pairing `title`/`text` with `files` has broken Android WebView / Chrome builds. */
+      sharePromise = navigator.share({ files });
+    } catch (e) {
+      const msg = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+      showError(`Share could not start: ${msg} Use Download ZIP.`);
+      updateButtons();
+      return;
+    }
     void sharePromise
       .catch((e) => {
         if (e && e.name === "AbortError") return;

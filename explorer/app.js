@@ -29,6 +29,10 @@ function explorerFatal(reason, contextLabel = "", appendix) {
   throw err;
 }
 
+function isAndroidBrowser() {
+  return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent || "");
+}
+
 const OBS_PER_PAGE = 60;
 
 /** Set by `refreshInatAuthUser`; used for Agree UI on observation cards. */
@@ -838,14 +842,18 @@ async function saveObservationPhotoWithExif(obs) {
 
   const sharePayload = { files };
   if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-    try {
-      if (typeof navigator.canShare !== "function" || navigator.canShare(sharePayload)) {
-        await navigator.share(sharePayload);
-        return;
+    if (isAndroidBrowser() && files.length > 1) {
+      /* Same multi-file + Web Share crash class as cropper — fall through to per-file downloads. */
+    } else {
+      try {
+        if (typeof navigator.canShare !== "function" || navigator.canShare(sharePayload)) {
+          await navigator.share(sharePayload);
+          return;
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return;
+        console.warn("saveObservationPhotoWithExif:navigator.share", e);
       }
-    } catch (e) {
-      if (e && e.name === "AbortError") return;
-      explorerFatal(e, "saveObservationPhotoWithExif:navigator.share");
     }
   }
 
@@ -4884,7 +4892,9 @@ window.addEventListener("pageshow", (e) => {
     return;
   }
   if (window.location.href === lastExplorerLocationHref) return;
-  void resyncAppFromCurrentUrlAfterBfcache().catch((ex) => explorerFatal(ex, "resyncAppFromCurrentUrlAfterBfcache"));
+  void resyncAppFromCurrentUrlAfterBfcache().catch((ex) => {
+    console.error("resyncAppFromCurrentUrlAfterBfcache", ex);
+  });
 });
 
 /** Resolved when initial `readUrl` + wiring + first `switchView` complete; used by Playwright e2e. */
