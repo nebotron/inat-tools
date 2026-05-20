@@ -558,14 +558,15 @@ let inatGroupEditForwardIndex = -1;
 const INAT_TIME_CLUSTER_WINDOW_MS = 30_000;
 
 /**
- * JPEG `File`s ready for `navigator.share({ files })` — built on the export step before the user taps Share
- * so the click handler can call `share()` synchronously (required for user activation / NotAllowedError).
- * `null` = preparing or not started; `[]` = ready but nothing shareable.
+ * JPEG `File`s ready for `navigator.share({ files })` — built when the user taps Share (on demand).
+ * `null` = not prepared since last invalidation; `[]` = prepared but nothing shareable.
  * @type {File[] | null}
  */
 let shareSheetReadyFiles = null;
 /** Bumps when starting a new prep so stale async work does not flip state. */
 let shareSheetPrepareGen = 0;
+/** True while share JPEGs are being encoded after the user taps Share. */
+let shareSheetPrepRunning = false;
 /** Progress text / bar while building JPEGs for Share (export page). */
 let sharePrepStatusText = "";
 let shareSheetBuildIndex = 0;
@@ -1013,6 +1014,7 @@ function clearCropState() {
   exportPrepInflight.clear();
   shareSheetReadyFiles = null;
   shareSheetPrepareGen++;
+  shareSheetPrepRunning = false;
   sharePrepStatusText = "";
   shareSheetBuildIndex = 0;
   shareSheetBuildTotal = 0;
@@ -1041,6 +1043,7 @@ function clearCropState() {
 function invalidateShareSheetPrep() {
   shareSheetReadyFiles = null;
   shareSheetPrepareGen++;
+  shareSheetPrepRunning = false;
   sharePrepStatusText = "";
   shareSheetBuildIndex = 0;
   shareSheetBuildTotal = 0;
@@ -1210,7 +1213,6 @@ function advanceCropReview() {
   renderCropEditorSlot();
   if (isCropReviewFinished()) {
     setCurrentPage("export");
-    prepareShareSheetFilesInBackground();
   }
   updateButtons();
   schedulePersistSession();
@@ -2539,12 +2541,12 @@ function updateSharePrepUiDisplay() {
     workItems.length > 0 &&
     workItems.some((f) => cropState.get(fileCacheKey(f))) &&
     isCropReviewFinished();
-  const sharePrepPending =
+  const sharePrepVisible =
     onExportPage &&
     zipReady &&
     typeof navigator.share === "function" &&
-    shareSheetReadyFiles === null;
-  if (!sharePrepPending) {
+    shareSheetPrepRunning;
+  if (!sharePrepVisible) {
     setSharePrepProgress(false, 0, "", {});
     return;
   }
@@ -2571,32 +2573,26 @@ function updateButtons() {
   btnCrop.disabled = !zipReady;
   if (btnShareInat) {
     const onExportPage = pageExport && !pageExport.hidden;
-    /** JPEGs for the share sheet are built in the background after review; disable until ready. */
-    const sharePrepPending =
-      onExportPage &&
-      zipReady &&
-      typeof navigator.share === "function" &&
-      shareSheetReadyFiles === null;
     const shareNothingReady =
       onExportPage &&
       zipReady &&
       typeof navigator.share === "function" &&
       Array.isArray(shareSheetReadyFiles) &&
       shareSheetReadyFiles.length === 0;
+    /** Android Chrome: multi-file share is unsafe; we block before encoding (no background share build). */
     const shareAndroidMultiUnsafe =
       onExportPage &&
       zipReady &&
       typeof navigator.share === "function" &&
-      Array.isArray(shareSheetReadyFiles) &&
-      shareSheetReadyFiles.length > 1 &&
+      workItems.length > 1 &&
       isAndroidBrowser();
     btnShareInat.disabled =
       !zipReady ||
       typeof navigator.share !== "function" ||
-      sharePrepPending ||
+      shareSheetPrepRunning ||
       shareNothingReady ||
       shareAndroidMultiUnsafe;
-    btnShareInat.title = sharePrepPending
+    btnShareInat.title = shareSheetPrepRunning
       ? "Preparing images for share…"
       : shareNothingReady
         ? "Nothing to share — use Download ZIP"
@@ -4447,8 +4443,8 @@ function removeWorkItemAndRow(file, row) {
   bumpPrefetchToken();
   /**
    * Abort Share prep immediately — `releaseBatchResources()` (deferred on empty batch) also invalidates,
-   * but async `buildExportFilesListForZip` / `prepareShareSheetFilesInBackground` can still run until
-   * that turn; touching removed `File`s then crashes the tab (esp. last photo in the set).
+   * but async `prepareShareSheetFilesForShare` / ZIP export can still run until that turn; touching
+   * removed `File`s then crashes the tab (esp. last photo in the set).
    */
   invalidateShareSheetPrep();
   markMappingDeletedByFile(file);
@@ -4574,7 +4570,6 @@ function removeWorkItemAndRow(file, row) {
      */
     if (workItems.length > 0 && isCropReviewFinished()) {
       setCurrentPage("export");
-      prepareShareSheetFilesInBackground();
     }
   }
   updateButtons();
@@ -5844,7 +5839,6 @@ async function runAutoCrop() {
     }
     initInatUploadGroupsTimeClusteredFromCache();
     setCurrentPage("export");
-    prepareShareSheetFilesInBackground();
     updateCropReviewChrome();
     updateButtons();
     return;
@@ -5875,7 +5869,6 @@ async function runAutoCrop() {
     setProgress(false, 0, "");
     if (fileSummary) fileSummary.textContent = `${workItems.length} ready — arrange observations below`;
     setCurrentPage("export");
-    prepareShareSheetFilesInBackground();
     updateCropReviewChrome();
     updateButtons();
     return;
@@ -5929,7 +5922,6 @@ async function runAutoCrop() {
   setProgress(false, 0, "");
   if (fileSummary) fileSummary.textContent = `${total} ready — arrange observations below`;
   setCurrentPage("export");
-  prepareShareSheetFilesInBackground();
   updateCropReviewChrome();
   updateButtons();
 }
@@ -6118,16 +6110,17 @@ async function buildExportFilesListForZip(onProgress, labelPrefix) {
 }
 
 /**
- * Build JPEGs for the system share sheet before the user taps Share, so `navigator.share()` can run
- * in the same synchronous turn as the click (avoids NotAllowedError after async prep).
+ * Build JPEGs for the system share sheet when the user taps Share.
+ * Must be awaited from the Share click handler so the async chain starts in a user gesture.
+ * @returns {Promise<File[]>}
  */
-function prepareShareSheetFilesInBackground() {
+async function prepareShareSheetFilesForShare() {
   if (!workItems.length || !isCropReviewFinished()) {
     shareSheetReadyFiles = null;
     sharePrepStatusText = "";
     shareSheetBuildIndex = 0;
     shareSheetBuildTotal = 0;
-    return;
+    return [];
   }
   const gen = ++shareSheetPrepareGen;
   shareSheetReadyFiles = null;
@@ -6135,49 +6128,50 @@ function prepareShareSheetFilesInBackground() {
   const n = workItems.length;
   shareSheetBuildIndex = 0;
   shareSheetBuildTotal = n;
+  shareSheetPrepRunning = true;
   updateSharePrepUiDisplay();
   updateButtons();
-  void (async () => {
-    try {
-      const built = await buildExportFilesListForZip(
-        (info) => {
-          if (gen !== shareSheetPrepareGen) return;
-          shareSheetBuildIndex = info.index;
-          shareSheetBuildTotal = info.total;
-          sharePrepStatusText = "";
-          updateSharePrepUiDisplay();
-        },
-        "Share"
-      );
-      if (gen !== shareSheetPrepareGen) return;
-      const normTotal = built.files.length;
-      shareSheetBuildTotal = normTotal;
-      shareSheetBuildIndex = 0;
-      sharePrepStatusText = "";
-      updateSharePrepUiDisplay();
-      let files = await normalizeExportFilesForShare(built.files, built.sourceFiles, (info) => {
+  try {
+    const built = await buildExportFilesListForZip(
+      (info) => {
         if (gen !== shareSheetPrepareGen) return;
         shareSheetBuildIndex = info.index;
         shareSheetBuildTotal = info.total;
-        updateSharePrepUiDisplay();
-      });
-      if (gen !== shareSheetPrepareGen) return;
-      sharePrepStatusText = "";
-      files = pickShareableImageFiles(files);
-      shareSheetReadyFiles = files;
-      if (gen === shareSheetPrepareGen) {
-        shareSheetBuildIndex = shareSheetBuildTotal;
-        updateButtons();
-      }
-    } catch (e) {
-      console.error(e);
-      if (gen === shareSheetPrepareGen) {
-        shareSheetReadyFiles = [];
         sharePrepStatusText = "";
-        updateButtons();
-      }
+        updateSharePrepUiDisplay();
+      },
+      "Share"
+    );
+    if (gen !== shareSheetPrepareGen) return [];
+    const normTotal = built.files.length;
+    shareSheetBuildTotal = normTotal;
+    shareSheetBuildIndex = 0;
+    sharePrepStatusText = "";
+    updateSharePrepUiDisplay();
+    let files = await normalizeExportFilesForShare(built.files, built.sourceFiles, (info) => {
+      if (gen !== shareSheetPrepareGen) return;
+      shareSheetBuildIndex = info.index;
+      shareSheetBuildTotal = info.total;
+      updateSharePrepUiDisplay();
+    });
+    if (gen !== shareSheetPrepareGen) return [];
+    sharePrepStatusText = "";
+    files = pickShareableImageFiles(files);
+    shareSheetReadyFiles = files;
+    shareSheetBuildIndex = shareSheetBuildTotal;
+    return files;
+  } catch (e) {
+    console.error(e);
+    if (gen === shareSheetPrepareGen) {
+      shareSheetReadyFiles = [];
+      sharePrepStatusText = "";
     }
-  })();
+    return [];
+  } finally {
+    shareSheetPrepRunning = false;
+    updateSharePrepUiDisplay();
+    updateButtons();
+  }
 }
 
 async function runZipDownload() {
@@ -6315,19 +6309,6 @@ async function runZipDownload() {
     updateCropReviewChrome();
     btnCrop.disabled = false;
     if (!zipSucceeded) setZipDownloadProgress(false, 0, "", {});
-    /**
-     * ZIP start calls `invalidateShareSheetPrep()` — that aborts in-flight Share prep and leaves
-     * `shareSheetReadyFiles === null`. Restart background prep so Share can enable again after ZIP.
-     */
-    if (
-      pageExport &&
-      !pageExport.hidden &&
-      workItems.length > 0 &&
-      isCropReviewFinished() &&
-      typeof navigator.share === "function"
-    ) {
-      prepareShareSheetFilesInBackground();
-    }
     updateButtons();
   }
 }
@@ -6337,27 +6318,24 @@ btnCrop.addEventListener("click", () => {
 });
 
 if (btnShareInat) {
-  btnShareInat.addEventListener("click", () => {
+  btnShareInat.addEventListener("click", async () => {
     if (!workItems.length) return;
     if (typeof navigator.share !== "function") {
       showError("Sharing unavailable. Use Download ZIP.");
       return;
     }
     clearError();
-    /** Must call `navigator.share` synchronously from this gesture — async prep first causes NotAllowedError. */
-    if (shareSheetReadyFiles === null) {
-      showError("Still preparing images for share — try again in a moment, or use Download ZIP.");
-      return;
-    }
-    const files = pickShareableImageFiles(shareSheetReadyFiles.slice());
+    const files = await prepareShareSheetFilesForShare();
     if (!files.length) {
       showError("Nothing to share. Use Download ZIP.");
+      updateButtons();
       return;
     }
     if (isAndroidBrowser() && files.length > 1) {
       showError(
         "Chrome on Android can crash when sharing several images at once. Use Download ZIP, or save images one at a time.",
       );
+      updateButtons();
       return;
     }
     let sharePromise;
