@@ -4584,11 +4584,9 @@ async function showSpeciesDetail(taxon, obsCount) {
 async function boot() {
   initMonths();
   readUrl();
-  /* `near_me` in the URL runs geolocation here; paint tabs/panels first so the Filters UI is not
-   * stuck behind a multi-second desktop permission prompt (initial HTML keeps panels hidden). */
-  if (nearMeSource === "url") {
+  const pendingNearMeUrl = nearMeSource === "url";
+  if (pendingNearMeUrl) {
     setActiveTabUI();
-    await resolveNearMeFromUrl();
   }
   await hydrateSelections();
   wireAutocomplete();
@@ -4629,6 +4627,36 @@ async function boot() {
 
   await refreshInatAuthUser();
   await switchView(currentView);
+
+  if (pendingNearMeUrl) {
+    const geoCapMs = 15000;
+    try {
+      await Promise.race([
+        resolveNearMeFromUrl(),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(Object.assign(new Error("near_me_geo_cap"), { code: "NEAR_ME_GEO_CAP" })), geoCapMs)
+        ),
+      ]);
+    } catch (e) {
+      if (
+        e &&
+        e.code === "NEAR_ME_GEO_CAP" &&
+        nearMeSource === "url" &&
+        (!el.lat.value.trim() || !el.lng.value.trim())
+      ) {
+        nearMeSource = "none";
+        placeNearbyMode = false;
+        el.lat.value = "";
+        el.lng.value = "";
+        setCommittedPlaceDisplay("");
+        updatePlaceNearbyUI();
+        syncUrl();
+      }
+    }
+    if (el.lat.value.trim() && el.lng.value.trim()) {
+      await refreshActiveView();
+    }
+  }
 }
 
 /**
@@ -4641,13 +4669,43 @@ async function boot() {
  */
 async function resyncAppFromCurrentUrlAfterBfcache() {
   readUrl();
-  if (nearMeSource === "url") {
+  const pendingNearMeUrl = nearMeSource === "url";
+  if (pendingNearMeUrl) {
     setActiveTabUI();
-    await resolveNearMeFromUrl();
   }
   await hydrateSelections();
   lastMapFilterKey = null;
   await switchView(currentView);
+
+  if (pendingNearMeUrl) {
+    const geoCapMs = 15000;
+    try {
+      await Promise.race([
+        resolveNearMeFromUrl(),
+        new Promise((_, rej) =>
+          setTimeout(() => rej(Object.assign(new Error("near_me_geo_cap"), { code: "NEAR_ME_GEO_CAP" })), geoCapMs)
+        ),
+      ]);
+    } catch (e) {
+      if (
+        e &&
+        e.code === "NEAR_ME_GEO_CAP" &&
+        nearMeSource === "url" &&
+        (!el.lat.value.trim() || !el.lng.value.trim())
+      ) {
+        nearMeSource = "none";
+        placeNearbyMode = false;
+        el.lat.value = "";
+        el.lng.value = "";
+        setCommittedPlaceDisplay("");
+        updatePlaceNearbyUI();
+        syncUrl();
+      }
+    }
+    if (el.lat.value.trim() && el.lng.value.trim()) {
+      await refreshActiveView();
+    }
+  }
 }
 
 window.addEventListener("pageshow", (e) => {
