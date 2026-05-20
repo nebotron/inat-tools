@@ -292,9 +292,6 @@ main {
   width: 6rem;
 }
 
-.months-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem 0.5rem; }
-.months-grid label { display: flex; gap: 0.35rem; align-items: center; font-size: 0.86rem; }
-
 .card-meta-fieldset .field-hint {
   margin: 0 0 0.5rem;
 }
@@ -1291,7 +1288,6 @@ img.leaflet-tile.map-heat-tiles {
 }
 
 @media (max-width: 640px) {
-  .months-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .location-row { flex-direction: column; align-items: stretch; }
   .map-container { min-height: 320px; }
 

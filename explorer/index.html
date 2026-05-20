@@ -11,7 +11,7 @@
     <title>iNaturalist observation browser</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="stylesheet" href="styles.css?v=explorer-remove-summary-actions-css-1" />
+    <link rel="stylesheet" href="styles.css?v=explorer-remove-months-evidence-1" />
     <link rel="preconnect" href="https://api.inaturalist.org" />
     <link rel="icon" href="../favicon.png?v=inat300" type="image/png" sizes="300x300" />
     <link rel="apple-touch-icon" href="../favicon.png?v=inat300" />
@@ -78,11 +78,6 @@
                 <p id="inat-api-auth-status" class="inat-api-auth-status" role="status" aria-live="polite"></p>
               </fieldset>
 
-              <fieldset class="months-fieldset">
-                <legend>Months</legend>
-                <div id="months-grid" class="months-grid" role="group" aria-label="Months"></div>
-              </fieldset>
-
               <fieldset class="months-fieldset establishment-fieldset">
                 <legend>Establishment</legend>
                 <p class="establishment-fieldset-hint">Uncheck a type to hide it from results.</p>
@@ -101,17 +96,6 @@
                   <option value="research">Research</option>
                   <option value="needs_id">Needs ID</option>
                   <option value="casual">Casual</option>
-                </select>
-              </div>
-
-              <div class="field">
-                <label for="filter-evidence-presence">Evidence</label>
-                <select id="filter-evidence-presence">
-                  <option value="any" selected>Any</option>
-                  <option value="organism">Alive / present</option>
-                  <option value="egg">Egg</option>
-                  <option value="nest">Nest</option>
-                  <option value="feather">Feather</option>
                 </select>
               </div>
 
@@ -239,6 +223,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js" crossorigin=""></script>
-    <script src="app.js?v=explorer-remove-obs-species-controls-1" type="module"></script>
+    <script src="app.js?v=explorer-remove-months-evidence-1" type="module"></script>
   </body>
 </html>

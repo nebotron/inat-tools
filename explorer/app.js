@@ -42,16 +42,6 @@ const EXPLORER_NEAR_ME_GEO_KEY = "inatExplorerNearMeGeo";
 /** Discard stashed coordinates after this many milliseconds (stale GPS). */
 const EXPLORER_NEAR_ME_GEO_STASH_MAX_MS = 24 * 60 * 60 * 1000;
 
-/** iNaturalist controlled term "Evidence of Presence" (`GET /controlled_terms`). */
-const EVIDENCE_OF_PRESENCE_TERM_ID = 22;
-/** `term_value_id` for each filter option (Organism = animal present; Construction = nests, burrows, etc.). */
-const EVIDENCE_OF_PRESENCE_TERM_VALUE = {
-  organism: 24,
-  egg: 30,
-  nest: 35,
-  feather: 23,
-};
-
 /** Taxon page on iNaturalist (HTTPS works in every browser; some mobile setups still open the native app). */
 function inaturalistTaxonWebUrl(taxonId) {
   const id = taxonId != null ? String(taxonId).trim() : "";
@@ -256,7 +246,6 @@ const el = {
   filterEstIntroduced: document.getElementById("filter-est-introduced"),
   filterEstInvasive: document.getElementById("filter-est-invasive"),
   qualityGrade: document.getElementById("quality-grade"),
-  filterEvidencePresence: document.getElementById("filter-evidence-presence"),
   sortMode: document.getElementById("sort-mode"),
   filterMyReview: document.getElementById("filter-my-review"),
   mediaPhotos: document.getElementById("media-photos"),
@@ -275,7 +264,6 @@ const el = {
   metaPhotoPage: document.getElementById("meta-photo-page"),
   metaSciName: document.getElementById("meta-sci-name"),
   metaIdentifyControls: document.getElementById("meta-identify-controls"),
-  monthsGrid: document.getElementById("months-grid"),
   searchForm: document.getElementById("search-form"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
@@ -1099,35 +1087,6 @@ function formatGeolocationFailureMessage(err) {
   return "Could not get your location. Check browser settings or pick a named place.";
 }
 
-function initMonths() {
-  el.monthsGrid.innerHTML = "";
-  for (let m = 1; m <= 12; m += 1) {
-    const label = document.createElement("label");
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.dataset.month = String(m);
-    box.addEventListener("change", () => {
-      scheduleUrlSync();
-    });
-    label.appendChild(box);
-    label.appendChild(document.createTextNode(MONTH_NAMES[m - 1]));
-    el.monthsGrid.appendChild(label);
-  }
-}
-
-function getMonths() {
-  return Array.from(el.monthsGrid.querySelectorAll('input[type="checkbox"]:checked'))
-    .map((x) => x.dataset.month)
-    .sort((a, b) => Number(a) - Number(b));
-}
-
-function setMonths(csv) {
-  const keep = new Set((csv || "").split(",").map((x) => x.trim()).filter(Boolean));
-  el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((box) => {
-    box.checked = keep.has(box.dataset.month);
-  });
-}
-
 function mediaQueryFromCheckboxes() {
   const p = el.mediaPhotos.checked;
   const s = el.mediaSounds.checked;
@@ -1389,9 +1348,6 @@ function commonParams(options = {}) {
   const uid = el.unobservedInput.value.trim().toLowerCase();
   if (uid) p.set("unobserved_by_user_id", uid);
 
-  const months = getMonths();
-  if (months.length) p.set("month", months.join(","));
-
   if (el.qualityGrade.value) p.set("quality_grade", el.qualityGrade.value);
 
   const photosOn = el.mediaPhotos.checked;
@@ -1422,30 +1378,7 @@ function commonParams(options = {}) {
 
   if (el.popularOnly.checked) p.set("popular", "true");
 
-  applyEvidencePresenceToParams(p);
-
   return p;
-}
-
-/** @returns {"any"|"organism"|"egg"|"nest"|"feather"} */
-function getEvidencePresenceFilter() {
-  const sel = el.filterEvidencePresence;
-  const v = sel && sel.value ? sel.value : "any";
-  if (v === "organism" || v === "egg" || v === "nest" || v === "feather") return v;
-  return "any";
-}
-
-/**
- * Restrict observations to one Evidence of Presence value (iNat annotation API).
- * @param {URLSearchParams} p
- */
-function applyEvidencePresenceToParams(p) {
-  const kind = getEvidencePresenceFilter();
-  if (kind === "any") return;
-  const termVal = EVIDENCE_OF_PRESENCE_TERM_VALUE[kind];
-  if (termVal == null) return;
-  p.set("term_id", String(EVIDENCE_OF_PRESENCE_TERM_ID));
-  p.set("term_value_id", String(termVal));
 }
 
 function observationListNeedsAuthForReviewFilter() {
@@ -1624,8 +1557,8 @@ async function speciesFilterParams(taxonId) {
 
 /**
  * Params for `GET /observations/histogram` month-of-year for species detail.
- * Matches the species_counts scope for this taxon, but drops `month` — otherwise
- * the chart only shows selected months (from the Filters grid) and looks wrong.
+ * Matches the species_counts scope for this taxon, but drops `month` so the chart reflects
+ * the full year of observed dates rather than a subset.
  * iNaturalist does not return per-month arrays on the species_counts response;
  * histogram is the supported aggregate for this chart.
  */
@@ -3703,9 +3636,8 @@ function syncUrl() {
   if (cm === null) q.delete("cardmeta");
   else q.set("cardmeta", cm);
 
-  const months = getMonths();
-  if (months.length) q.set("months", months.join(","));
-  else q.delete("months");
+  q.delete("months");
+  q.delete("evidence");
 
   if (el.qualityGrade.value) q.set("grade", el.qualityGrade.value);
   else q.delete("grade");
@@ -3737,10 +3669,6 @@ function syncUrl() {
   else q.delete("est");
   q.delete("establish");
   q.delete("endemic");
-
-  const evidence = getEvidencePresenceFilter();
-  if (evidence !== "any") q.set("evidence", evidence);
-  else q.delete("evidence");
 
   if (currentView != "filters") {
     q.set("view", currentView);
@@ -3832,7 +3760,6 @@ function readUrl() {
 
   el.unobservedInput.value = (q.get("unobserved") || "").toLowerCase();
   applyCardMetaFromQuery(q);
-  setMonths(q.get("months") || "");
   el.qualityGrade.value = q.get("grade") || "";
   {
     const s = q.get("sort") || "recent";
@@ -3848,12 +3775,6 @@ function readUrl() {
   el.popularOnly.checked = q.get("popular") === "1";
 
   parseEstablishmentFromQuery(q);
-
-  if (el.filterEvidencePresence) {
-    const ev = (q.get("evidence") || "").toLowerCase();
-    el.filterEvidencePresence.value =
-      ev === "organism" || ev === "egg" || ev === "nest" || ev === "feather" ? ev : "any";
-  }
 
   const dtid = q.get("detail_taxon");
   if (dtid) detailTaxonId = dtid;
@@ -4465,12 +4386,6 @@ function wireFilterExtras() {
     syncUrl();
   });
   el.qualityGrade.addEventListener("change", onChange);
-  if (el.filterEvidencePresence) {
-    el.filterEvidencePresence.addEventListener("change", () => {
-      lastMapFilterKey = null;
-      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
-    });
-  }
   el.sortMode.addEventListener("change", () => {
     onChange();
     lastMapFilterKey = null;
@@ -4569,10 +4484,6 @@ function wireButtons() {
     if (el.metaPhotoPage) el.metaPhotoPage.checked = false;
     el.metaSciName.checked = false;
     setEstablishmentCheckboxes({ endemic: true, native: true, introduced: true, invasive: true });
-    if (el.filterEvidencePresence) el.filterEvidencePresence.value = "any";
-    el.monthsGrid.querySelectorAll('input[type="checkbox"]').forEach((x) => {
-      x.checked = false;
-    });
     clearGridCardImagePreloadSeen();
     el.resultsGrid.innerHTML = "";
     el.speciesGrid.innerHTML = "";
@@ -4798,7 +4709,6 @@ async function showSpeciesDetail(taxon, obsCount) {
 }
 
 async function boot() {
-  initMonths();
   readUrl();
   const pendingNearMeUrl = nearMeSource === "url";
   if (pendingNearMeUrl) {

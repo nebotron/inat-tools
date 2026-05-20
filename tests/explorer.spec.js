@@ -19,14 +19,6 @@ test.describe("explorer", () => {
     await expect(page.locator("#search-summary-obs")).toContainText(/observation/i, { timeout: 90_000 });
   });
 
-  test("evidence filter is reflected in the URL", async ({ page }) => {
-    await expect(page.locator("#filter-evidence-presence")).toBeVisible();
-    await page.locator("#filter-evidence-presence").selectOption("egg");
-    await expect(page).toHaveURL(/evidence=egg/);
-    await page.locator("#filter-evidence-presence").selectOption("any");
-    await expect(page).not.toHaveURL(/evidence=/);
-  });
-
   test("unreviewed filter requires API sign-in (select reverts without JWT)", async ({ page }) => {
     await expect(page.locator("#filter-my-review")).toBeVisible();
     page.once("dialog", (d) => d.accept());
