@@ -279,9 +279,6 @@ const el = {
   searchForm: document.getElementById("search-form"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
-  btnRefreshObservations: document.getElementById("btn-refresh-observations"),
-  btnJumpLastObs: document.getElementById("btn-jump-last-obs"),
-  btnRefreshSpecies: document.getElementById("btn-refresh-species"),
   btnRefreshMap: document.getElementById("btn-refresh-map"),
   btnRefreshStats: document.getElementById("btn-refresh-stats"),
   btnRefreshDetail: document.getElementById("btn-refresh-detail"),
@@ -3000,7 +2997,6 @@ async function runObservationSearch(reset) {
     showError("obs", err.message || "Could not load observations.");
   } finally {
     obsLoading = false;
-    updateObsJumpLastButton();
   }
 }
 
@@ -3596,8 +3592,6 @@ function setActiveTabUI() {
 }
 
 function setRefreshButtonsDisabled(disabled) {
-  if (el.btnRefreshObservations) el.btnRefreshObservations.disabled = disabled;
-  if (el.btnRefreshSpecies) el.btnRefreshSpecies.disabled = disabled;
   if (el.btnRefreshStats) el.btnRefreshStats.disabled = disabled;
   if (el.btnRefreshMap) el.btnRefreshMap.disabled = disabled;
   if (el.btnRefreshDetail) el.btnRefreshDetail.disabled = disabled;
@@ -3653,9 +3647,6 @@ async function switchView(view) {
     startMapUserLocationWatch();
   } else if (view === "detail" && detailTaxonId) {
     await loadDetailFromTaxonId(detailTaxonId);
-  }
-  if (view === "observations") {
-    updateObsJumpLastButton();
   }
 }
 
@@ -4262,13 +4253,6 @@ function findObsCardIdNearViewportCenter() {
   return bestId;
 }
 
-function updateObsJumpLastButton() {
-  const btn = el.btnJumpLastObs;
-  if (!btn) return;
-  const { id, scrollTop } = readObsScrollMemory();
-  btn.disabled = id == null && scrollTop < 12;
-}
-
 function writeObsScrollMemory(obsId, scrollTop) {
   const prev = readObsScrollMemory();
   const id = obsId != null && Number.isFinite(obsId) && obsId > 0 ? Math.floor(obsId) : prev.id;
@@ -4279,7 +4263,6 @@ function writeObsScrollMemory(obsId, scrollTop) {
   } catch {
     /* quota / private mode */
   }
-  updateObsJumpLastButton();
 }
 
 function flushObsScrollMemorySave() {
@@ -4299,27 +4282,7 @@ function scheduleObsScrollMemorySave() {
   }, 200);
 }
 
-function jumpToLastObsScrollPosition() {
-  if (!el.panelObs) return;
-  const { id, scrollTop } = readObsScrollMemory();
-  const panel = el.panelObs;
-  if (id != null && el.resultsGrid) {
-    const elCard = el.resultsGrid.querySelector(`.card[data-obs-id="${id}"]`);
-    if (elCard) {
-      elCard.scrollIntoView({ block: "center", behavior: "smooth" });
-      requestAnimationFrame(() => {
-        writeObsScrollMemory(id, panel.scrollTop);
-      });
-      return;
-    }
-  }
-  const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
-  const target = Math.min(Math.max(0, scrollTop), maxScroll);
-  panel.scrollTo({ top: target, behavior: "smooth" });
-}
-
 function wireObservationScrollMemory() {
-  updateObsJumpLastButton();
   if (!el.panelObs) return;
   el.panelObs.addEventListener(
     "scroll",
@@ -4338,11 +4301,6 @@ function wireObservationScrollMemory() {
       const oid = Number(card.dataset.obsId);
       if (!Number.isFinite(oid) || oid <= 0) return;
       writeObsScrollMemory(oid, el.panelObs.scrollTop);
-    });
-  }
-  if (el.btnJumpLastObs) {
-    el.btnJumpLastObs.addEventListener("click", () => {
-      jumpToLastObsScrollPosition();
     });
   }
 }
@@ -4858,16 +4816,6 @@ async function boot() {
   wireFilterExtras();
   wireExplorerApiAuth();
   wireButtons();
-  if (el.btnRefreshObservations) {
-    el.btnRefreshObservations.addEventListener("click", () => {
-      void refreshActiveView();
-    });
-  }
-  if (el.btnRefreshSpecies) {
-    el.btnRefreshSpecies.addEventListener("click", () => {
-      void refreshActiveView();
-    });
-  }
   if (el.btnRefreshMap) {
     el.btnRefreshMap.addEventListener("click", () => {
       void refreshActiveView();
