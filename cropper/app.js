@@ -4412,13 +4412,14 @@ function gatherInatUploadPreflightBlockingErrors(nonemptyGroups) {
 }
 
 /**
- * Warnings (user may cancel or upload anyway) using original files only — no JPEG export yet.
+ * Soft checks before upload prep (original files only — no JPEG export yet).
+ * Only **species** and **location** gaps are returned for a user prompt; other issues (e.g. observed-time
+ * collision hints) are surfaced in the UI elsewhere, not as upload blockers.
  * @param {Array<{ indices: number[], species?: string, taxonId?: string, manualLat?: number, manualLon?: number }>} nonemptyGroups
  * @returns {Promise<string[]>}
  */
 async function gatherInatUploadPreflightWarnings(nonemptyGroups) {
   const uploadWarnings = [];
-  const collisionFlags = inatPhotoObservedCollisionFlags;
   for (let gi = 0; gi < nonemptyGroups.length; gi++) {
     const grp = nonemptyGroups[gi];
     const taxonRaw = (grp.taxonId || "").trim();
@@ -4448,16 +4449,6 @@ async function gatherInatUploadPreflightWarnings(nonemptyGroups) {
       uploadWarnings.push(
         `Observation ${gi + 1}: no GPS coordinates in the photo files — add a location on the website after upload, or use photos that include embedded location.`,
       );
-    }
-    if (collisionFlags && grp.indices && grp.indices.length) {
-      for (const ix of grp.indices) {
-        if (collisionFlags[ix]) {
-          uploadWarnings.push(
-            `Observation ${gi + 1}: at least one photo may match the date and time of an existing observation on your account (see ! on thumbnails).`,
-          );
-          break;
-        }
-      }
     }
   }
   return uploadWarnings;
@@ -4541,17 +4532,7 @@ async function runInatObservationUpload() {
   }
 
   prepareStepsDone = prepareStepsTotal;
-  setInatUploadProgressUi(PREPARE_PORTION, "Files ready — confirm upload.");
-
-  const totalPhotos = nonemptyGroups.reduce((sum, g) => sum + g.indices.length, 0);
-  const confirmMsg =
-    nonemptyGroups.length > 1 || totalPhotos > 8
-      ? `Create ${nonemptyGroups.length} observation(s) from ${totalPhotos} photo(s) on iNaturalist?`
-      : `Create ${nonemptyGroups.length} observation(s) on iNaturalist?`;
-  if (!window.confirm(confirmMsg)) {
-    resetInatUploadProgressUi();
-    return;
-  }
+  setInatUploadProgressUi(PREPARE_PORTION, "Files ready — uploading…");
 
   const uploadStepsTotal = nonemptyGroups.reduce((sum, g) => sum + 1 + g.indices.length, 0);
   let uploadStepsDone = 0;
