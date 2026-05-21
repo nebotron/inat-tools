@@ -5224,59 +5224,30 @@ function buildCropEditor(file, state, manualNote, options) {
 
   /** @type {HTMLImageElement | HTMLCanvasElement} */
   let img;
+  /** Capped prefetch bitmaps are for queue snappiness only — the editor always uses the full file preview for accurate crop. */
   const preBm = cropPreviewBitmapByKey.get(key);
   if (preBm) {
     cropPreviewBitmapByKey.delete(key);
-    let c = null;
-    try {
-      c = paintCropPreviewCanvasFromSource(preBm, cropEditorBitmapDrawMaxEdge(), "medium");
-    } catch {
-      c = null;
-    }
-    if (!c) {
-      const fallback = document.createElement("canvas");
-      fallback.className = "crop-preview-canvas";
-      const bmMax = Math.max(preBm.width, preBm.height);
-      const drawMax = cropEditorBitmapDrawMaxEdge();
-      let dw = preBm.width;
-      let dh = preBm.height;
-      if (bmMax > drawMax) {
-        const s = drawMax / bmMax;
-        dw = Math.max(1, Math.round(preBm.width * s));
-        dh = Math.max(1, Math.round(preBm.height * s));
-      }
-      fallback.width = dw;
-      fallback.height = dh;
-      const pctx = fallback.getContext("2d", { willReadFrequently: false, alpha: false });
-      if (pctx) {
-        pctx.imageSmoothingEnabled = true;
-        pctx.imageSmoothingQuality = "medium";
-        pctx.drawImage(preBm, 0, 0, dw, dh);
-      }
-      c = fallback;
-    }
     try {
       preBm.close();
-    } catch { /* ignore */ }
-    img = c;
-    queueMicrotask(() => {
-      syncFixedViewportLayout();
-      syncZoomSliderFromState();
-    });
-  } else {
-    const im = document.createElement("img");
-    im.src = getOrCreateFilePreviewUrl(file);
-    im.alt = "";
-    im.draggable = false;
-    /** Async decode keeps main thread responsive while the crop UI paints. */
-    im.decoding = "async";
-    im.loading = "eager";
-    try {
-      if ("fetchPriority" in im) im.fetchPriority = "high";
-    } catch { /* ignore */ }
-    im.setAttribute("draggable", "false");
-    img = im;
+    } catch {
+      /* ignore */
+    }
   }
+  const im = document.createElement("img");
+  im.src = getOrCreateFilePreviewUrl(file);
+  im.alt = "";
+  im.draggable = false;
+  /** Async decode keeps main thread responsive while the crop UI paints. */
+  im.decoding = "async";
+  im.loading = "eager";
+  try {
+    if ("fetchPriority" in im) im.fetchPriority = "high";
+  } catch {
+    /* ignore */
+  }
+  im.setAttribute("draggable", "false");
+  img = im;
 
   const meta = document.createElement("div");
   meta.className = "crop-meta";
@@ -5587,33 +5558,10 @@ function buildCropEditor(file, state, manualNote, options) {
     ev.preventDefault();
   }
 
-  /** Once `<img>` pixels are decoded, replace with a capped canvas so pan/zoom is not compositing a 40–60MP layer. */
-  function normalizeLoadedCropImageToCappedCanvasIfNeeded() {
-    if (img.tagName !== "IMG") return;
-    const im = /** @type {HTMLImageElement} */ (img);
-    const nw = im.naturalWidth;
-    const nh = im.naturalHeight;
-    if (!nw || !nh) return;
-    const maxEdge = cropEditorBitmapDrawMaxEdge();
-    if (Math.max(nw, nh) <= maxEdge) return;
-    try {
-      const c = paintCropPreviewCanvasFromSource(im, maxEdge, "medium");
-      const p = im.parentNode;
-      if (p) p.replaceChild(c, im);
-      img = c;
-      invalidateFixedViewportLayoutCache();
-      img.addEventListener("contextmenu", blockImageChrome, { signal: cropUiSignal });
-      img.addEventListener("dragstart", blockImageChrome, { signal: cropUiSignal });
-    } catch {
-      /* keep full-resolution surface */
-    }
-  }
-
   if (img.tagName === "IMG") {
     img.addEventListener(
       "load",
       () => {
-        normalizeLoadedCropImageToCappedCanvasIfNeeded();
         syncFixedViewportLayout();
         syncZoomSliderFromState();
       },
@@ -5647,10 +5595,9 @@ function buildCropEditor(file, state, manualNote, options) {
     queueMicrotask(() => {
       if (cropUiSignal.aborted) return;
       if (img.tagName === "IMG" && img.complete && img.naturalWidth > 0) {
-        normalizeLoadedCropImageToCappedCanvasIfNeeded();
+        syncFixedViewportLayout();
+        syncZoomSliderFromState();
       }
-      syncFixedViewportLayout();
-      syncZoomSliderFromState();
     });
   }
 
