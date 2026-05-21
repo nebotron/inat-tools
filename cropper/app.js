@@ -975,6 +975,7 @@ async function applySavedCropMappingForCurrentBatch(totalFilesForUi) {
       setProgress(true, pct, `Applying saved crops · ${decodeDone}/${decodeTotal} — ${dispName}`, {
         indeterminate: false,
       });
+      setAutoCropBatchHint(`Applying saved crops · ${decodeDone} / ${decodeTotal} — ${dispName}`);
       if (fileSummary) {
         fileSummary.textContent = `Preparing · ${totalFilesForUi} photo(s) · saved crops ${decodeDone}/${decodeTotal}`;
       }
@@ -2430,25 +2431,60 @@ function setProgress(visible, pct, text, options) {
   const indeterminate = options && options.indeterminate;
   /** While `startModelLoadElapsedUi` runs, it owns `progressLine` text; only update the bar for shard % etc. */
   const skipTextLine = options && options.skipTextLine;
-  progressLine.hidden = !visible;
-  progressBar.hidden = !visible;
+  if (progressLine) {
+    progressLine.hidden = !visible;
+    if (visible) progressLine.removeAttribute("hidden");
+    else progressLine.setAttribute("hidden", "");
+  }
+  if (progressBar) {
+    progressBar.hidden = !visible;
+    if (visible) progressBar.removeAttribute("hidden");
+    else progressBar.setAttribute("hidden", "");
+  }
   if (!visible) {
-    progressLine.textContent = "";
-  } else if (!skipTextLine && text !== undefined) {
+    if (progressLine) progressLine.textContent = "";
+    if (batchProgress) {
+      batchProgress.hidden = true;
+      batchProgress.textContent = "";
+    }
+    if (progressBar && progressFill) {
+      progressBar.classList.remove("progress--indeterminate");
+      progressFill.classList.remove("progress__fill--indeterminate");
+      progressFill.style.width = "";
+    }
+  } else if (progressLine && !skipTextLine && text !== undefined) {
     progressLine.textContent = text;
   }
-  progressBar.classList.toggle("progress--indeterminate", Boolean(indeterminate));
-  progressFill.classList.toggle("progress__fill--indeterminate", Boolean(indeterminate));
-  if (indeterminate) {
-    progressFill.style.width = "";
-    progressBar.removeAttribute("aria-valuenow");
-    progressBar.setAttribute("aria-valuetext", "In progress");
-  } else {
-    const p = Math.max(0, Math.min(100, pct));
-    progressFill.style.width = `${p}%`;
-    progressBar.setAttribute("aria-valuenow", String(Math.round(p)));
-    progressBar.removeAttribute("aria-valuetext");
+  if (progressFill && progressBar) {
+    progressBar.classList.toggle("progress--indeterminate", Boolean(indeterminate));
+    progressFill.classList.toggle("progress__fill--indeterminate", Boolean(indeterminate));
+    if (indeterminate) {
+      progressFill.style.width = "";
+      progressBar.removeAttribute("aria-valuenow");
+      progressBar.setAttribute("aria-valuetext", "In progress");
+    } else {
+      const p = Math.max(0, Math.min(100, pct));
+      progressFill.style.width = `${p}%`;
+      progressBar.setAttribute("aria-valuenow", String(Math.round(p)));
+      progressBar.removeAttribute("aria-valuetext");
+    }
   }
+}
+
+/**
+ * Extra status line above the progress bar during auto-crop (counts stay visible while each photo runs).
+ * @param {string | null | undefined} text — empty hides
+ */
+function setAutoCropBatchHint(text) {
+  if (!batchProgress) return;
+  if (!text) {
+    batchProgress.hidden = true;
+    batchProgress.textContent = "";
+    return;
+  }
+  batchProgress.hidden = false;
+  batchProgress.removeAttribute("hidden");
+  batchProgress.textContent = text;
 }
 
 function clearModelLoadElapsedTimer() {
@@ -5801,6 +5837,7 @@ async function runManualCropOnly(gen) {
     if (gen !== previewGeneration) return;
     if (shouldYieldBetweenBatchItems() && idx > 0) await new Promise((r) => setTimeout(r, 0));
     setProgress(true, ((idx + 1) / total) * 100, `${idx + 1} / ${total}…`);
+    setAutoCropBatchHint(`Applying centered crop — ${idx + 1} / ${total} photos`);
 
     const file = workItems[idx];
     const key = fileCacheKey(file);
@@ -5962,6 +5999,7 @@ async function runAutoCrop() {
   /** Progress bar lives on `page-crop`; stay on setup until here and users saw only `file-summary` with no bar. */
   setCurrentPage("crop");
   setProgress(true, 0, `Preparing · ${totalFiles} photo(s)…`, { indeterminate: true });
+  setAutoCropBatchHint(`Preparing batch — ${totalFiles} photo${totalFiles === 1 ? "" : "s"}`);
   const reapplied = await applySavedCropMappingForCurrentBatch(totalFiles);
   const reappliedDeleted = reapplied.deleted || 0;
   if (fileSummary) {
@@ -6004,7 +6042,16 @@ async function runAutoCrop() {
     updateButtons();
     return;
   }
-  setProgress(true, 0, "Preparing…", { indeterminate: true });
+  const queuedForDetect = analysisPendingKeys.size;
+  setProgress(
+    true,
+    0,
+    `Loading detection model · ${queuedForDetect} photo${queuedForDetect === 1 ? "" : "s"}…`,
+    { indeterminate: true }
+  );
+  setAutoCropBatchHint(
+    `Queued for analysis — ${queuedForDetect} photo${queuedForDetect === 1 ? "" : "s"}`
+  );
   setCurrentPage("crop");
   updateButtons();
 
@@ -6050,19 +6097,24 @@ async function runAutoCrop() {
   const total = workItems.length;
   const pendingCount = analysisPendingKeys.size;
   let analyzed = 0;
+  setProgress(
+    true,
+    0,
+    `Auto crop · 0 / ${pendingCount}…`,
+    { indeterminate: false }
+  );
+  setAutoCropBatchHint(`Auto crop — 0 / ${pendingCount} photos`);
+  await yieldToMainForUi();
   for (let ii = 0; ii < workItems.length; ii++) {
     if (gen !== previewGeneration) return;
     const file = workItems[ii];
     const key = fileCacheKey(file);
     if (!analysisPendingKeys.has(key)) continue;
-    analyzed++;
-    setProgress(
-      true,
-      pendingCount > 0 ? ((analyzed - 0.5) / pendingCount) * 100 : 0,
-      `Auto crop · ${analyzed} / ${pendingCount}…`,
-      { indeterminate: false }
-    );
     await analyzeOneImage(file, detModel, padFrac, minScore, gen);
+    analyzed++;
+    const pct = pendingCount > 0 ? (analyzed / pendingCount) * 100 : 100;
+    setProgress(true, pct, `Auto crop · ${analyzed} / ${pendingCount}…`, { indeterminate: false });
+    setAutoCropBatchHint(`Auto crop — ${analyzed} / ${pendingCount} photos`);
     if (shouldYieldBetweenBatchItems() && ii > 0) await new Promise((r) => setTimeout(r, 0));
   }
   if (gen !== previewGeneration) return;
