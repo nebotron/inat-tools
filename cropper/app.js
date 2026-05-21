@@ -1046,11 +1046,10 @@ async function applySavedCropMappingForCurrentBatch(totalFilesForUi) {
     const key = fileCacheKey(file);
     reappliedKeys.add(key);
     if (mapping.accepted) {
-      cropReviewDoneKeys.add(key);
       accepted++;
-    } else {
-      cropReviewDoneKeys.delete(key);
     }
+    /** Saved “accepted” only affects persistence metadata — each batch still goes through per-photo review. */
+    cropReviewDoneKeys.delete(key);
     applied++;
   }
   workItems = nextWorkItems;
@@ -4327,7 +4326,6 @@ async function createInatObservationForGroup(
   /** @type {Record<string, unknown>} */
   const obs = {
     species_guess: guess,
-    description: "Uploaded from Subject square crop (browser).",
     observed_on_string: observedOn,
     geoprivacy: "open",
   };
@@ -5969,18 +5967,15 @@ async function runAutoCrop() {
     setProgress(false, 0, "");
     if (fileSummary) {
       fileSummary.textContent = fileSummaryTextAfterReapply(
-        `${workItems.length} ready`,
+        `${workItems.length} ready — review & ✓ each`,
         reapplied.applied,
         reapplied.accepted,
         reappliedDeleted
       );
     }
-    for (const f of workItems) {
-      const k = fileCacheKey(f);
-      if (cropState.has(k)) cropReviewDoneKeys.add(k);
-    }
-    initInatUploadGroupsTimeClusteredFromCache();
-    setCurrentPage("export");
+    syncCropReviewIndex();
+    setCurrentPage("crop");
+    renderCropEditorSlot();
     updateCropReviewChrome();
     updateButtons();
     return;
@@ -6009,16 +6004,7 @@ async function runAutoCrop() {
     showError(`Couldn’t start analysis: ${detail} Centered square crops were applied — adjust below if needed.`, e);
     await runManualCropOnly(gen);
     if (gen !== previewGeneration) return;
-    for (const f of workItems) {
-      const k = fileCacheKey(f);
-      if (cropState.has(k)) cropReviewDoneKeys.add(k);
-    }
-    initInatUploadGroupsTimeClusteredFromCache();
-    setProgress(false, 0, "");
-    if (fileSummary) fileSummary.textContent = `${workItems.length} ready — arrange observations below`;
-    setCurrentPage("export");
-    updateCropReviewChrome();
-    updateButtons();
+    finishPreviewBatch(gen, workItems.length, true);
     return;
   }
   if (gen !== previewGeneration) return;
@@ -6035,44 +6021,17 @@ async function runAutoCrop() {
   const minScore = MIN_DETECTION_SCORE;
   const detModel = model;
   const total = workItems.length;
-  const pendingCount = analysisPendingKeys.size;
-  let analyzed = 0;
-  setProgress(
-    true,
-    0,
-    `Auto crop · 0 / ${pendingCount}…`,
-    { indeterminate: false }
-  );
-  await yieldToMainForUi();
-  for (let ii = 0; ii < workItems.length; ii++) {
-    if (gen !== previewGeneration) return;
-    const file = workItems[ii];
-    const key = fileCacheKey(file);
-    if (!analysisPendingKeys.has(key)) continue;
-    await analyzeOneImage(file, detModel, padFrac, minScore, gen);
-    analyzed++;
-    const pct = pendingCount > 0 ? (analyzed / pendingCount) * 100 : 100;
-    setProgress(true, pct, `Auto crop · ${analyzed} / ${pendingCount}…`, { indeterminate: false });
-    if (shouldYieldBetweenBatchItems() && ii > 0) await new Promise((r) => setTimeout(r, 0));
-  }
-  if (gen !== previewGeneration) return;
-
-  if (!workItems.length) {
-    setProgress(false, 0, "");
-    fileSummary.textContent = "";
-    setCurrentPage("setup");
-    updateButtons();
-    return;
-  }
-
-  for (const f of workItems) {
-    const k = fileCacheKey(f);
-    if (cropState.has(k)) cropReviewDoneKeys.add(k);
-  }
-  initInatUploadGroupsTimeClusteredFromCache();
   setProgress(false, 0, "");
-  if (fileSummary) fileSummary.textContent = `${total} ready — arrange observations below`;
-  setCurrentPage("export");
+  if (fileSummary) {
+    fileSummary.textContent =
+      total > 1
+        ? `${total} photos — review newest first; analysis continues in the background.`
+        : `${total} ready — review & ✓ each`;
+  }
+  syncCropReviewIndex();
+  setCurrentPage("crop");
+  runRemainingAnalysisInBackground(gen, detModel, padFrac, minScore);
+  renderCropEditorSlot();
   updateCropReviewChrome();
   updateButtons();
 }
