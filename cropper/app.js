@@ -4138,15 +4138,23 @@ function renderInatPhotoGroupingStrip() {
         Number.isFinite(cur.manualLon) &&
         isValidObservationLatLon(cur.manualLat, cur.manualLon);
       if (hasGps) {
-        summaryEl.textContent = "Location comes from embedded photo GPS.";
         pickBtn.hidden = true;
         clearBtn.hidden = !manual;
+        if (manual) {
+          summaryEl.hidden = false;
+          summaryEl.textContent = `Using map location: ${formatCoordForDisplay(cur.manualLat)}, ${formatCoordForDisplay(cur.manualLon)}.`;
+        } else {
+          summaryEl.textContent = "";
+          summaryEl.hidden = true;
+        }
       } else if (manual) {
+        summaryEl.hidden = false;
         summaryEl.textContent = `Using map location: ${formatCoordForDisplay(cur.manualLat)}, ${formatCoordForDisplay(cur.manualLon)}.`;
         pickBtn.hidden = false;
         pickBtn.textContent = "Edit on map";
         clearBtn.hidden = false;
       } else {
+        summaryEl.hidden = false;
         summaryEl.textContent = "No GPS in these photos — set a map location before upload (recommended).";
         pickBtn.hidden = false;
         pickBtn.textContent = "Pick on map";
