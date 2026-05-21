@@ -1198,6 +1198,22 @@ function updateCropReviewChrome() {
 }
 
 /**
+ * Move crop review to another photo without accepting the current one.
+ * Review order is newest → oldest (`cropReviewIndex` 0 = newest in `workItems`).
+ * @param {-1 | 1} dir -1 = newer photo, +1 = older photo
+ */
+function navigateCropReview(dir) {
+  const n = workItems.length;
+  if (n <= 1 || (dir !== -1 && dir !== 1)) return;
+  const next = cropReviewIndex + dir;
+  if (next < 0 || next > n - 1) return;
+  cropReviewIndex = next;
+  renderCropEditorSlot();
+  updateCropReviewChrome();
+  updateButtons();
+}
+
+/**
  * Wizard pages: setup → crop (editor) → export (ZIP / Share after review).
  * @param {"setup" | "crop" | "export"} name
  */
@@ -4918,6 +4934,14 @@ function removeWorkItemAndRow(file, row) {
   updateButtons();
 }
 
+/** Chevron — previous photo in review (toward newer). */
+const CROP_NAV_BACK_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
+
+/** Chevron — next photo in review (toward older). */
+const CROP_NAV_FORWARD_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
+
 /** Accept current crop and advance (last photo finishes review and opens export). */
 const CROP_CONTINUE_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
@@ -4957,7 +4981,7 @@ function buildAnalyzingPendingRow(file) {
 }
 
 /**
- * Toolbar: progress; row with back arrow | full-image, delete, optional reset | forward arrow.
+ * Toolbar: progress; row with photo back/forward, full-image, delete, optional reset, continue (✓).
  */
 function attachBatchRowActions(row, file, options) {
   const { variant, showNextCheck, onResetSuggested, inatGroupingSingleEdit } = options || {};
@@ -5056,7 +5080,44 @@ function attachBatchRowActions(row, file, options) {
 
   if (showNextCheck) {
     const nav = document.createElement("div");
-    nav.className = "crop-toolbar__nav crop-toolbar__nav--four";
+    nav.className = "crop-toolbar__nav crop-toolbar__nav--six";
+    const nBatch = workItems.length;
+
+    const btnNavBack = document.createElement("button");
+    btnNavBack.type = "button";
+    btnNavBack.className = "btn-icon btn-icon--nav-back";
+    btnNavBack.innerHTML = CROP_NAV_BACK_SVG;
+
+    const btnNavForward = document.createElement("button");
+    btnNavForward.type = "button";
+    btnNavForward.className = "btn-icon btn-icon--nav-forward";
+    btnNavForward.innerHTML = CROP_NAV_FORWARD_SVG;
+
+    function syncPhotoNavButtons() {
+      const n = workItems.length;
+      const atNewest = cropReviewIndex <= 0;
+      const atOldest = n <= 0 || cropReviewIndex >= n - 1;
+      const navDisabled = variant === "pending" || inatGroupingSingleEdit || n <= 1;
+      btnNavBack.disabled = navDisabled || atNewest;
+      btnNavForward.disabled = navDisabled || atOldest;
+      if (navDisabled) {
+        btnNavBack.title = variant === "pending" ? "Wait for analysis" : n <= 1 ? "" : "Photo navigation";
+        btnNavForward.title = btnNavBack.title;
+        btnNavBack.setAttribute(
+          "aria-label",
+          variant === "pending" ? "Wait for analysis" : n <= 1 ? "Only one photo in batch" : "Photo navigation unavailable"
+        );
+        btnNavForward.setAttribute("aria-label", btnNavBack.getAttribute("aria-label") || "");
+      } else {
+        btnNavBack.title = atNewest ? "Newest photo" : "Previous photo (newer)";
+        btnNavBack.setAttribute("aria-label", atNewest ? "Already on newest photo" : "Go to newer photo");
+        btnNavForward.title = atOldest ? "Oldest photo" : "Next photo (older)";
+        btnNavForward.setAttribute("aria-label", atOldest ? "Already on oldest photo" : "Go to older photo");
+      }
+    }
+    syncPhotoNavButtons();
+    btnNavBack.addEventListener("click", () => navigateCropReview(-1));
+    btnNavForward.addEventListener("click", () => navigateCropReview(1));
 
     /** @type {HTMLButtonElement | null} */
     let btnResetCrop = null;
@@ -5076,7 +5137,8 @@ function attachBatchRowActions(row, file, options) {
     btnContinue.type = "button";
     btnContinue.className = "btn-icon btn-icon--continue";
     btnContinue.innerHTML = CROP_CONTINUE_SVG;
-    const atLast = cropReviewIndex <= 0;
+    /** Oldest remaining slot in batch — accepting it finishes review (newest-first walk). */
+    const atLast = nBatch > 0 && cropReviewIndex >= nBatch - 1;
     if (variant === "pending") {
       btnContinue.disabled = true;
       btnContinue.title = "Wait for analysis";
@@ -5101,6 +5163,7 @@ function attachBatchRowActions(row, file, options) {
     }
 
     nav.append(
+      makeSlot(btnNavBack),
       makeSlot(btnFullImage),
       makeSlot(btnDel),
       btnResetCrop
@@ -5114,6 +5177,7 @@ function attachBatchRowActions(row, file, options) {
             slot.appendChild(ph);
             return slot;
           })(),
+      makeSlot(btnNavForward),
       makeSlot(btnContinue)
     );
 

@@ -922,7 +922,7 @@ body.app-body-fit .app-page--crop .crop-review-done {
   min-width: 0;
 }
 
-/** Toolbar button row: grid column presets (see `.crop-toolbar__nav--four` / `--five`). */
+/** Toolbar button row: grid column presets (see `.crop-toolbar__nav--four` / `--six`). */
 .crop-toolbar__nav {
   display: grid;
   align-items: stretch;
@@ -937,6 +937,10 @@ body.app-body-fit .app-page--crop .crop-review-done {
 
 .crop-toolbar__nav--five {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.crop-toolbar__nav--six {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .crop-toolbar__nav-slot {
