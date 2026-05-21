@@ -232,7 +232,6 @@ body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal {
 
 body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > .crop-flow-inline-status,
 body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > .crop-flow-inline-progress,
-body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #batch-progress,
 body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #progress-line,
 body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #progress-bar,
 body.app-body-fit .app-page--crop:not([hidden]) .previews-card--minimal > #preview-empty {
@@ -646,15 +645,9 @@ a:hover {
   color: var(--muted);
 }
 
-.batch-progress {
-  margin: 0.35rem 0 0;
-  font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
-  color: #cbd5e1;
-}
-
 .progress-line {
   margin-top: 0.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .progress {
@@ -767,7 +760,6 @@ body.app-body-fit .app-page--crop .crop-review-done {
 .previews-card > h2,
 .previews-card > .preview-legend,
 .previews-card > #preview-empty,
-.previews-card > #batch-progress,
 .previews-card > #progress-line,
 .previews-card > #progress-bar,
 

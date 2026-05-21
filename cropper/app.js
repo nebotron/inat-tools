@@ -315,7 +315,6 @@ const btnInatLocationUseDevice = document.getElementById("btn-inat-location-use-
 const btnInatLocationClear = document.getElementById("btn-inat-location-clear");
 const btnInatLocationApply = document.getElementById("btn-inat-location-apply");
 const btnInatLocationCancel = document.getElementById("btn-inat-location-cancel");
-const batchProgress = document.getElementById("batch-progress");
 const sharePrepProgress = document.getElementById("share-prep-progress");
 const sharePrepLine = document.getElementById("share-prep-line");
 const sharePrepBar = document.getElementById("share-prep-bar");
@@ -972,10 +971,9 @@ async function applySavedCropMappingForCurrentBatch(totalFilesForUi) {
     if (mapping.crop && decodeTotal > 0) {
       decodeDone++;
       const pct = Math.min(99, ((decodeDone - 0.5) / decodeTotal) * 100);
-      setProgress(true, pct, `Applying saved crops · ${decodeDone}/${decodeTotal} — ${dispName}`, {
+      setProgress(true, pct, `Applying saved crops · ${decodeDone} / ${decodeTotal}`, {
         indeterminate: false,
       });
-      setAutoCropBatchHint(`Applying saved crops · ${decodeDone} / ${decodeTotal} — ${dispName}`);
       if (fileSummary) {
         fileSummary.textContent = `Preparing · ${totalFilesForUi} photo(s) · saved crops ${decodeDone}/${decodeTotal}`;
       }
@@ -2424,10 +2422,6 @@ function setProgress(visible, pct, text, options) {
   }
   if (!visible) {
     if (progressLine) progressLine.textContent = "";
-    if (batchProgress) {
-      batchProgress.hidden = true;
-      batchProgress.textContent = "";
-    }
     if (progressBar && progressFill) {
       progressBar.classList.remove("progress--indeterminate");
       progressFill.classList.remove("progress__fill--indeterminate");
@@ -2450,22 +2444,6 @@ function setProgress(visible, pct, text, options) {
       progressBar.removeAttribute("aria-valuetext");
     }
   }
-}
-
-/**
- * Extra status line above the progress bar during auto-crop (counts stay visible while each photo runs).
- * @param {string | null | undefined} text — empty hides
- */
-function setAutoCropBatchHint(text) {
-  if (!batchProgress) return;
-  if (!text) {
-    batchProgress.hidden = true;
-    batchProgress.textContent = "";
-    return;
-  }
-  batchProgress.hidden = false;
-  batchProgress.removeAttribute("hidden");
-  batchProgress.textContent = text;
 }
 
 function clearModelLoadElapsedTimer() {
@@ -5764,8 +5742,7 @@ async function runManualCropOnly(gen) {
   for (let idx = 0; idx < total; idx++) {
     if (gen !== previewGeneration) return;
     if (shouldYieldBetweenBatchItems() && idx > 0) await new Promise((r) => setTimeout(r, 0));
-    setProgress(true, ((idx + 1) / total) * 100, `${idx + 1} / ${total}…`);
-    setAutoCropBatchHint(`Applying centered crop — ${idx + 1} / ${total} photos`);
+    setProgress(true, ((idx + 1) / total) * 100, `Applying centered crop · ${idx + 1} / ${total}…`);
 
     const file = workItems[idx];
     const key = fileCacheKey(file);
@@ -5927,7 +5904,6 @@ async function runAutoCrop() {
   /** Progress bar lives on `page-crop`; stay on setup until here and users saw only `file-summary` with no bar. */
   setCurrentPage("crop");
   setProgress(true, 0, `Preparing · ${totalFiles} photo(s)…`, { indeterminate: true });
-  setAutoCropBatchHint(`Preparing batch — ${totalFiles} photo${totalFiles === 1 ? "" : "s"}`);
   const reapplied = await applySavedCropMappingForCurrentBatch(totalFiles);
   const reappliedDeleted = reapplied.deleted || 0;
   if (fileSummary) {
@@ -5976,9 +5952,6 @@ async function runAutoCrop() {
     0,
     `Loading detection model · ${queuedForDetect} photo${queuedForDetect === 1 ? "" : "s"}…`,
     { indeterminate: true }
-  );
-  setAutoCropBatchHint(
-    `Queued for analysis — ${queuedForDetect} photo${queuedForDetect === 1 ? "" : "s"}`
   );
   setCurrentPage("crop");
   updateButtons();
@@ -6031,7 +6004,6 @@ async function runAutoCrop() {
     `Auto crop · 0 / ${pendingCount}…`,
     { indeterminate: false }
   );
-  setAutoCropBatchHint(`Auto crop — 0 / ${pendingCount} photos`);
   await yieldToMainForUi();
   for (let ii = 0; ii < workItems.length; ii++) {
     if (gen !== previewGeneration) return;
@@ -6042,7 +6014,6 @@ async function runAutoCrop() {
     analyzed++;
     const pct = pendingCount > 0 ? (analyzed / pendingCount) * 100 : 100;
     setProgress(true, pct, `Auto crop · ${analyzed} / ${pendingCount}…`, { indeterminate: false });
-    setAutoCropBatchHint(`Auto crop — ${analyzed} / ${pendingCount} photos`);
     if (shouldYieldBetweenBatchItems() && ii > 0) await new Promise((r) => setTimeout(r, 0));
   }
   if (gen !== previewGeneration) return;
@@ -6076,7 +6047,6 @@ function startOverFromCropFlow() {
   releaseBatchResources();
   if (fileInput) fileInput.value = "";
   if (fileSummary) fileSummary.textContent = "";
-  if (batchProgress) { batchProgress.hidden = true; batchProgress.textContent = ""; }
   if (exportFooterBar) exportFooterBar.hidden = true;
   lastShareInatFiles = [];
   lastShareInatSourceFiles = [];
@@ -6132,7 +6102,6 @@ fileInput.addEventListener("change", async () => {
   }
 
   clearCropState();
-  if (batchProgress) { batchProgress.hidden = true; batchProgress.textContent = ""; }
   if (exportFooterBar) exportFooterBar.hidden = true;
   if (inatUploadSection) inatUploadSection.hidden = true;
   previewGeneration++;
