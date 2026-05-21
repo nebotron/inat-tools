@@ -3506,7 +3506,9 @@ async function mapAreaParams() {
     applyUnreviewedByMeObservationParams(p);
     return p;
   } catch (ex) {
-    explorerFatal(ex, "mapAreaParams");
+    /* Transient Leaflet / layout issues during pinch-zoom or resize must not replace the whole app. */
+    console.warn("mapAreaParams", ex);
+    return null;
   }
 }
 
@@ -3541,7 +3543,8 @@ function installHeatGridLayer(url, onReady) {
         if (onReady) onReady();
       });
     } catch (ex) {
-      explorerFatal(ex, "installHeatGridLayer:first tileLayer");
+      console.warn("installHeatGridLayer:first tileLayer", ex);
+      showError("map", "Could not load the density map layer. Try zooming slightly or refresh the Map tab.");
     }
     return;
   }
@@ -3550,7 +3553,9 @@ function installHeatGridLayer(url, onReady) {
   try {
     newHeat = L.tileLayer(url, { ...heatLayerOpts, opacity: 0 }).addTo(map);
   } catch (ex) {
-    explorerFatal(ex, "installHeatGridLayer:pending tileLayer");
+    console.warn("installHeatGridLayer:pending tileLayer", ex);
+    showError("map", "Could not load the density map layer. Try again in a moment.");
+    return;
   }
   pendingHeatLayer = newHeat;
   let swapped = false;
@@ -3564,7 +3569,7 @@ function installHeatGridLayer(url, onReady) {
       heatGridLayer = newHeat;
       if (onReady) onReady();
     } catch (ex) {
-      explorerFatal(ex, "installHeatGridLayer:swap");
+      console.warn("installHeatGridLayer:swap", ex);
     }
   };
   newHeat.once("load", swap);
@@ -3703,10 +3708,15 @@ async function runMapSearch(forceRecheck) {
       bringMapUserLocationToFront();
       syncUrl();
     } catch (ex) {
-      explorerFatal(ex, "runMapSearch:bringMapUserLocationToFront/syncUrl");
+      console.warn("runMapSearch:bringMapUserLocationToFront/syncUrl", ex);
     }
   } catch (err) {
-    explorerFatal(err, "runMapSearch");
+    console.warn("runMapSearch", err);
+    const detail = err instanceof Error ? err.message.trim() : String(err);
+    showError(
+      "map",
+      detail ? `Could not update the map (${detail}). You can try again or use Refresh.` : "Could not update the map. Try again or use Refresh.",
+    );
   } finally {
     if (spinnerShown) hideMapSpinner();
   }

@@ -148,6 +148,8 @@ main {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  /* Avoid scroll chaining to the document (Chrome Android pull-to-refresh) during pinch-zoom / overscroll. */
+  overscroll-behavior-y: contain;
 }
 
 .filters {
