@@ -2153,63 +2153,36 @@ let inatGroupingThumbEncodeChain = /** @type {Promise<unknown>} */ (Promise.reso
 const inatGroupingThumbEncodeInflight = new Map();
 
 /**
- * Decode to a drawable source for a grouping thumbnail; prefers EXIF-sized `createImageBitmap` resize over full decode.
+ * Decode to a drawable source for a grouping thumbnail (max edge {@link INAT_GROUP_THUMB_DECODE_MAX_EDGE}).
+ * Always uses {@link decodeForPipeline} so pixel dimensions match `cropState` (detector / editor), then downscales.
+ * A previous EXIF-width fast path could disagree with EXIF orientation vs. oriented decode, mapping the crop
+ * outside the bitmap and leaving `alpha:false` JPEG canvases solid black.
  * @param {File} file
  * @returns {Promise<{ source: CanvasImageSource, w: number, h: number, close?: () => void }>}
  */
 async function decodeSourceForInatGroupingThumb(file) {
   const cap = INAT_GROUP_THUMB_DECODE_MAX_EDGE;
-
-  const downscaleDecodedIfNeeded = (raw) => {
-    const maxD = Math.max(raw.w, raw.h);
-    if (maxD <= cap) return raw;
-    const s = cap / maxD;
-    const tw = Math.max(1, Math.round(raw.w * s));
-    const th = Math.max(1, Math.round(raw.h * s));
-    const canvas = document.createElement("canvas");
-    canvas.width = tw;
-    canvas.height = th;
-    const ctx = canvas.getContext("2d", { willReadFrequently: false, alpha: false });
-    if (!ctx) {
-      disposeDecodedBundle(raw);
-      throw new Error("No canvas context.");
-    }
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "medium";
-    ctx.drawImage(raw.source, 0, 0, tw, th);
-    disposeDecodedBundle(raw);
-    return { source: canvas, w: tw, h: th };
-  };
-
-  if (typeof createImageBitmap === "function" && !isHeicLike(file)) {
-    try {
-      const dims = await tryGetImagePixelSizeFromFile(file);
-      if (dims && dims.w > 0 && dims.h > 0) {
-        const m = Math.max(dims.w, dims.h);
-        if (m > cap) {
-          const sc = cap / m;
-          const rw = Math.max(1, Math.round(dims.w * sc));
-          const rh = Math.max(1, Math.round(dims.h * sc));
-          const bm = await createImageBitmap(file, { resizeWidth: rw, resizeHeight: rh });
-          return { source: bm, w: bm.width, h: bm.height, close: () => bm.close() };
-        }
-        const bm = await createImageBitmap(file);
-        const mx = Math.max(bm.width, bm.height);
-        if (mx <= cap) return { source: bm, w: bm.width, h: bm.height, close: () => bm.close() };
-        const s = cap / mx;
-        const rw = Math.max(1, Math.round(bm.width * s));
-        const rh = Math.max(1, Math.round(bm.height * s));
-        const out = await createImageBitmap(bm, 0, 0, bm.width, bm.height, { resizeWidth: rw, resizeHeight: rh });
-        bm.close();
-        return { source: out, w: out.width, h: out.height, close: () => out.close() };
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-
   const raw = await decodeForPipeline(file);
-  return downscaleDecodedIfNeeded(raw);
+  const maxD = Math.max(raw.w, raw.h);
+  if (maxD <= cap) return raw;
+  const s = cap / maxD;
+  const tw = Math.max(1, Math.round(raw.w * s));
+  const th = Math.max(1, Math.round(raw.h * s));
+  const canvas = document.createElement("canvas");
+  canvas.width = tw;
+  canvas.height = th;
+  const ctx = canvas.getContext("2d", { willReadFrequently: false, alpha: false });
+  if (!ctx) {
+    disposeDecodedBundle(raw);
+    throw new Error("No canvas context.");
+  }
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, tw, th);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "medium";
+  ctx.drawImage(raw.source, 0, 0, tw, th);
+  disposeDecodedBundle(raw);
+  return { source: canvas, w: tw, h: th };
 }
 
 /**
@@ -2248,7 +2221,7 @@ async function buildInatGroupingThumbObjectUrl(file) {
     const side0 = Math.min(w, h);
     const fullW = st && typeof st.w === "number" && st.w > 0 ? st.w : null;
     const fullH = st && typeof st.h === "number" && st.h > 0 ? st.h : null;
-    const pick =
+    let pick =
       st && st.hasCrop !== false && fullW && fullH
         ? {
             left: Math.max(0, Math.min(w - 1, Math.round((st.left * w) / fullW))),
@@ -2256,15 +2229,23 @@ async function buildInatGroupingThumbObjectUrl(file) {
             side: Math.max(1, Math.round((st.side * w) / fullW)),
           }
         : { left: Math.round((w - side0) / 2), top: Math.round((h - side0) / 2), side: side0 };
+    let sideDraw = Math.max(1, Math.min(pick.side, w - pick.left, h - pick.top));
+    /** Bad or stale `cropState` vs. decode can shrink the source rect to a few pixels → black 112² JPEG. */
+    const minReasonable = Math.min(24, Math.floor(Math.min(w, h) * 0.08));
+    if (sideDraw < minReasonable) {
+      pick = { left: Math.round((w - side0) / 2), top: Math.round((h - side0) / 2), side: side0 };
+      sideDraw = Math.max(1, Math.min(pick.side, w - pick.left, h - pick.top));
+    }
     const edge = 112;
     const canvas = document.createElement("canvas");
     canvas.width = edge;
     canvas.height = edge;
     const ctx = canvas.getContext("2d", { willReadFrequently: false, alpha: false });
     if (!ctx) throw new Error("No canvas context.");
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillRect(0, 0, edge, edge);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    const sideDraw = Math.max(1, Math.min(pick.side, w - pick.left, h - pick.top));
     ctx.drawImage(raw.source, pick.left, pick.top, sideDraw, sideDraw, 0, 0, edge, edge);
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob(
