@@ -6243,7 +6243,12 @@ fileInput.addEventListener("change", async () => {
     try {
     workItems = await sortFilesByCapture(images);
     try {
-      workItemCaptureTimesMs = await Promise.all(workItems.map((f) => getCaptureTime(f)));
+      if (isIOSOrIPadOS() || workItems.length >= memoryPressureThreshold()) {
+        /** Match `sortFilesByCapture` fast path — avoid dozens of full `exifr.parse` on the main thread (hangs). */
+        workItemCaptureTimesMs = workItems.map((f) => f.lastModified);
+      } else {
+        workItemCaptureTimesMs = await Promise.all(workItems.map((f) => getCaptureTime(f)));
+      }
     } catch {
       workItemCaptureTimesMs = workItems.map((f) => f.lastModified);
     }
@@ -6261,6 +6266,7 @@ fileInput.addEventListener("change", async () => {
     updateButtons();
     return;
   }
+  await yieldToMainForUi();
   runAutoCrop().catch((e) => {
     console.error(e);
     showError("Processing failed. Retry.", e);
