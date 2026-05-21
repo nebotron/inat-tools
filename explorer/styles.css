@@ -10,6 +10,12 @@
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
+html {
+  /* Chrome Android: block overscroll from chaining to the document (pull-to-refresh) while pinch-zooming
+     near a scrollable panel edge. Inner `.view-panel` still scrolls normally. */
+  overscroll-behavior-y: none;
+}
+
 *,
 *::before,
 *::after {

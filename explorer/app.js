@@ -3068,7 +3068,7 @@ async function runObservationSearch(reset) {
           totalSpecies = sData.total_results || 0;
           updateSearchSummaryElements();
         } catch (ex) {
-          explorerFatal(ex, "runObservationSearch:species_counts side fetch");
+          console.warn("runObservationSearch:species_counts side fetch", ex);
         }
       })();
     }
@@ -3082,7 +3082,14 @@ async function runObservationSearch(reset) {
     updateSearchSummaryElements();
     syncUrl();
   } catch (err) {
-    explorerFatal(err, "runObservationSearch");
+    console.warn("runObservationSearch", err);
+    const detail = err instanceof Error ? err.message.trim() : String(err);
+    showError(
+      "obs",
+      detail
+        ? `Could not load observations (${detail}). Try Refresh or adjust filters.`
+        : "Could not load observations. Try Refresh or adjust filters.",
+    );
   } finally {
     obsLoading = false;
   }
@@ -3138,7 +3145,7 @@ async function runSpeciesSearch(reset) {
           totalObs = oData.total_results || 0;
           updateSearchSummaryElements();
         } catch (ex) {
-          explorerFatal(ex, "runSpeciesSearch:observation count side fetch");
+          console.warn("runSpeciesSearch:observation count side fetch", ex);
         }
       })();
     }
@@ -3177,7 +3184,14 @@ async function runSpeciesSearch(reset) {
     updateSearchSummaryElements();
     syncUrl();
   } catch (err) {
-    explorerFatal(err, "runSpeciesSearch");
+    console.warn("runSpeciesSearch", err);
+    const detail = err instanceof Error ? err.message.trim() : String(err);
+    showError(
+      "species",
+      detail
+        ? `Could not load species (${detail}). Try Refresh or adjust filters.`
+        : "Could not load species. Try Refresh or adjust filters.",
+    );
   } finally {
     speciesLoading = false;
   }
@@ -4526,16 +4540,43 @@ function wireExplorerApiAuth() {
 
 function wireInfiniteScroll() {
   const opts = { rootMargin: "120px" };
+  let obsMoreTimer = 0;
+  let speciesMoreTimer = 0;
+
+  const sentinelStillVisible = (rootEl, sentinelEl) => {
+    if (!sentinelEl) return false;
+    const sr = sentinelEl.getBoundingClientRect();
+    if (rootEl) {
+      const rr = rootEl.getBoundingClientRect();
+      return sr.top < rr.bottom && sr.bottom > rr.top;
+    }
+    return sr.top < window.innerHeight && sr.bottom > 0;
+  };
+
   const obsObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
-      if (currentView === "observations" && obsHasMore && !obsLoading) void runObservationSearch(false);
+      if (!(currentView === "observations" && obsHasMore && !obsLoading)) continue;
+      if (obsMoreTimer) clearTimeout(obsMoreTimer);
+      obsMoreTimer = window.setTimeout(() => {
+        obsMoreTimer = 0;
+        if (!(currentView === "observations" && obsHasMore && !obsLoading)) return;
+        if (!sentinelStillVisible(el.panelObs, el.obsSentinel)) return;
+        void runObservationSearch(false);
+      }, 160);
     }
   }, el.panelObs ? { ...opts, root: el.panelObs } : opts);
   const speciesObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
-      if (currentView === "species" && speciesHasMore && !speciesLoading) void runSpeciesSearch(false);
+      if (!(currentView === "species" && speciesHasMore && !speciesLoading)) continue;
+      if (speciesMoreTimer) clearTimeout(speciesMoreTimer);
+      speciesMoreTimer = window.setTimeout(() => {
+        speciesMoreTimer = 0;
+        if (!(currentView === "species" && speciesHasMore && !speciesLoading)) return;
+        if (!sentinelStillVisible(el.panelSpecies, el.speciesSentinel)) return;
+        void runSpeciesSearch(false);
+      }, 160);
     }
   }, el.panelSpecies ? { ...opts, root: el.panelSpecies } : opts);
 
