@@ -1245,10 +1245,21 @@ function advanceCropReview() {
   markMappingAcceptedByFile(file, true);
   queueExportPrepForKey(confirmedKey);
   syncCropReviewIndex();
-  renderCropEditorSlot();
   if (isCropReviewFinished()) {
-    setCurrentPage("export");
+    renderCropEditorSlot();
+    void (async () => {
+      try {
+        await rebuildInatGroupingThumbNow(file);
+      } catch {
+        /* ignore — export strip will still queue ensureInatGroupingThumbUrl */
+      }
+      setCurrentPage("export");
+      updateButtons();
+      schedulePersistSession();
+    })();
+    return;
   }
+  renderCropEditorSlot();
   updateButtons();
   schedulePersistSession();
 }
@@ -2271,6 +2282,17 @@ async function buildInatGroupingThumbObjectUrl(file) {
   } finally {
     disposeDecodedBundle(raw);
   }
+}
+
+/**
+ * Rebuild one grouping thumbnail outside the serialized encode chain (e.g. after a single-photo crop)
+ * so the export strip does not wait behind other queued thumbs before showing the new crop.
+ * @param {File} file
+ */
+async function rebuildInatGroupingThumbNow(file) {
+  const key = fileCacheKey(file);
+  revokeInatGroupingThumbUrlForKey(key);
+  return buildInatGroupingThumbObjectUrl(file);
 }
 
 /** After crop review, drop full-res prefetch bitmaps and blob URLs — export uses small iNat thumbs and `File` objects for ZIP. */
@@ -3686,18 +3708,25 @@ function openInatGroupingCropEditor(photoIdx) {
   updateButtons();
 }
 
-function confirmInatGroupingSingleEditAndReturn() {
+async function confirmInatGroupingSingleEditAndReturn() {
+  const photoIdx = inatGroupEditForwardIndex;
   const file =
-    inatGroupEditForwardIndex >= 0 && inatGroupEditForwardIndex < workItems.length
-      ? workItems[inatGroupEditForwardIndex]
+    photoIdx >= 0 && photoIdx < workItems.length
+      ? workItems[photoIdx]
       : null;
   if (file) {
     const k = fileCacheKey(file);
     if (cropState.has(k)) cropReviewDoneKeys.add(k);
-    revokeInatGroupingThumbUrlForKey(k);
   }
   inatGroupEditForwardIndex = -1;
   setCurrentPage("export");
+  if (file) {
+    try {
+      await rebuildInatGroupingThumbNow(file);
+    } catch {
+      /* strip render will fall back to ensureInatGroupingThumbUrl */
+    }
+  }
   renderInatPhotoGroupingStrip();
   updateButtons();
 }
@@ -4888,7 +4917,9 @@ function attachBatchRowActions(row, file, options) {
     } else if (inatGroupingSingleEdit) {
       btnContinue.title = "Done — return to observations";
       btnContinue.setAttribute("aria-label", "Done editing this photo");
-      btnContinue.addEventListener("click", () => confirmInatGroupingSingleEditAndReturn());
+      btnContinue.addEventListener("click", () => {
+        void confirmInatGroupingSingleEditAndReturn();
+      });
     } else {
       btnContinue.title = atLast ? "Finish" : "Accept and next";
       btnContinue.setAttribute("aria-label", atLast ? "Finish review and go to export" : "Accept crop and go to next photo");
