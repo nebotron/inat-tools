@@ -678,11 +678,13 @@ const cropState = new Map();
 /**
  * Optional cache of encoded export payloads (large batches skip this and build on demand for ZIP to save RAM).
  * Keyed by `fileCacheKey`. `refreshWorkItemsCaptureOrder()` may reorder files; filenames are applied at ZIP build time.
- * @type {Map<string, { kind: 'crop', blob: Blob, meta: Awaited<ReturnType<typeof extractMetaForEmbedding>>, sourceFile: File } | { kind: 'original', buffer: ArrayBuffer, meta: Awaited<ReturnType<typeof extractMetaForEmbedding>>, mime: string } | { kind: 'fail' }>}
+ * @type {Map<string, { kind: 'crop', blob: Blob, meta: Awaited<ReturnType<typeof extractMetaForEmbedding>>, sourceFile: File } | { kind: 'original', sourceFile: File, meta: Awaited<ReturnType<typeof extractMetaForEmbedding>>, mime: string } | { kind: 'fail' }>}
  */
 const exportPrepCache = new Map();
 /** In-flight prep so we do not duplicate work for the same key. */
 const exportPrepInflight = new Map();
+/** Serializes background `buildExportPayloadForKey` work so many ✓ in a row do not decode dozens of full-res images at once. */
+let exportPrepBackgroundChain = Promise.resolve();
 
 let zipDownloadInProgress = false;
 
@@ -1099,6 +1101,7 @@ function clearCropState() {
   analysisPendingKeys.clear();
   exportPrepCache.clear();
   exportPrepInflight.clear();
+  exportPrepBackgroundChain = Promise.resolve();
   shareSheetReadyFiles = null;
   shareSheetPrepareGen++;
   shareSheetPrepRunning = false;
@@ -1323,19 +1326,27 @@ function advanceCropReview() {
  */
 function queueExportPrepForKey(key) {
   if (exportPrepCache.has(key) || exportPrepInflight.has(key)) return;
-  const p = buildExportPayloadForKey(key)
-    .catch((e) => {
-      console.warn("Background export prep failed", e);
-      if (workItems.some((f) => fileCacheKey(f) === key)) exportPrepCache.set(key, { kind: "fail" });
-    })
-    .finally(() => {
-      exportPrepInflight.delete(key);
-    });
-  exportPrepInflight.set(key, p);
+  exportPrepBackgroundChain = exportPrepBackgroundChain.then(async () => {
+    if (exportPrepCache.has(key) || exportPrepInflight.has(key)) return;
+    const p = buildExportPayloadForKey(key)
+      .catch((e) => {
+        console.warn("Background export prep failed", e);
+        if (workItems.some((f) => fileCacheKey(f) === key)) exportPrepCache.set(key, { kind: "fail" });
+      })
+      .finally(() => {
+        exportPrepInflight.delete(key);
+      });
+    exportPrepInflight.set(key, p);
+    try {
+      await p;
+    } catch {
+      /* surfaced in catch above */
+    }
+  });
 }
 
 /**
- * @returns {Promise<{ kind: 'crop', blob: Blob, meta: object, sourceFile: File } | { kind: 'original', buffer: ArrayBuffer, meta: object, mime: string } | { kind: 'fail' } | undefined>}
+ * @returns {Promise<{ kind: 'crop', blob: Blob, meta: object, sourceFile: File } | { kind: 'original', sourceFile: File, meta: object, mime: string } | { kind: 'fail' } | undefined>}
  */
 async function buildExportPayloadForKey(key) {
   const file = workItems.find((f) => fileCacheKey(f) === key);
@@ -1344,17 +1355,16 @@ async function buildExportPayloadForKey(key) {
   const meta = await extractMetaForEmbedding(file);
 
   if (!state || !state.hasCrop) {
-    const buf = await file.arrayBuffer();
     let lastMs = meta.lastModified;
     const mime = (file.type || "").toLowerCase();
     const looksJpeg = mime === "image/jpeg" || mime === "image/jpg" || /\.jpe?g$/i.test(file.name || "");
     if (looksJpeg) {
-      const fromEmb = await lastModifiedMsFromJpegBlob(new Blob([buf], { type: "image/jpeg" }));
+      const fromEmb = await lastModifiedMsFromJpegBlob(file);
       if (fromEmb != null) lastMs = fromEmb;
     }
     const metaOut = { ...meta, lastModified: lastMs };
-    const prep = { kind: "original", buffer: buf, meta: metaOut, mime: file.type || "application/octet-stream" };
-    /** Never retain full-file `ArrayBuffer` copies in `exportPrepCache` — peak RAM scales badly vs. one transient buffer. */
+    const prep = { kind: "original", sourceFile: file, meta: metaOut, mime: file.type || "application/octet-stream" };
+    /** Avoid `file.arrayBuffer()` — ZIP/Share can stream from the `File` without duplicating the whole image in RAM. */
     return prep;
   }
 
@@ -1607,7 +1617,7 @@ function shouldYieldBetweenBatchItems() {
 }
 
 /** How many upcoming files to decode in the background while reviewing (reduces delay on “next”). */
-const CROP_PREVIEW_PREFETCH_AHEAD = 3;
+const CROP_PREVIEW_PREFETCH_AHEAD = 2;
 /** Large batches: fewer prefetch probes and more aggressive blob-URL eviction (mobile RAM). */
 const MEMORY_PRESSURE_FILE_THRESHOLD = 28;
 const CROP_PREVIEW_PREFETCH_AHEAD_LARGE = 1;
@@ -1816,7 +1826,7 @@ function firstDateFromExifr(ex) {
   return coalesceExifDate(ex.DateTimeOriginal, ex.CreateDate, ex.ModifyDate, ex.MediaCreateDate, ex.ContentCreateDate, ex.CreationDate, ex.MetadataDate);
 }
 
-/** Epoch ms from embedded EXIF in a JPEG `Blob` (output bytes), or null. */
+/** Epoch ms from embedded EXIF in a JPEG `Blob` or `File`, or null. */
 async function lastModifiedMsFromJpegBlob(blob) {
   try {
     const ex = await exifr.parse(blob, { reviveValues: true, mergeOutput: true, tiff: true, exif: true, ifd0: true });
@@ -5278,6 +5288,7 @@ function releaseBatchResources() {
   cropPreviewBitmapByKey.clear();
   exportPrepCache.clear();
   exportPrepInflight.clear();
+  exportPrepBackgroundChain = Promise.resolve();
   invalidateShareSheetPrep();
 }
 
@@ -6313,13 +6324,14 @@ async function buildExportFilesListForZip(onProgress, labelPrefix) {
 
       if (prep.kind === "original") {
         const name = `${indexPrefix}_${exportFilenameWithJpgExt(file.name)}`;
+        const src = prep.sourceFile;
         out.push(
-          new File([prep.buffer], name, {
+          new File([src], name, {
             type: prep.mime,
             lastModified: prep.meta.lastModified,
           })
         );
-        sourceFiles.push(file);
+        sourceFiles.push(src);
         if (evictAfterUse) exportPrepCache.delete(key);
         continue;
       }
@@ -6455,12 +6467,13 @@ async function runZipDownload() {
         let outFile;
         if (prep.kind === "original") {
           const name = `${indexPrefix}_${exportFilenameWithJpgExt(file.name)}`;
-          outFile = new File([prep.buffer], name, {
+          const src = prep.sourceFile;
+          outFile = new File([src], name, {
             type: prep.mime,
             lastModified: prep.meta.lastModified,
           });
           shareAcc.files.push(outFile);
-          shareAcc.sources.push(file);
+          shareAcc.sources.push(src);
         } else {
           const base = file.name.replace(/\.[^.]+$/i, "");
           const name = `${indexPrefix}_${base}_square.${CROP_EXPORT_FORMAT.ext}`;
