@@ -4388,9 +4388,28 @@ function wireTabs() {
   });
 }
 
-/** Delegated clicks for observation-card Agree, Mark reviewed, and Favorite (authenticated iNat API writes). */
+/**
+ * Delegated clicks for observation-card Agree, Mark reviewed, and Favorite (authenticated iNat API writes).
+ * Also suppresses pointer-driven focus on stacked card controls: the observations panel scrolls (`overflow-y: auto`),
+ * and focusing a button from a mouse/touch press triggers the UA “scroll focused element into view” step, which
+ * jumps the panel. Keyboard users still reach these controls via Tab (focus moves without pointerdown default).
+ */
 function wireObservationAgreeClicks() {
   if (!el.resultsGrid) return;
+  const pointerFocusScrollSuppressionSelector =
+    "button.card-fave, button.card-mark-reviewed, button.card-agree, button.card-media-carousel__dot-slot";
+  el.resultsGrid.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const hit = target.closest(pointerFocusScrollSuppressionSelector);
+      if (!hit || !el.resultsGrid.contains(hit)) return;
+      e.preventDefault();
+    },
+    { passive: false }
+  );
   el.resultsGrid.addEventListener("click", (e) => {
     const faveRaw = e.target && e.target.closest && e.target.closest("button.card-fave");
     const faveBtn = faveRaw instanceof HTMLButtonElement ? faveRaw : null;
