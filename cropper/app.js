@@ -124,6 +124,42 @@ async function tryGetImagePixelSizeFromFile(file) {
 }
 
 /**
+ * Storage pixel size from metadata, swapped when EXIF orientation implies a 90°/270° display rotation
+ * (same width/height basis as `decodeForPipeline` / `<img>` for typical JPEG/TIFF).
+ * @param {number} w
+ * @param {number} h
+ * @param {unknown} orientation — EXIF orientation 1–8
+ */
+function orientedDimensionsFromExifStorage(w, h, orientation) {
+  const o = Number(orientation);
+  const norm = Number.isFinite(o) && o >= 1 && o <= 8 ? Math.floor(o) : 1;
+  if (norm >= 5 && norm <= 8) return { w: h, h: w };
+  return { w, h };
+}
+
+/**
+ * Like {@link tryGetImagePixelSizeFromFile} but returns dimensions in the oriented/display sense when
+ * orientation is present — used to skip full decodes during saved-crop reapply when sizes match.
+ * @param {File} file
+ * @returns {Promise<{ w: number, h: number } | null>}
+ */
+async function tryGetOrientedPixelSizeFromFile(file) {
+  try {
+    const ex = await exifr.parse(file, { ifd0: true, mergeOutput: true });
+    if (!ex || typeof ex !== "object") return null;
+    const w = ex.ImageWidth ?? ex.width;
+    const h = ex.ImageLength ?? ex.ImageHeight ?? ex.height;
+    const iw = typeof w === "number" && Number.isFinite(w) && w > 0 ? Math.round(w) : null;
+    const ih = typeof h === "number" && Number.isFinite(h) && h > 0 ? Math.round(h) : null;
+    if (!iw || !ih) return null;
+    const orient = ex.Orientation ?? ex.orientation;
+    return orientedDimensionsFromExifStorage(iw, ih, orient);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Decode a still image to an `ImageBitmap` capped by longest edge (reduces RAM/GPU vs full-res prefetch).
  * @param {File} file
  */
@@ -837,13 +873,25 @@ async function buildReappliedStateForFile(file, mapping) {
   if (!mapped) return null;
   let dstW = mapped.w;
   let dstH = mapped.h;
+
+  const fastDims = await tryGetOrientedPixelSizeFromFile(file);
+  if (fastDims && fastDims.w > 0 && fastDims.h > 0) {
+    dstW = fastDims.w;
+    dstH = fastDims.h;
+    if (mapped.w === dstW && mapped.h === dstH) return mapped;
+  }
+
   try {
-    const decoded = await decodeForDetectionOnly(file);
-    dstW = Number(decoded && decoded.fullW) || Number(decoded && decoded.w) || dstW;
-    dstH = Number(decoded && decoded.fullH) || Number(decoded && decoded.h) || dstH;
-    if (decoded && typeof decoded.close === "function") decoded.close();
+    const raw = await decodeForPipeline(file);
+    dstW = raw.w;
+    dstH = raw.h;
+    disposeDecodedBundle(raw);
   } catch {
-    /* fallback to stored dimensions */
+    /* fallback to fastDims or stored mapping dimensions */
+    if (fastDims && fastDims.w > 0 && fastDims.h > 0) {
+      dstW = fastDims.w;
+      dstH = fastDims.h;
+    }
   }
   if (!dstW || !dstH) return mapped;
   if (mapped.w === dstW && mapped.h === dstH) return mapped;
@@ -977,7 +1025,9 @@ async function applySavedCropMappingForCurrentBatch(totalFilesForUi) {
       if (fileSummary) {
         fileSummary.textContent = `Preparing · ${totalFilesForUi} photo(s) · saved crops ${decodeDone}/${decodeTotal}`;
       }
-      await yieldToMainForUi();
+      if (decodeDone === 1 || decodeDone === decodeTotal || (decodeDone & 3) === 0) {
+        await yieldToMainForUi();
+      }
     }
     let nextState = null;
     try {
