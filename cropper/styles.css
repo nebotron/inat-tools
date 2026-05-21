@@ -1836,6 +1836,71 @@ body.app-body-fit .app-page--crop .crop-review-done {
   overflow: auto;
 }
 
+.reapply-dialog__panel--cv-json {
+  width: min(100%, 42rem);
+  max-height: min(92vh, 85vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.inat-cv-results-lede {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.inat-cv-results-pre {
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.inat-group-cv-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.inat-species-row .inat-group-cv-actions .btn {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  min-height: 0;
+  height: auto;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0.65rem;
+  padding-right: 0.65rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.inat-group-cv-json-btn[aria-busy="true"] {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .inat-location-map {
   height: 220px;
   width: 100%;

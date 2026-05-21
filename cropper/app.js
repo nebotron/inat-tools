@@ -351,6 +351,10 @@ const btnInatLocationUseDevice = document.getElementById("btn-inat-location-use-
 const btnInatLocationClear = document.getElementById("btn-inat-location-clear");
 const btnInatLocationApply = document.getElementById("btn-inat-location-apply");
 const btnInatLocationCancel = document.getElementById("btn-inat-location-cancel");
+const inatCvResultsDialog = document.getElementById("inat-cv-results-dialog");
+const inatCvResultsPre = document.getElementById("inat-cv-results-pre");
+const btnInatCvResultsClose = document.getElementById("btn-inat-cv-results-close");
+const btnInatCvResultsCopy = document.getElementById("btn-inat-cv-results-copy");
 const sharePrepProgress = document.getElementById("share-prep-progress");
 const sharePrepLine = document.getElementById("share-prep-line");
 const sharePrepBar = document.getElementById("share-prep-bar");
@@ -1106,6 +1110,7 @@ function clearCropState() {
   inatUploadGroups = [];
   inatUploadGroupsInitializedForN = -1;
   hideInatLocationPickerDialog();
+  hideInatCvResultsDialog();
   hideAllInatGroupSpeciesSuggests();
   clearInatDnDDropHighlight();
   workItemCaptureTimesMs = null;
@@ -3333,10 +3338,10 @@ function firstTaxonGuessFromScoreImageJson(data) {
 }
 
 /**
- * POST the image to iNaturalist computer vision; returns top taxon label and id.
+ * POST the first photo to iNaturalist `computervision/score_image`; returns parsed JSON.
  * @param {File} file
  */
-async function fetchInatComputervisionFirstGuessForFile(file) {
+async function fetchInatComputervisionScoreImageJsonForFile(file) {
   const meta = await extractMetaForEmbedding(file);
   const fd = new FormData();
   fd.append("image", file, file.name || "photo.jpg");
@@ -3354,12 +3359,19 @@ async function fetchInatComputervisionFirstGuessForFile(file) {
     const detail = await formatInatHttpErrorForDisplay(res);
     throw new Error(detail || `Computer vision failed (${res.status}).`);
   }
-  let data;
   try {
-    data = await res.json();
+    return await res.json();
   } catch {
     throw new Error("Could not parse computer vision response.");
   }
+}
+
+/**
+ * POST the image to iNaturalist computer vision; returns top taxon label and id.
+ * @param {File} file
+ */
+async function fetchInatComputervisionFirstGuessForFile(file) {
+  const data = await fetchInatComputervisionScoreImageJsonForFile(file);
   const guess = firstTaxonGuessFromScoreImageJson(data);
   if (!guess) throw new Error("Computer vision returned no taxon suggestions.");
   return guess;
@@ -3428,6 +3440,48 @@ async function handleInatGroupCvClick(card, btn, g) {
   }
 }
 
+/**
+ * @param {HTMLElement} card
+ * @param {HTMLButtonElement} btn
+ * @param {number} g
+ */
+async function handleInatGroupCvJsonClick(card, btn, g) {
+  clearError();
+  if (inatUploadInProgress) {
+    showError("Wait for the current upload to finish, then try again.");
+    return;
+  }
+  if (inatBulkCvInProgress) {
+    showError("Wait for Vision all to finish, then try again.");
+    return;
+  }
+  if (!inatApiJwtAuthorizationValue() || !inatUploadAuthOk) {
+    showError("Apply a valid API token first.");
+    return;
+  }
+  const grp = inatUploadGroups[g];
+  if (!grp || !grp.indices.length) {
+    showError("Add at least one photo to this card before fetching computer vision.");
+    return;
+  }
+  const ix = grp.indices[0];
+  const file = workItems[ix];
+  if (!file) return;
+  btn.disabled = true;
+  btn.setAttribute("aria-busy", "true");
+  try {
+    const data = await fetchInatComputervisionScoreImageJsonForFile(file);
+    showInatCvResultsDialog(data);
+  } catch (err) {
+    console.error(err);
+    const msg = err && typeof err === "object" && "message" in err ? String(err.message) : String(err);
+    showError(msg);
+  } finally {
+    btn.disabled = false;
+    btn.removeAttribute("aria-busy");
+  }
+}
+
 /** Run computer vision on the first photo of every observation row (sequential, with a short delay between API calls). */
 async function runInatCvForAllObservations() {
   clearError();
@@ -3459,8 +3513,9 @@ async function runInatCvForAllObservations() {
       const ix = grp.indices[0];
       const file = workItems[ix];
       if (!file) continue;
-      const guess = await fetchInatComputervisionFirstGuessForFile(file);
-      applyInatCvGuessToGroupUi(g, guess);
+      const data = await fetchInatComputervisionScoreImageJsonForFile(file);
+      const guess = firstTaxonGuessFromScoreImageJson(data);
+      if (guess) applyInatCvGuessToGroupUi(g, guess);
     }
   } catch (err) {
     console.error(err);
@@ -3572,13 +3627,23 @@ function wireInatUploadGroupingDelegated() {
       return;
     }
     const btn = e.target && "closest" in e.target ? e.target.closest(".inat-group-cv-btn") : null;
-    if (btn instanceof HTMLButtonElement) {
+    if (btn instanceof HTMLButtonElement && !btn.classList.contains("inat-group-cv-json-btn")) {
       e.preventDefault();
       const card = btn.closest(".inat-group-card");
       if (!card) return;
       const g = parseInt(card.dataset.groupIdx || "", 10);
       if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
       void handleInatGroupCvClick(card, btn, g);
+      return;
+    }
+    const cvJson = e.target && "closest" in e.target ? e.target.closest(".inat-group-cv-json-btn") : null;
+    if (cvJson instanceof HTMLButtonElement) {
+      e.preventDefault();
+      const card = cvJson.closest(".inat-group-card");
+      if (!card) return;
+      const g = parseInt(card.dataset.groupIdx || "", 10);
+      if (!Number.isFinite(g) || !inatUploadGroups[g]) return;
+      void handleInatGroupCvJsonClick(card, cvJson, g);
       return;
     }
   });
@@ -3825,6 +3890,29 @@ function hideInatLocationPickerDialog() {
   inatLocationPickerGroupIdx = -1;
 }
 
+function hideInatCvResultsDialog() {
+  if (inatCvResultsDialog) inatCvResultsDialog.hidden = true;
+}
+
+/**
+ * @param {unknown} data
+ */
+function showInatCvResultsDialog(data) {
+  if (!inatCvResultsDialog || !inatCvResultsPre) return;
+  try {
+    inatCvResultsPre.textContent = JSON.stringify(data, null, 2);
+  } catch {
+    inatCvResultsPre.textContent = String(data);
+  }
+  inatCvResultsDialog.hidden = false;
+  inatCvResultsDialog.removeAttribute("hidden");
+  try {
+    if (btnInatCvResultsClose) btnInatCvResultsClose.focus();
+  } catch {
+    /* ignore */
+  }
+}
+
 function formatCoordForDisplay(x) {
   const n = Number(x);
   if (!Number.isFinite(n)) return "—";
@@ -4028,6 +4116,33 @@ function wireInatLocationPickerDialog() {
 
 wireInatLocationPickerDialog();
 
+function wireInatCvResultsDialog() {
+  if (!inatCvResultsDialog || !btnInatCvResultsClose) return;
+  const backdrop = inatCvResultsDialog.querySelector(".reapply-dialog__backdrop");
+  const finishHide = () => hideInatCvResultsDialog();
+  btnInatCvResultsClose.addEventListener("click", finishHide);
+  if (backdrop) backdrop.addEventListener("click", finishHide);
+  if (btnInatCvResultsCopy && inatCvResultsPre) {
+    btnInatCvResultsCopy.addEventListener("click", async () => {
+      const t = inatCvResultsPre.textContent || "";
+      if (!t) return;
+      try {
+        await navigator.clipboard.writeText(t);
+      } catch {
+        showError("Could not copy to clipboard.");
+      }
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (inatCvResultsDialog && !inatCvResultsDialog.hidden && e.key === "Escape") {
+      e.preventDefault();
+      finishHide();
+    }
+  });
+}
+
+wireInatCvResultsDialog();
+
 function renderInatPhotoGroupingStrip() {
   if (!inatUploadGrouping || !inatUploadGroupingStrip) return;
   const n = workItems.length;
@@ -4098,7 +4213,17 @@ function renderInatPhotoGroupingStrip() {
     cvBtn.textContent = "Vision";
     cvBtn.title = "Run iNaturalist computer vision on the first photo in this group and fill the top suggestion";
     cvBtn.setAttribute("aria-label", "Run computer vision for top species suggestion");
-    speciesRow.appendChild(cvBtn);
+    const cvJsonBtn = document.createElement("button");
+    cvJsonBtn.type = "button";
+    cvJsonBtn.className = "btn secondary inat-group-cv-json-btn";
+    cvJsonBtn.textContent = "CV JSON";
+    cvJsonBtn.title = "Fetch and show the full computervision/score_image API response for the first photo";
+    cvJsonBtn.setAttribute("aria-label", "Show full computer vision API JSON");
+    const cvActions = document.createElement("div");
+    cvActions.className = "inat-group-cv-actions";
+    cvActions.appendChild(cvBtn);
+    cvActions.appendChild(cvJsonBtn);
+    speciesRow.appendChild(cvActions);
     speciesField.appendChild(hid);
     speciesField.appendChild(speciesRow);
     card.appendChild(speciesField);
