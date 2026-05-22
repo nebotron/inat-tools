@@ -2550,28 +2550,26 @@ async function refreshInatAuthUser() {
 }
 
 /**
- * Remove an observation card from the grid immediately (optimistic Agree / Mark reviewed).
- * Decrements {@link obsCardCount} and {@link totalObs}. If the API call later fails, bump
- * {@link totalObs} back with {@link revertOptimisticObservationRemovalCount}.
- * @param {HTMLElement} actionEl — control that lives inside the `.card` (e.g. button or link).
+ * After a successful Agree or Mark reviewed API write, keep the card on screen and show which
+ * action completed (disabled button plus a `--done` class for styling).
+ * @param {HTMLButtonElement} button
  */
-function removeObservationCardFromGridAfterWrite(actionEl) {
-  const card = actionEl.closest(".card");
-  if (!card?.parentNode) return;
+function markObservationWriteActionButtonSucceeded(button) {
   try {
-    if (actionEl instanceof HTMLElement && "blur" in actionEl) actionEl.blur();
+    if (button instanceof HTMLElement && "blur" in button) button.blur();
   } catch (ex) {
-    explorerFatal(ex, "removeObservationCardFromGridAfterWrite:blur");
+    explorerFatal(ex, "markObservationWriteActionButtonSucceeded:blur");
   }
-  card.parentNode.removeChild(card);
-  obsCardCount = Math.max(0, obsCardCount - 1);
-  totalObs = Math.max(0, totalObs - 1);
-  updateSearchSummaryElements();
-}
-
-function revertOptimisticObservationRemovalCount() {
-  totalObs += 1;
-  updateSearchSummaryElements();
+  if (button.classList.contains("card-agree")) {
+    button.classList.add("card-agree--done");
+    button.title = "Agreed (posted to iNaturalist)";
+    button.setAttribute("aria-label", "Agreed with this observation on iNaturalist");
+  } else if (button.classList.contains("card-mark-reviewed")) {
+    button.classList.add("card-mark-reviewed--done");
+    button.title = "Marked reviewed on iNaturalist";
+    button.setAttribute("aria-label", "Marked reviewed on iNaturalist");
+  }
+  button.disabled = true;
 }
 
 /**
@@ -2587,7 +2585,8 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     void openExplorerAuthPanel({ reason: "Sign in with an API token to use Agree on observation cards." });
     return;
   }
-  removeObservationCardFromGridAfterWrite(button);
+  if (button.disabled) return;
+  button.disabled = true;
   try {
     const res = await inatFetch("identifications", {
       method: "POST",
@@ -2598,11 +2597,12 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     if (!res.ok) {
       const detail = await formatInatHttpErrorForDisplay(res);
       window.alert(`Could not agree. ${detail}`);
-      revertOptimisticObservationRemovalCount();
+      button.disabled = false;
       return;
     }
+    markObservationWriteActionButtonSucceeded(button);
   } catch (e) {
-    revertOptimisticObservationRemovalCount();
+    button.disabled = false;
     explorerFatal(e, "submitObservationAgree");
   }
 }
@@ -2760,7 +2760,8 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
     void openExplorerAuthPanel({ reason: "Sign in with an API token to use Mark reviewed on observation cards." });
     return;
   }
-  removeObservationCardFromGridAfterWrite(button);
+  if (button.disabled) return;
+  button.disabled = true;
   try {
     const res = await inatFetch(`observations/${Math.floor(obsId)}/review`, {
       method: "POST",
@@ -2771,11 +2772,12 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
     if (!res.ok) {
       const detail = await formatInatHttpErrorForDisplay(res);
       window.alert(`Could not mark reviewed. ${detail}`);
-      revertOptimisticObservationRemovalCount();
+      button.disabled = false;
       return;
     }
+    markObservationWriteActionButtonSucceeded(button);
   } catch (e) {
-    revertOptimisticObservationRemovalCount();
+    button.disabled = false;
     explorerFatal(e, "submitObservationMarkReviewed");
   }
 }

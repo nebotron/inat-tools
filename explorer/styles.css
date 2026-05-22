@@ -778,6 +778,16 @@ a.card-photo-page-link .fa {
   cursor: default;
 }
 
+/* Successful Agree: card stays visible; pressed control shows a distinct “done” color. */
+.card-agree.card-agree--done:disabled {
+  opacity: 1;
+  cursor: default;
+  background: rgba(27, 94, 32, 0.78);
+  border-color: rgba(165, 214, 167, 0.55);
+  color: #e8f5e9;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
 .card-fave {
   display: inline-flex;
   align-items: center;
@@ -857,6 +867,16 @@ a.card-photo-page-link .fa {
 .card-mark-reviewed:disabled {
   opacity: 1;
   cursor: wait;
+}
+
+/* Successful Mark reviewed: same pattern as Agree — keep card, tint only the control used. */
+.card-mark-reviewed.card-mark-reviewed--done:disabled {
+  opacity: 1;
+  cursor: default;
+  background: rgba(13, 71, 161, 0.78);
+  border-color: rgba(144, 202, 249, 0.55);
+  color: #e3f2fd;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .card a:not(.card-link):not(.card-open-inat-app):not(.card-photo-page-link) {
