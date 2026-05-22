@@ -311,6 +311,19 @@ main {
   align-items: center;
 }
 
+.hand-layout-fieldset-hint {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.card-meta-checks--hand-layout {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
 .card-meta-label {
   display: inline-flex;
   gap: 0.35rem;
@@ -569,6 +582,29 @@ main {
 /* One full control height between Mark reviewed and Agree (flex gap stays below Open). */
 .card-actions-upper-right > .card-agree {
   margin-top: 3.375rem;
+}
+
+/* Left-handed: stack controls on the left; title + meta on the right (see Filters → Card layout). */
+body.explorer-hand-left .card-actions-upper-right {
+  right: auto;
+  left: 0.4rem;
+  align-items: flex-start;
+}
+
+body.explorer-hand-left .card-details-overlay {
+  left: auto;
+  right: 0;
+  max-width: calc(100% - 4.75rem);
+  padding: 0.38rem 0.38rem 0.65rem 0.55rem;
+  text-align: right;
+  background: radial-gradient(
+    ellipse 125% 110% at 100% 0%,
+    rgba(0, 0, 0, 0.78) 0%,
+    rgba(0, 0, 0, 0.5) 36%,
+    rgba(0, 0, 0, 0.22) 62%,
+    rgba(0, 0, 0, 0.06) 82%,
+    transparent 100%
+  );
 }
 
 .card-open-inat-app {

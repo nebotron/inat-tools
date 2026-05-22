@@ -293,6 +293,8 @@ const el = {
   metaSciName: document.getElementById("meta-sci-name"),
   metaFavoriteControl: document.getElementById("meta-favorite-control"),
   metaIdentifyControls: document.getElementById("meta-identify-controls"),
+  handLayoutRight: document.getElementById("hand-layout-right"),
+  handLayoutLeft: document.getElementById("hand-layout-left"),
   searchForm: document.getElementById("search-form"),
   btnReset: document.getElementById("btn-reset"),
   btnCopyLink: document.getElementById("btn-copy-link"),
@@ -1071,6 +1073,12 @@ function applyCardMetaFromQuery(q) {
   el.metaSciName.checked = o.sciName;
   if (el.metaIdentifyControls) el.metaIdentifyControls.checked = o.identifyControls;
   if (el.metaFavoriteControl) el.metaFavoriteControl.checked = o.favoriteControl;
+}
+
+/** Observation / species cards: controls vs title+meta placement (Filters → Card layout). */
+function syncExplorerHandLayoutClass() {
+  const left = Boolean(el.handLayoutLeft && el.handLayoutLeft.checked);
+  document.body.classList.toggle("explorer-hand-left", left);
 }
 
 function formatCardMetaQuery() {
@@ -3965,6 +3973,9 @@ function syncUrl() {
   if (cm === null) q.delete("cardmeta");
   else q.set("cardmeta", cm);
 
+  if (el.handLayoutLeft && el.handLayoutLeft.checked) q.set("hand", "left");
+  else q.delete("hand");
+
   q.delete("months");
   q.delete("evidence");
 
@@ -4091,6 +4102,11 @@ function readUrl() {
 
   el.unobservedInput.value = (q.get("unobserved") || "").toLowerCase();
   applyCardMetaFromQuery(q);
+  if (el.handLayoutLeft && el.handLayoutRight) {
+    if ((q.get("hand") || "").toLowerCase() === "left") el.handLayoutLeft.checked = true;
+    else el.handLayoutRight.checked = true;
+  }
+  syncExplorerHandLayoutClass();
   el.qualityGrade.value = q.get("grade") || "";
   {
     const s = q.get("sort") || "recent";
@@ -4759,6 +4775,15 @@ function wireFilterExtras() {
     });
   }
 
+  if (el.handLayoutLeft && el.handLayoutRight) {
+    const onHandLayout = () => {
+      syncExplorerHandLayoutClass();
+      scheduleUrlSync();
+    };
+    el.handLayoutLeft.addEventListener("change", onHandLayout);
+    el.handLayoutRight.addEventListener("change", onHandLayout);
+  }
+
   const lowerLogin = (e) => {
     e.target.value = e.target.value.toLowerCase();
   };
@@ -4852,6 +4877,9 @@ function wireButtons() {
     if (el.metaObsDate) el.metaObsDate.checked = false;
     if (el.metaPhotoPage) el.metaPhotoPage.checked = false;
     el.metaSciName.checked = false;
+    if (el.handLayoutRight) el.handLayoutRight.checked = true;
+    if (el.handLayoutLeft) el.handLayoutLeft.checked = false;
+    syncExplorerHandLayoutClass();
     setEstablishmentCheckboxes({ endemic: true, native: true, introduced: true, invasive: true });
     el.resultsGrid.innerHTML = "";
     el.speciesGrid.innerHTML = "";
