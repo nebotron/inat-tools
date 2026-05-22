@@ -2550,11 +2550,74 @@ async function refreshInatAuthUser() {
 }
 
 /**
+ * Show a spinner on an Agree or Mark reviewed card control while its iNat API request is in flight.
+ * @param {HTMLButtonElement} button
+ */
+function beginObservationCardWriteActionLoading(button) {
+  button.classList.add("card-write-action--loading");
+  const icon = button.querySelector("i.fa");
+  if (icon) {
+    button.dataset.writeActionIconClass = icon.className;
+    icon.className = "fa fa-spinner fa-spin";
+  }
+  button.setAttribute("aria-busy", "true");
+  if (button.classList.contains("card-agree")) {
+    button.dataset.writeActionPrevAria = button.getAttribute("aria-label") || "";
+    button.dataset.writeActionPrevTitle = button.getAttribute("title") || "";
+    button.setAttribute("aria-label", "Agreeing…");
+    button.title = "Agreeing…";
+  } else if (button.classList.contains("card-mark-reviewed")) {
+    button.dataset.writeActionPrevAria = button.getAttribute("aria-label") || "";
+    button.dataset.writeActionPrevTitle = button.getAttribute("title") || "";
+    button.setAttribute("aria-label", "Marking reviewed…");
+    button.title = "Marking reviewed…";
+  }
+}
+
+/**
+ * @param {HTMLButtonElement} button
+ */
+function endObservationCardWriteActionLoadingFailure(button) {
+  button.classList.remove("card-write-action--loading");
+  button.removeAttribute("aria-busy");
+  const icon = button.querySelector("i.fa");
+  const saved = button.dataset.writeActionIconClass;
+  if (icon && typeof saved === "string" && saved.trim() !== "") {
+    icon.className = saved;
+  }
+  delete button.dataset.writeActionIconClass;
+  const pa = button.dataset.writeActionPrevAria;
+  const pt = button.dataset.writeActionPrevTitle;
+  if (pa !== undefined) button.setAttribute("aria-label", pa);
+  if (pt !== undefined) button.setAttribute("title", pt);
+  delete button.dataset.writeActionPrevAria;
+  delete button.dataset.writeActionPrevTitle;
+}
+
+/**
+ * Drop loading chrome before applying the permanent success state (caller sets new labels).
+ * @param {HTMLButtonElement} button
+ */
+function endObservationCardWriteActionLoadingSuccess(button) {
+  button.classList.remove("card-write-action--loading");
+  button.removeAttribute("aria-busy");
+  const icon = button.querySelector("i.fa");
+  const saved = button.dataset.writeActionIconClass;
+  if (icon && typeof saved === "string" && saved.trim() !== "") {
+    icon.className = saved;
+  }
+  delete button.dataset.writeActionIconClass;
+  delete button.dataset.writeActionPrevAria;
+  delete button.dataset.writeActionPrevTitle;
+}
+
+/**
  * After a successful Agree or Mark reviewed API write, keep the card on screen and show which
  * action completed (disabled button plus a `--done` class for styling).
  * @param {HTMLButtonElement} button
  */
 function markObservationWriteActionButtonSucceeded(button) {
+  endObservationCardWriteActionLoadingSuccess(button);
   try {
     if (button instanceof HTMLElement && "blur" in button) button.blur();
   } catch (ex) {
@@ -2587,6 +2650,7 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
   }
   if (button.disabled) return;
   button.disabled = true;
+  beginObservationCardWriteActionLoading(button);
   try {
     const res = await inatFetch("identifications", {
       method: "POST",
@@ -2597,11 +2661,13 @@ async function submitObservationAgree(button, obsIdStr, taxonIdStr) {
     if (!res.ok) {
       const detail = await formatInatHttpErrorForDisplay(res);
       window.alert(`Could not agree. ${detail}`);
+      endObservationCardWriteActionLoadingFailure(button);
       button.disabled = false;
       return;
     }
     markObservationWriteActionButtonSucceeded(button);
   } catch (e) {
+    endObservationCardWriteActionLoadingFailure(button);
     button.disabled = false;
     explorerFatal(e, "submitObservationAgree");
   }
@@ -2762,6 +2828,7 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
   }
   if (button.disabled) return;
   button.disabled = true;
+  beginObservationCardWriteActionLoading(button);
   try {
     const res = await inatFetch(`observations/${Math.floor(obsId)}/review`, {
       method: "POST",
@@ -2772,11 +2839,13 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
     if (!res.ok) {
       const detail = await formatInatHttpErrorForDisplay(res);
       window.alert(`Could not mark reviewed. ${detail}`);
+      endObservationCardWriteActionLoadingFailure(button);
       button.disabled = false;
       return;
     }
     markObservationWriteActionButtonSucceeded(button);
   } catch (e) {
+    endObservationCardWriteActionLoadingFailure(button);
     button.disabled = false;
     explorerFatal(e, "submitObservationMarkReviewed");
   }

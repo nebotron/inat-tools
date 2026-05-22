@@ -778,6 +778,12 @@ a.card-photo-page-link .fa {
   cursor: default;
 }
 
+.card-agree.card-write-action--loading:disabled,
+.card-mark-reviewed.card-write-action--loading:disabled {
+  opacity: 1;
+  cursor: wait;
+}
+
 /* Successful Agree: card stays visible; pressed control shows a distinct “done” color. */
 .card-agree.card-agree--done:disabled {
   opacity: 1;
