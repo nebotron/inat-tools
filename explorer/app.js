@@ -1734,7 +1734,9 @@ async function inatV2PostMethodOverrideGetWithRetry(relPath, body, opts = {}) {
 }
 
 /**
- * GET v1 or POST v2 (JSON body) for observation search endpoints, depending on “Favorited by me”.
+ * GET v1 or POST /v2 (JSON body) for observation search endpoints when “Favorited by me” or “Unseen by”
+ * requires a POST body; `fields=all` is set for `observations` and `observations/species_counts` so v2
+ * returns full taxon payloads (v2 defaults omit names and photos).
  * @param {"observations"|"observations/species_counts"|"observations/histogram"} relPath
  * @param {URLSearchParams} searchParams
  */
@@ -1744,7 +1746,9 @@ async function inatObservationQueryFetchWithRetry(relPath, searchParams, opts = 
   }
   const body = urlSearchParamsToPlainJsonObject(searchParams);
   applyFavoritedNestedFilterToPostBody(body);
-  if (relPath === "observations") body.fields = "all";
+  if (relPath === "observations" || relPath === "observations/species_counts") {
+    body.fields = "all";
+  }
   return inatV2PostMethodOverrideGetWithRetry(relPath, body, opts);
 }
 
