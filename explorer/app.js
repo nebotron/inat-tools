@@ -1212,7 +1212,7 @@ function parseEstablishmentFromQuery(q) {
  * @param {"list"|"species_counts"} [options.establishmentMode]
  * @param {string} [options.kingCountyTaxonIdsCsv] unused; kept for call-site compatibility
  */
-function commonParams(options = {}) {
+async function commonParams(options = {}) {
   const establishmentMode = options.establishmentMode || "list";
   void establishmentMode;
 
@@ -1244,9 +1244,6 @@ function commonParams(options = {}) {
     }
   }
 
-  const uid = el.unobservedInput.value.trim().toLowerCase();
-  if (uid) p.set("unobserved_by_user_id", uid);
-
   if (el.qualityGrade.value) p.set("quality_grade", el.qualityGrade.value);
 
   const photosOn = el.mediaPhotos.checked;
@@ -1277,6 +1274,7 @@ function commonParams(options = {}) {
 
   if (el.popularOnly.checked) p.set("popular", "true");
 
+  await applyUnobservedSpeciesExclusionToParams(p);
   return p;
 }
 
@@ -1314,7 +1312,7 @@ function joinKingCountyTaxonIdsCsv(kc) {
 async function observationParams(opts = {}) {
   const idBelow = opts.idBelow != null && Number.isFinite(opts.idBelow) ? opts.idBelow : null;
   const idAbove = opts.idAbove != null && Number.isFinite(opts.idAbove) ? opts.idAbove : null;
-  const p = commonParams({});
+  const p = await commonParams({});
   p.set("per_page", String(OBS_PER_PAGE));
   const sort = el.sortMode.value;
   if (sort === "faves") {
@@ -1421,7 +1419,7 @@ function sortObservationResultsForDisplay(results) {
 
 async function speciesParams(page) {
   const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  const p = await commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.set("page", String(page));
   p.set("per_page", String(SPECIES_PER_PAGE));
   p.set("order", "desc");
@@ -1445,7 +1443,7 @@ async function speciesCountParams() {
 /** Same query scope as `GET /observations/species_counts` for a taxon (list ordering params). */
 async function speciesFilterParams(taxonId) {
   const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  const p = await commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   const tid = Number(taxonId);
   if (Number.isFinite(tid) && tid > 0) {
     const existing = p.get("taxon_id");
@@ -1479,7 +1477,7 @@ async function monthOfYearHistogramParams(taxonId) {
  */
 async function observedHistogramParamsForStats(interval) {
   const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  const p = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("month");
   p.set("date_field", "observed");
   p.set("interval", interval);
@@ -1500,7 +1498,7 @@ async function yearHistogramParamsForStats() {
  */
 async function speciesCountTotalParamsForEndDate(observedEndDate) {
   const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  const p = await commonParams({ establishmentMode: "species_counts", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("month");
   p.set("d2", observedEndDate);
   p.set("per_page", "1");
@@ -1586,6 +1584,96 @@ async function inatFetchWithRetry(pathAndQuery, opts = {}) {
   return res;
 }
 
+/** True when observation search should use POST /v2 (JSON body) — favorites filter or large “Unseen by” exclusions. */
+function observationQueryUsesV2Post() {
+  return Boolean(
+    observationSearchUsesV2FavoritesPost() ||
+      (el.unobservedInput && el.unobservedInput.value.trim()),
+  );
+}
+
+const UNOBSERVED_SPECIES_CACHE_TTL_MS = 60 * 60 * 1000;
+const UNOBSERVED_SPECIES_FETCH_PER_PAGE = 500;
+const UNOBSERVED_SPECIES_MAX_PAGES = 400;
+/** @type {Map<string, { ids: number[]; expiry: number }>} */
+const unobservedSpeciesIdsCache = new Map();
+
+/**
+ * Paginate `GET /v1/observations/species_counts?user_login=…` (global life list for that observer;
+ * no place/taxon filters) to collect distinct species-level taxon ids (`taxon.id` on each row).
+ * @param {string} login lowercased iNaturalist login
+ * @returns {Promise<number[]>}
+ */
+async function fetchObservedSpeciesTaxonIdsForUserLogin(login) {
+  const ids = [];
+  for (let page = 1; page <= UNOBSERVED_SPECIES_MAX_PAGES; page += 1) {
+    const q = new URLSearchParams();
+    q.set("user_login", login);
+    q.set("per_page", String(UNOBSERVED_SPECIES_FETCH_PER_PAGE));
+    q.set("page", String(page));
+    const res = await inatFetchWithRetry(`observations/species_counts?${q.toString()}`, {});
+    if (!res.ok) {
+      throw new Error(`species_counts for observed species failed (${res.status})`);
+    }
+    const j = await res.json();
+    const rows = j.results || [];
+    for (const row of rows) {
+      const t = row && row.taxon;
+      const tid = t && t.id != null ? Number(t.id) : NaN;
+      if (Number.isFinite(tid) && tid > 0) ids.push(tid);
+    }
+    if (rows.length < UNOBSERVED_SPECIES_FETCH_PER_PAGE) break;
+  }
+  return [...new Set(ids)];
+}
+
+/**
+ * Cached species-level taxon ids for the “Unseen by” user (matches server life-list grain).
+ * @param {string} login lowercased login
+ */
+async function getUnobservedSpeciesTaxonIdsCached(login) {
+  const now = Date.now();
+  const hit = unobservedSpeciesIdsCache.get(login);
+  if (hit && hit.expiry > now) return hit.ids;
+  const ids = await fetchObservedSpeciesTaxonIdsForUserLogin(login);
+  unobservedSpeciesIdsCache.set(login, { ids, expiry: now + UNOBSERVED_SPECIES_CACHE_TTL_MS });
+  return ids;
+}
+
+/**
+ * “Unseen by”: exclude observations under species the named user has already observed
+ * (`without_taxon_id` on `taxon.ancestor_ids`), and restrict results to species through infraspecifics.
+ * @param {URLSearchParams} p
+ */
+async function applyUnobservedSpeciesExclusionToParams(p) {
+  const login = el.unobservedInput && el.unobservedInput.value.trim().toLowerCase();
+  if (!login) return;
+  const ids = await getUnobservedSpeciesTaxonIdsCached(login);
+  if (ids.length) {
+    const existing = p.get("without_taxon_id") || "";
+    const merged = mergeTaxonCsvParam(existing, ids);
+    if (merged) p.set("without_taxon_id", merged);
+  }
+  p.set("lrank", "subspecies");
+  p.set("hrank", "species");
+}
+
+/**
+ * PNG grid tiles are requested via GET; very long `without_taxon_id` lists can exceed URL limits.
+ * Fall back to API-native `unobserved_by_user_id` for the heat layer only (slightly different semantics at fine ranks).
+ */
+const HEAT_GRID_WITHOUT_TAXON_SAFE_LEN = 2800;
+function relaxUnobservedParamsForObservationGridTiles(p) {
+  const wit = p.get("without_taxon_id") || "";
+  if (wit.length <= HEAT_GRID_WITHOUT_TAXON_SAFE_LEN) return;
+  const login = el.unobservedInput && el.unobservedInput.value.trim().toLowerCase();
+  if (!login) return;
+  p.delete("without_taxon_id");
+  p.delete("lrank");
+  p.delete("hrank");
+  p.set("unobserved_by_user_id", login);
+}
+
 /** True when “Favorited by me” is on and we have a user id (POST /v2 search with nested `votes` filter). */
 function observationSearchUsesV2FavoritesPost() {
   return Boolean(
@@ -1651,7 +1739,7 @@ async function inatV2PostMethodOverrideGetWithRetry(relPath, body, opts = {}) {
  * @param {URLSearchParams} searchParams
  */
 async function inatObservationQueryFetchWithRetry(relPath, searchParams, opts = {}) {
-  if (!observationSearchUsesV2FavoritesPost()) {
+  if (!observationQueryUsesV2Post()) {
     return inatFetchWithRetry(`${relPath}?${searchParams.toString()}`, opts);
   }
   const body = urlSearchParamsToPlainJsonObject(searchParams);
@@ -1663,7 +1751,7 @@ async function inatObservationQueryFetchWithRetry(relPath, searchParams, opts = 
 /** Params for listing observations in observed-on order (Stats local aggregation). */
 async function statsObservationListParams() {
   const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  const p = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("month");
   p.set("order_by", "observed_on");
   p.set("order", "asc");
@@ -2058,7 +2146,7 @@ async function fetchObservationTaxonById(taxonIds) {
   const chunkSize = 25;
   for (let i = 0; i < uniq.length; i += chunkSize) {
     const slice = uniq.slice(i, i + chunkSize);
-    const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: kcCsv });
+    const p = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: kcCsv });
     p.set("taxon_id", slice.join(","));
     p.set("per_page", "200");
     p.set("page", "1");
@@ -2082,7 +2170,7 @@ async function fetchObservationTaxonById(taxonIds) {
 
   const missing = uniq.filter((id) => !map.has(id));
   for (const tid of missing) {
-    const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: kcCsv });
+    const p = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: kcCsv });
     p.set("taxon_id", String(tid));
     p.set("per_page", "1");
     p.set("page", "1");
@@ -3504,7 +3592,7 @@ async function mapAreaParams() {
   try {
     if (!map) return null;
     const kc = await ensureKingCountyNoxiousData();
-    const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+    const p = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
     p.delete("place_id");
     p.delete("lat");
     p.delete("lng");
@@ -3592,7 +3680,7 @@ function installHeatGridLayer(url, onReady) {
 
 async function mapFilterKey() {
   const kc = await ensureKingCountyNoxiousData();
-  const p = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
+  const p = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kc) });
   p.delete("place_id");
   p.delete("lat");
   p.delete("lng");
@@ -3642,7 +3730,7 @@ async function runMapSearch(forceRecheck) {
 
     const pinEstablishmentFilter = establishmentClientFilterActive();
     const usePins =
-      totalInArea < MAP_PIN_THRESHOLD || pinEstablishmentFilter || observationSearchUsesV2FavoritesPost();
+      totalInArea < MAP_PIN_THRESHOLD || pinEstablishmentFilter || observationQueryUsesV2Post();
     const nextMapMode = usePins ? "pins" : "heat";
     const modeChanged = prevMapMode !== nextMapMode;
 
@@ -3704,7 +3792,8 @@ async function runMapSearch(forceRecheck) {
       mapMode = "heat";
       const kcHeat = await ensureKingCountyNoxiousData();
       if (seq !== mapSearchSeq || !map || currentView !== "map") return;
-      const heatParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcHeat) });
+      const heatParams = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcHeat) });
+      relaxUnobservedParamsForObservationGridTiles(heatParams);
       /* Random `_cb` forced a new tile URL on every pan/zoom so the heat layer was torn down and rebuilt (felt like a refresh). */
       const bustHeatTiles = forceRecheck || filtersChanged || prevMapMode !== "heat";
       if (bustHeatTiles) {
@@ -4948,7 +5037,7 @@ async function showSpeciesDetail(taxon, obsCount) {
   `;
 
   const kcDetail = await ensureKingCountyNoxiousData();
-  const hourSampleParams = commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcDetail) });
+  const hourSampleParams = await commonParams({ establishmentMode: "list", kingCountyTaxonIdsCsv: joinKingCountyTaxonIdsCsv(kcDetail) });
   hourSampleParams.set("taxon_id", String(taxon.id));
 
   const monthSection = document.getElementById("detail-month-section");
