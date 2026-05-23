@@ -14,6 +14,8 @@ html {
   /* Chrome Android: block overscroll from chaining to the document (pull-to-refresh) while pinch-zooming
      near a scrollable panel edge. Inner `.view-panel` still scrolls normally. */
   overscroll-behavior-y: none;
+  /* Complement viewport/JS zoom guards: keep root to pan/scroll only (photo areas use their own pinch). */
+  touch-action: pan-x pan-y;
 }
 
 *,

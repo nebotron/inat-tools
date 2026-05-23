@@ -1,6 +1,56 @@
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
 
+/** Leaflet adds this class to the map root; allow native two-finger map zoom there only. */
+const LEAFLET_MAP_ROOT = ".leaflet-container";
+
+let documentZoomGuardsInstalled = false;
+
+/**
+ * Viewport meta alone does not stop desktop pinch (Ctrl/trackpad wheel) or Safari page pinch.
+ * Block those at the document while still allowing Leaflet map pinch and our image handlers.
+ */
+function installExplorerDocumentZoomGuards() {
+  if (documentZoomGuardsInstalled) return;
+  documentZoomGuardsInstalled = true;
+
+  const onLeafletMap = (node) => {
+    if (!(node instanceof Element)) return false;
+    try {
+      return Boolean(node.closest(LEAFLET_MAP_ROOT));
+    } catch {
+      return false;
+    }
+  };
+
+  /** Chromium / Firefox: trackpad pinch and Ctrl+wheel use ctrlKey on wheel events. */
+  const onWindowWheelCapture = (e) => {
+    if (e.ctrlKey || e.metaKey) e.preventDefault();
+  };
+  window.addEventListener("wheel", onWindowWheelCapture, { passive: false, capture: true });
+
+  /** Mobile: block 2-finger viewport zoom unless both touches are on the map (Leaflet pinch). */
+  const onTouchMoveCapture = (e) => {
+    if (e.touches.length < 2) return;
+    const allOnMap = Array.from(e.touches).every((t) => onLeafletMap(t.target));
+    if (allOnMap) return;
+    e.preventDefault();
+  };
+  document.addEventListener("touchmove", onTouchMoveCapture, { passive: false, capture: true });
+
+  /** Safari (esp. macOS): page pinch uses non-standard gesture events. */
+  if (typeof window.GestureEvent === "function") {
+    const onGestureCapture = (e) => {
+      const t = e.target;
+      if (t instanceof Element && onLeafletMap(t)) return;
+      e.preventDefault();
+    };
+    document.addEventListener("gesturestart", onGestureCapture, { passive: false, capture: true });
+    document.addEventListener("gesturechange", onGestureCapture, { passive: false, capture: true });
+    document.addEventListener("gestureend", onGestureCapture, { passive: false, capture: true });
+  }
+}
+
 /** @param {HTMLElement} inner */
 function readScale(inner) {
   const t = inner.style.transform;
@@ -22,11 +72,12 @@ function distance(x1, y1, x2, y2) {
 }
 
 /**
- * Application-level zoom for `[data-explorer-pinch-zoom]` shells (touch pinch and Ctrl/Cmd+wheel).
- * Page zoom is expected to be disabled via viewport meta; this keeps zoom available on photos only.
+ * Blocks browser-level zoom (viewport meta is not enough on desktop / some mobile engines),
+ * then wires application-level zoom for `[data-explorer-pinch-zoom]` (touch pinch and Ctrl/Cmd+wheel).
  * @param {ParentNode | null | undefined} root
  */
 export function installExplorerImagePinchZoom(root) {
+  installExplorerDocumentZoomGuards();
   if (!root) return;
 
   /** @type {Map<number, { clientX: number, clientY: number, shell: Element }>} */
