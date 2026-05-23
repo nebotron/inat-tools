@@ -62,6 +62,14 @@ function readScale(scaleEl) {
   return Number.isFinite(s) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, s)) : 1;
 }
 
+/** Lets CSS set touch-action:none on the photo subtree so the observations panel does not steal drags. */
+function syncPhotoShellZoomedState(scaleEl) {
+  const shell = scaleEl.closest("[data-explorer-pinch-zoom]");
+  if (!(shell instanceof HTMLElement)) return;
+  if (readScale(scaleEl) > 1) shell.setAttribute("data-explorer-photo-zoomed", "1");
+  else shell.removeAttribute("data-explorer-photo-zoomed");
+}
+
 /** @param {HTMLElement} scaleEl */
 function writeScale(scaleEl, scale) {
   const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
@@ -71,6 +79,7 @@ function writeScale(scaleEl, scale) {
     if (s <= MIN_SCALE + 1e-6) panEl.style.transform = "";
     else reclampPan(scaleEl.closest("[data-explorer-pinch-zoom]"), panEl, scaleEl);
   }
+  syncPhotoShellZoomedState(scaleEl);
 }
 
 /** @param {HTMLElement} panEl */
@@ -99,6 +108,7 @@ function writeTranslateClamped(shellEl, panEl, scaleEl, tx, ty) {
   const s = readScale(scaleEl);
   if (s <= 1) {
     panEl.style.transform = "";
+    syncPhotoShellZoomedState(scaleEl);
     return;
   }
   const w = shellEl.clientWidth;
@@ -109,6 +119,7 @@ function writeTranslateClamped(shellEl, panEl, scaleEl, tx, ty) {
   const x = Math.min(maxX, Math.max(-maxX, tx));
   const y = Math.min(maxY, Math.max(-maxY, ty));
   panEl.style.transform = x === 0 && y === 0 ? "" : `translate(${x}px, ${y}px)`;
+  syncPhotoShellZoomedState(scaleEl);
 }
 
 /** @param {Element | null} shellEl */
@@ -173,6 +184,13 @@ export function installExplorerImagePinchZoom(root) {
   };
 
   const clearImagePan = () => {
+    if (imagePan) {
+      try {
+        imagePan.shell.releasePointerCapture(imagePan.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
     imagePan = null;
   };
 
@@ -234,6 +252,11 @@ export function installExplorerImagePinchZoom(root) {
       tx0,
       ty0,
     };
+    try {
+      shell.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
   };
 
   /** @param {PointerEvent} e */
@@ -248,23 +271,18 @@ export function installExplorerImagePinchZoom(root) {
       const shell = imagePan.shell;
       if (pinchTouchCountForShell(pointers, shell) >= 2) {
         clearImagePan();
-      } else if (imagePan.phase === "candidate") {
-        const dist = distance(e.clientX, e.clientY, imagePan.x0, imagePan.y0);
-        if (dist >= PAN_SLOP_PX) {
-          imagePan.phase = "dragging";
-          try {
-            imagePan.shell.setPointerCapture(e.pointerId);
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-
-      if (imagePan && imagePan.phase === "dragging" && e.pointerId === imagePan.pointerId) {
+      } else if (readScale(imagePan.scaleEl) > 1) {
+        /* Stop the scrollable panel (and browser) from treating this as a scroll gesture. */
         e.preventDefault();
-        const tx = imagePan.tx0 + (e.clientX - imagePan.x0);
-        const ty = imagePan.ty0 + (e.clientY - imagePan.y0);
-        writeTranslateClamped(shell, imagePan.panEl, imagePan.scaleEl, tx, ty);
+        if (imagePan.phase === "candidate") {
+          const dist = distance(e.clientX, e.clientY, imagePan.x0, imagePan.y0);
+          if (dist >= PAN_SLOP_PX) imagePan.phase = "dragging";
+        }
+        if (imagePan && imagePan.phase === "dragging") {
+          const tx = imagePan.tx0 + (e.clientX - imagePan.x0);
+          const ty = imagePan.ty0 + (e.clientY - imagePan.y0);
+          writeTranslateClamped(shell, imagePan.panEl, imagePan.scaleEl, tx, ty);
+        }
       }
     }
 
@@ -284,14 +302,7 @@ export function installExplorerImagePinchZoom(root) {
     pointers.delete(e.pointerId);
     if (pointers.size < 2) endPinchTracking();
 
-    if (imagePan && imagePan.pointerId === e.pointerId) {
-      try {
-        imagePan.shell.releasePointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-      clearImagePan();
-    }
+    if (imagePan && imagePan.pointerId === e.pointerId) clearImagePan();
   };
 
   /** @param {PointerEvent} e */
