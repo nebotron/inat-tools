@@ -1,5 +1,6 @@
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
+const PAN_SLOP_PX = 8;
 
 /** Leaflet adds this class to the map root; allow native two-finger map zoom there only. */
 const LEAFLET_MAP_ROOT = ".leaflet-container";
@@ -51,9 +52,9 @@ function installExplorerDocumentZoomGuards() {
   }
 }
 
-/** @param {HTMLElement} inner */
-function readScale(inner) {
-  const t = inner.style.transform;
+/** @param {HTMLElement} scaleEl */
+function readScale(scaleEl) {
+  const t = scaleEl.style.transform;
   if (!t || t === "none") return 1;
   const m = t.match(/scale\(\s*([\d.]+)\s*\)/);
   if (!m) return 1;
@@ -61,10 +62,59 @@ function readScale(inner) {
   return Number.isFinite(s) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, s)) : 1;
 }
 
-/** @param {HTMLElement} inner */
-function writeScale(inner, scale) {
+/** @param {HTMLElement} scaleEl */
+function writeScale(scaleEl, scale) {
   const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-  inner.style.transform = s <= MIN_SCALE + 1e-6 ? "" : `scale(${s})`;
+  scaleEl.style.transform = s <= MIN_SCALE + 1e-6 ? "" : `scale(${s})`;
+  const panEl = scaleEl.parentElement;
+  if (panEl instanceof HTMLElement && panEl.classList.contains("card-photo-pinch__pan")) {
+    if (s <= MIN_SCALE + 1e-6) panEl.style.transform = "";
+    else reclampPan(scaleEl.closest("[data-explorer-pinch-zoom]"), panEl, scaleEl);
+  }
+}
+
+/** @param {HTMLElement} panEl */
+function readTranslate(panEl) {
+  const t = panEl.style.transform;
+  if (!t || t === "none") return { x: 0, y: 0 };
+  const m = t.match(/translate\(\s*([-0-9.]+)px\s*,\s*([-0-9.]+)px\s*\)/);
+  if (!m) return { x: 0, y: 0 };
+  const x = Number(m[1]);
+  const y = Number(m[2]);
+  return {
+    x: Number.isFinite(x) ? x : 0,
+    y: Number.isFinite(y) ? y : 0,
+  };
+}
+
+/**
+ * @param {Element | null} shellEl
+ * @param {HTMLElement} panEl
+ * @param {HTMLElement} scaleEl
+ * @param {number} tx
+ * @param {number} ty
+ */
+function writeTranslateClamped(shellEl, panEl, scaleEl, tx, ty) {
+  if (!(shellEl instanceof Element)) return;
+  const s = readScale(scaleEl);
+  if (s <= 1) {
+    panEl.style.transform = "";
+    return;
+  }
+  const w = shellEl.clientWidth;
+  const h = shellEl.clientHeight;
+  if (w <= 0 || h <= 0) return;
+  const maxX = ((s - 1) * w) / 2;
+  const maxY = ((s - 1) * h) / 2;
+  const x = Math.min(maxX, Math.max(-maxX, tx));
+  const y = Math.min(maxY, Math.max(-maxY, ty));
+  panEl.style.transform = x === 0 && y === 0 ? "" : `translate(${x}px, ${y}px)`;
+}
+
+/** @param {Element | null} shellEl */
+function reclampPan(shellEl, panEl, scaleEl) {
+  const { x, y } = readTranslate(panEl);
+  writeTranslateClamped(shellEl, panEl, scaleEl, x, y);
 }
 
 function distance(x1, y1, x2, y2) {
@@ -72,8 +122,21 @@ function distance(x1, y1, x2, y2) {
 }
 
 /**
+ * @param {Map<number, { shell: Element }>} pointers
+ * @param {Element} shell
+ */
+function pinchTouchCountForShell(pointers, shell) {
+  let n = 0;
+  for (const p of pointers.values()) {
+    if (p.shell === shell) n += 1;
+  }
+  return n;
+}
+
+/**
  * Blocks browser-level zoom (viewport meta is not enough on desktop / some mobile engines),
- * then wires application-level zoom for `[data-explorer-pinch-zoom]` (touch pinch and Ctrl/Cmd+wheel).
+ * then wires application-level zoom for `[data-explorer-pinch-zoom]` (touch pinch, Ctrl/Cmd+wheel,
+ * and single-pointer pan while zoomed).
  * @param {ParentNode | null | undefined} root
  */
 export function installExplorerImagePinchZoom(root) {
@@ -89,11 +152,32 @@ export function installExplorerImagePinchZoom(root) {
   let startDist = 1;
   let startScale = 1;
 
+  /** @type {{
+   *   phase: "candidate" | "dragging",
+   *   shell: Element,
+   *   panEl: HTMLElement,
+   *   scaleEl: HTMLElement,
+   *   pointerId: number,
+   *   x0: number,
+   *   y0: number,
+   *   tx0: number,
+   *   ty0: number,
+   * } | null} */
+  let imagePan = null;
+
   const endPinchTracking = () => {
     pinchShell = null;
     pinchInner = null;
     startDist = 1;
     startScale = 1;
+  };
+
+  const clearImagePan = () => {
+    imagePan = null;
+  };
+
+  const clearImagePanForShell = (shell) => {
+    if (imagePan && imagePan.shell === shell) clearImagePan();
   };
 
   const tryBeginPinch = () => {
@@ -102,6 +186,7 @@ export function installExplorerImagePinchZoom(root) {
     const shellA = entries[0].shell;
     const shellB = entries[1].shell;
     if (shellA !== shellB) return;
+    clearImagePanForShell(shellA);
     const inner = shellA.querySelector(".card-photo-pinch__scale");
     if (!(inner instanceof HTMLElement)) return;
     const d = distance(entries[0].clientX, entries[0].clientY, entries[1].clientX, entries[1].clientY);
@@ -112,21 +197,77 @@ export function installExplorerImagePinchZoom(root) {
     startScale = readScale(inner);
   };
 
+  const panStartBlocked = (target) => {
+    if (!(target instanceof Element)) return true;
+    if (target.closest("button.card-media-carousel__dot-slot")) return true;
+    if (target.closest(".card-actions-upper-right")) return true;
+    if (target.closest("a.card-photo-page-link")) return true;
+    return false;
+  };
+
   /** @param {PointerEvent} e */
   const onPointerDown = (e) => {
-    if (e.pointerType !== "touch") return;
     const shell = e.target.closest("[data-explorer-pinch-zoom]");
     if (!(shell instanceof Element) || !root.contains(shell)) return;
-    pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY, shell });
-    tryBeginPinch();
+
+    if (e.pointerType === "touch") {
+      pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY, shell });
+      if (pinchTouchCountForShell(pointers, shell) >= 2) clearImagePanForShell(shell);
+      tryBeginPinch();
+    }
+
+    const panEl = shell.querySelector(".card-photo-pinch__pan");
+    const scaleEl = shell.querySelector(".card-photo-pinch__scale");
+    if (!(panEl instanceof HTMLElement && scaleEl instanceof HTMLElement)) return;
+    if (readScale(scaleEl) <= 1) return;
+    if (panStartBlocked(e.target)) return;
+
+    const { x: tx0, y: ty0 } = readTranslate(panEl);
+    imagePan = {
+      phase: "candidate",
+      shell,
+      panEl,
+      scaleEl,
+      pointerId: e.pointerId,
+      x0: e.clientX,
+      y0: e.clientY,
+      tx0,
+      ty0,
+    };
   };
 
   /** @param {PointerEvent} e */
   const onPointerMove = (e) => {
     const rec = pointers.get(e.pointerId);
-    if (!rec) return;
-    rec.clientX = e.clientX;
-    rec.clientY = e.clientY;
+    if (rec) {
+      rec.clientX = e.clientX;
+      rec.clientY = e.clientY;
+    }
+
+    if (imagePan && e.pointerId === imagePan.pointerId) {
+      const shell = imagePan.shell;
+      if (pinchTouchCountForShell(pointers, shell) >= 2) {
+        clearImagePan();
+      } else if (imagePan.phase === "candidate") {
+        const dist = distance(e.clientX, e.clientY, imagePan.x0, imagePan.y0);
+        if (dist >= PAN_SLOP_PX) {
+          imagePan.phase = "dragging";
+          try {
+            imagePan.shell.setPointerCapture(e.pointerId);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      if (imagePan && imagePan.phase === "dragging" && e.pointerId === imagePan.pointerId) {
+        e.preventDefault();
+        const tx = imagePan.tx0 + (e.clientX - imagePan.x0);
+        const ty = imagePan.ty0 + (e.clientY - imagePan.y0);
+        writeTranslateClamped(shell, imagePan.panEl, imagePan.scaleEl, tx, ty);
+      }
+    }
+
     if (!pinchInner || !pinchShell || pointers.size < 2) return;
     const pair = [...pointers.values()].filter((p) => p.shell === pinchShell);
     if (pair.length < 2) return;
@@ -142,12 +283,22 @@ export function installExplorerImagePinchZoom(root) {
   const onPointerUp = (e) => {
     pointers.delete(e.pointerId);
     if (pointers.size < 2) endPinchTracking();
+
+    if (imagePan && imagePan.pointerId === e.pointerId) {
+      try {
+        imagePan.shell.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      clearImagePan();
+    }
   };
 
   /** @param {PointerEvent} e */
   const onPointerCancel = (e) => {
     pointers.delete(e.pointerId);
     if (pointers.size < 2) endPinchTracking();
+    if (imagePan && imagePan.pointerId === e.pointerId) clearImagePan();
   };
 
   /** @param {WheelEvent} e */
@@ -156,10 +307,12 @@ export function installExplorerImagePinchZoom(root) {
     const shell = e.target.closest("[data-explorer-pinch-zoom]");
     if (!(shell instanceof Element) || !root.contains(shell)) return;
     e.preventDefault();
-    const inner = shell.querySelector(".card-photo-pinch__scale");
-    if (!(inner instanceof HTMLElement)) return;
+    const scaleEl = shell.querySelector(".card-photo-pinch__scale");
+    const panEl = shell.querySelector(".card-photo-pinch__pan");
+    if (!(scaleEl instanceof HTMLElement)) return;
     const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
-    writeScale(inner, readScale(inner) * factor);
+    writeScale(scaleEl, readScale(scaleEl) * factor);
+    if (panEl instanceof HTMLElement) reclampPan(shell, panEl, scaleEl);
   };
 
   root.addEventListener("pointerdown", onPointerDown);
