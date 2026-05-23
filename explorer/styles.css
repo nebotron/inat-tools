@@ -909,36 +909,6 @@ a.card-photo-page-link .fa {
   display: block;
 }
 
-/* In-app zoom shell (page zoom disabled in viewport meta). */
-.card-photo-pinch {
-  position: relative;
-  z-index: 0;
-  overflow: hidden;
-  width: 100%;
-  transform: translateZ(0);
-}
-
-/* Ensure the pinch box always has layout height (clientHeight was 0 so pan clamp bailed out). */
-.card .card-photo-pinch {
-  aspect-ratio: 1 / 1;
-}
-
-.card-photo-pinch__view {
-  width: 100%;
-  display: block;
-  transform-origin: 0 0;
-}
-
-/* When zoomed, disable UA scroll routing on the photo subtree (otherwise #panel-observations steals vertical drag). */
-.card-photo-pinch[data-explorer-photo-zoomed="1"],
-.card-photo-pinch[data-explorer-photo-zoomed="1"] * {
-  touch-action: none;
-}
-
-.card-media-carousel__slide .card-photo-pinch {
-  width: 100%;
-}
-
 /* Square crop: iNaturalist photos are rectangular; object-fit matches a square frame. */
 .card img.card-photo {
   aspect-ratio: 1 / 1;
@@ -1277,16 +1247,11 @@ img.leaflet-tile.map-heat-tiles {
   margin-bottom: 1.2rem;
 }
 
-.detail-hero .card-photo-pinch {
+.detail-hero > .detail-hero-photo.card-photo {
   width: min(100%, 14rem);
   max-width: 100%;
   flex-shrink: 0;
   border-radius: 6px;
-}
-
-.detail-hero .card-photo-pinch .card-photo {
-  width: 100%;
-  max-width: 100%;
   aspect-ratio: 1 / 1;
   height: auto;
   object-fit: cover;
@@ -1369,7 +1334,7 @@ img.leaflet-tile.map-heat-tiles {
   gap: 0.65rem;
 }
 
-#panel-detail.detail-panel .detail-hero > .card-photo-pinch {
+#panel-detail.detail-panel .detail-hero > .detail-hero-photo.card-photo {
   flex: 0 0 auto;
   height: 100%;
   width: auto;
@@ -1381,19 +1346,8 @@ img.leaflet-tile.map-heat-tiles {
   align-self: center;
   overflow: hidden;
   border-radius: 6px;
-}
-
-#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__view,
-#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo {
   object-fit: cover;
-  aspect-ratio: auto;
-  max-width: none;
+  display: block;
 }
 
 #panel-detail.detail-panel .detail-hero-info {
@@ -1520,17 +1474,12 @@ img.leaflet-tile.map-heat-tiles {
   .map-container { min-height: 320px; }
 
   .detail-hero { flex-direction: column; }
-  .detail-hero .card-photo-pinch {
+  .detail-hero > .detail-hero-photo.card-photo {
     width: 100%;
     max-width: 100%;
     aspect-ratio: 1 / 1;
     max-height: none;
     height: auto;
-  }
-
-  .detail-hero .card-photo-pinch .card-photo {
-    width: 100%;
-    height: 100%;
     object-fit: cover;
   }
 
@@ -1557,7 +1506,7 @@ img.leaflet-tile.map-heat-tiles {
     margin-bottom: 0.35rem;
   }
 
-  #panel-detail.detail-panel .detail-hero > .card-photo-pinch {
+  #panel-detail.detail-panel .detail-hero > .detail-hero-photo.card-photo {
     flex: 1 1 0;
     width: 100% !important;
     max-width: 100% !important;
@@ -1567,19 +1516,8 @@ img.leaflet-tile.map-heat-tiles {
     height: auto;
     align-self: stretch;
     overflow: hidden;
-  }
-
-  #panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__view {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-
-  #panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo {
-    width: 100%;
-    height: 100%;
-    display: block;
     object-fit: cover;
+    display: block;
   }
 
   #panel-detail.detail-panel .detail-hero-info {
@@ -1628,4 +1566,75 @@ img.leaflet-tile.map-heat-tiles {
     padding: 0.35rem 0;
     font-size: 0.78rem;
   }
+}
+
+/* Fullscreen viewer: uncropped original + zoom/pan (opened from card/detail tap). */
+.explorer-photo-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  background: rgba(0, 0, 0, 0.94);
+  display: flex;
+  flex-direction: column;
+  touch-action: none;
+}
+
+.explorer-photo-lightbox[hidden] {
+  display: none !important;
+}
+
+.explorer-photo-lightbox__close {
+  position: absolute;
+  top: max(0.5rem, env(safe-area-inset-top, 0px));
+  right: max(0.5rem, env(safe-area-inset-right, 0px));
+  z-index: 2;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(30, 30, 30, 0.65);
+  color: #f4f7f4;
+  font-size: 1.75rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.explorer-photo-lightbox__close:hover {
+  background: rgba(50, 50, 50, 0.85);
+}
+
+/* Card/detail photos that open the fullscreen viewer */
+img.card-photo[data-explorer-lightbox-src] {
+  cursor: zoom-in;
+}
+
+.explorer-photo-lightbox__stage {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+  touch-action: none;
+}
+
+.explorer-photo-lightbox__view {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.explorer-photo-lightbox__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  user-select: none;
+  -webkit-user-drag: none;
 }
