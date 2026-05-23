@@ -907,6 +907,23 @@ a.card-photo-page-link .fa {
   display: block;
 }
 
+/* In-app zoom shell (page zoom disabled in viewport meta). */
+.card-photo-pinch {
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+  width: 100%;
+  transform: translateZ(0);
+}
+
+.card-photo-pinch__scale {
+  transform-origin: center center;
+}
+
+.card-media-carousel__slide .card-photo-pinch {
+  width: 100%;
+}
+
 /* Square crop: iNaturalist photos are rectangular; object-fit matches a square frame. */
 .card img.card-photo {
   aspect-ratio: 1 / 1;
@@ -1245,14 +1262,20 @@ img.leaflet-tile.map-heat-tiles {
   margin-bottom: 1.2rem;
 }
 
-.detail-hero img {
+.detail-hero .card-photo-pinch {
   width: min(100%, 14rem);
+  max-width: 100%;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
+.detail-hero .card-photo-pinch .card-photo {
+  width: 100%;
   max-width: 100%;
   aspect-ratio: 1 / 1;
   height: auto;
   object-fit: cover;
-  border-radius: 6px;
-  flex-shrink: 0;
+  display: block;
 }
 
 .detail-hero-info h2 {
@@ -1331,7 +1354,7 @@ img.leaflet-tile.map-heat-tiles {
   gap: 0.65rem;
 }
 
-#panel-detail.detail-panel .detail-hero > img {
+#panel-detail.detail-panel .detail-hero > .card-photo-pinch {
   flex: 0 0 auto;
   height: 100%;
   width: auto;
@@ -1341,8 +1364,21 @@ img.leaflet-tile.map-heat-tiles {
   min-height: 0;
   max-height: 100%;
   align-self: center;
-  object-fit: cover;
+  overflow: hidden;
   border-radius: 6px;
+}
+
+#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__scale,
+#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo {
+  object-fit: cover;
+  aspect-ratio: auto;
+  max-width: none;
 }
 
 #panel-detail.detail-panel .detail-hero-info {
@@ -1469,12 +1505,17 @@ img.leaflet-tile.map-heat-tiles {
   .map-container { min-height: 320px; }
 
   .detail-hero { flex-direction: column; }
-  .detail-hero img {
+  .detail-hero .card-photo-pinch {
     width: 100%;
     max-width: 100%;
     aspect-ratio: 1 / 1;
     max-height: none;
     height: auto;
+  }
+
+  .detail-hero .card-photo-pinch .card-photo {
+    width: 100%;
+    height: 100%;
     object-fit: cover;
   }
 
@@ -1501,14 +1542,21 @@ img.leaflet-tile.map-heat-tiles {
     margin-bottom: 0.35rem;
   }
 
-  #panel-detail.detail-panel .detail-hero > img {
+  #panel-detail.detail-panel .detail-hero > .card-photo-pinch {
     flex: 1 1 0;
     width: 100% !important;
+    max-width: 100% !important;
     aspect-ratio: 1 / 1;
     min-height: 0;
     max-height: none !important;
     height: auto;
     align-self: stretch;
+    overflow: hidden;
+  }
+
+  #panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo {
+    width: 100%;
+    height: 100%;
     object-fit: cover;
   }
 

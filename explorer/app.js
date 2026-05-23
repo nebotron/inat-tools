@@ -11,6 +11,7 @@ import {
   inatFetch,
   inatPostV2MethodOverrideGet,
 } from "../lib/inat-api-client.js";
+import { installExplorerImagePinchZoom } from "./pinch-zoom-images.js";
 
 /**
  * Report an exception via fatal full-page dump (see fatal-dump-bootstrap.js).
@@ -2877,6 +2878,11 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
   }
 }
 
+/** Wraps an observation/species card photo for in-app pinch / Ctrl+wheel zoom (page zoom is disabled). */
+function wrapExplorerImagePinchShell(innerMarkup) {
+  return `<div class="card-photo-pinch" data-explorer-pinch-zoom><div class="card-photo-pinch__scale">${innerMarkup}</div></div>`;
+}
+
 function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
   const raw = typeof mediumUrl === "string" ? mediumUrl.trim() : "";
   if (!raw) return "";
@@ -2884,7 +2890,9 @@ function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
   const largeU = largePhotoUrl(raw);
   const srcset = largeU && largeU !== raw ? ` srcset="${escapeHtml(largeU)} 2x"` : "";
   const loadAttr = loading === "eager" ? 'loading="eager"' : 'loading="lazy"';
-  return `<img class="card-photo" src="${escSrc}"${srcset} alt="" ${loadAttr} decoding="async" />`;
+  return wrapExplorerImagePinchShell(
+    `<img class="card-photo" src="${escSrc}"${srcset} alt="" ${loadAttr} decoding="async" />`,
+  );
 }
 
 function buildCardImageBlockFromUrls(urls) {
@@ -5136,7 +5144,9 @@ async function showSpeciesDetail(taxon, obsCount) {
   const heroSrcset =
     heroMedium && heroLarge && heroLarge !== heroMedium ? ` srcset="${escapeHtml(heroLarge)} 2x"` : "";
   const heroImg = heroMedium
-    ? `<img class="detail-hero-photo card-photo" src="${escapeHtml(heroMedium)}"${heroSrcset} alt="${escapeHtml(name)}" loading="lazy" decoding="async" />`
+    ? wrapExplorerImagePinchShell(
+        `<img class="detail-hero-photo card-photo" src="${escapeHtml(heroMedium)}"${heroSrcset} alt="${escapeHtml(name)}" loading="lazy" decoding="async" />`,
+      )
     : "";
   const inatAppUrl = inaturalistTaxonWebUrl(taxon.id);
   const searchUrl = buildSearchUrlWithSpecies(taxon.id, taxon.preferred_common_name || taxon.name);
@@ -5206,6 +5216,7 @@ async function showSpeciesDetail(taxon, obsCount) {
 }
 
 async function boot() {
+  installExplorerImagePinchZoom(document.querySelector("main") || document.body);
   readUrl();
   const pendingNearMeUrl = nearMeSource === "url";
   if (pendingNearMeUrl) {
