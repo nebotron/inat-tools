@@ -2880,7 +2880,7 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
 
 /** Wraps an observation/species card photo for in-app pinch / Ctrl+wheel zoom (page zoom is disabled). */
 function wrapExplorerImagePinchShell(innerMarkup) {
-  return `<div class="card-photo-pinch" data-explorer-pinch-zoom><div class="card-photo-pinch__pan"><div class="card-photo-pinch__scale">${innerMarkup}</div></div></div>`;
+  return `<div class="card-photo-pinch" data-explorer-pinch-zoom><div class="card-photo-pinch__view">${innerMarkup}</div></div>`;
 }
 
 function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {

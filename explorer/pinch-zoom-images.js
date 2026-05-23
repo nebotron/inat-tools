@@ -2,14 +2,22 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 4;
 const PAN_SLOP_PX = 8;
 
+/** One wrapper carries both pan + scale so math matches the real CSS composite (origin 0 0). */
+const PINCH_VIEW_CLASS = "card-photo-pinch__view";
+
 /** Leaflet adds this class to the map root; allow native two-finger map zoom there only. */
 const LEAFLET_MAP_ROOT = ".leaflet-container";
 
 let documentZoomGuardsInstalled = false;
 
+function clampScale(s) {
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+}
+
 /**
- * Viewport meta alone does not stop desktop pinch (Ctrl/trackpad wheel) or Safari page pinch.
- * Block those at the document while still allowing Leaflet map pinch and our image handlers.
+ * Viewport meta alone does not stop desktop pinch (Ctrl/trackpad wheel), Safari page pinch,
+ * or keyboard zoom shortcuts. Block those at the document while still allowing Leaflet map pinch
+ * and our image handlers.
  */
 function installExplorerDocumentZoomGuards() {
   if (documentZoomGuardsInstalled) return;
@@ -24,11 +32,42 @@ function installExplorerDocumentZoomGuards() {
     }
   };
 
+  const zoomKeyTargetIsEditable = (t) => {
+    if (!(t instanceof Element)) return false;
+    if (t.isContentEditable) return true;
+    const tag = (t.tagName || "").toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select" || tag === "button";
+  };
+
   /** Chromium / Firefox: trackpad pinch and Ctrl+wheel use ctrlKey on wheel events. */
   const onWindowWheelCapture = (e) => {
     if (e.ctrlKey || e.metaKey) e.preventDefault();
   };
   window.addEventListener("wheel", onWindowWheelCapture, { passive: false, capture: true });
+
+  /** Block Ctrl/Cmd +/-/0 page zoom (still allow in editable fields). */
+  const onWindowKeyDownCapture = (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (zoomKeyTargetIsEditable(e.target)) return;
+    const k = e.key;
+    const code = e.code;
+    if (
+      k === "=" ||
+      k === "+" ||
+      k === "-" ||
+      k === "0" ||
+      code === "NumpadAdd" ||
+      code === "NumpadSubtract" ||
+      code === "NumpadEqual" ||
+      code === "Numpad0" ||
+      code === "Minus" ||
+      code === "Equal" ||
+      code === "Digit0"
+    ) {
+      e.preventDefault();
+    }
+  };
+  window.addEventListener("keydown", onWindowKeyDownCapture, { capture: true });
 
   /** Mobile: block 2-finger viewport zoom unless both touches are on the map (Leaflet pinch). */
   const onTouchMoveCapture = (e) => {
@@ -52,68 +91,72 @@ function installExplorerDocumentZoomGuards() {
   }
 }
 
-/** @param {HTMLElement} scaleEl */
-function readScale(scaleEl) {
-  const t = scaleEl.style.transform;
-  if (!t || t === "none") return 1;
-  const m = t.match(/scale\(\s*([\d.]+)\s*\)/);
-  if (!m) return 1;
-  const s = Number(m[1]);
-  return Number.isFinite(s) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, s)) : 1;
+/** @param {HTMLElement} viewEl */
+function readViewTransform(viewEl) {
+  let tx = 0;
+  let ty = 0;
+  let s = 1;
+  const t = viewEl.style.transform;
+  if (t && t !== "none") {
+    const tm = t.match(/translate\(\s*([-0-9.eE+]+)px\s*,\s*([-0-9.eE+]+)px\s*\)/);
+    if (tm) {
+      tx = Number(tm[1]);
+      ty = Number(tm[2]);
+      if (!Number.isFinite(tx)) tx = 0;
+      if (!Number.isFinite(ty)) ty = 0;
+    }
+    const sm = t.match(/scale\(\s*([-0-9.eE+]+)\s*\)/);
+    if (sm) {
+      const sv = Number(sm[1]);
+      if (Number.isFinite(sv)) s = clampScale(sv);
+    }
+  }
+  return { tx, ty, s };
 }
 
 /** Lets CSS set touch-action:none on the photo subtree so the observations panel does not steal drags. */
-function syncPhotoShellZoomedState(scaleEl) {
-  const shell = scaleEl.closest("[data-explorer-pinch-zoom]");
+function syncPhotoShellZoomedState(viewEl) {
+  const shell = viewEl.closest("[data-explorer-pinch-zoom]");
   if (!(shell instanceof HTMLElement)) return;
-  if (readScale(scaleEl) > 1) shell.setAttribute("data-explorer-photo-zoomed", "1");
+  if (readViewTransform(viewEl).s > 1) shell.setAttribute("data-explorer-photo-zoomed", "1");
   else shell.removeAttribute("data-explorer-photo-zoomed");
-}
-
-/** @param {HTMLElement} panEl */
-function readTranslate(panEl) {
-  const t = panEl.style.transform;
-  if (!t || t === "none") return { x: 0, y: 0 };
-  const m = t.match(/translate\(\s*([-0-9.]+)px\s*,\s*([-0-9.]+)px\s*\)/);
-  if (!m) return { x: 0, y: 0 };
-  const x = Number(m[1]);
-  const y = Number(m[2]);
-  return {
-    x: Number.isFinite(x) ? x : 0,
-    y: Number.isFinite(y) ? y : 0,
-  };
 }
 
 /**
  * @param {Element | null} shellEl
- * @param {HTMLElement} panEl
- * @param {HTMLElement} scaleEl
+ * @param {HTMLElement} viewEl
  * @param {number} tx
  * @param {number} ty
+ * @param {number} s
+ * @param {{ skipReclamp?: boolean }} [opts]
  */
-function writeTranslateClamped(shellEl, panEl, scaleEl, tx, ty) {
-  if (!(shellEl instanceof Element)) return;
-  const s = readScale(scaleEl);
-  if (s <= 1) {
-    panEl.style.transform = "";
-    syncPhotoShellZoomedState(scaleEl);
+function writeViewTransform(shellEl, viewEl, tx, ty, s, opts) {
+  const skipReclamp = Boolean(opts && opts.skipReclamp);
+  const sc = clampScale(s);
+  if (sc <= MIN_SCALE + 1e-6) {
+    viewEl.style.transform = "";
+    syncPhotoShellZoomedState(viewEl);
     return;
   }
-  const rect = shellEl.getBoundingClientRect();
-  const w = shellEl.clientWidth || rect.width || 1;
-  const h = shellEl.clientHeight || rect.height || 1;
-  const maxX = ((s - 1) * w) / 2;
-  const maxY = ((s - 1) * h) / 2;
-  const x = Math.min(maxX, Math.max(-maxX, tx));
-  const y = Math.min(maxY, Math.max(-maxY, ty));
-  panEl.style.transform = x === 0 && y === 0 ? "" : `translate(${x}px, ${y}px)`;
-  syncPhotoShellZoomedState(scaleEl);
+  let x = tx;
+  let y = ty;
+  if (!skipReclamp && shellEl instanceof Element) {
+    const rect = shellEl.getBoundingClientRect();
+    const w = shellEl.clientWidth || rect.width || 1;
+    const h = shellEl.clientHeight || rect.height || 1;
+    const maxX = ((sc - 1) * w) / 2;
+    const maxY = ((sc - 1) * h) / 2;
+    x = Math.min(maxX, Math.max(-maxX, tx));
+    y = Math.min(maxY, Math.max(-maxY, ty));
+  }
+  viewEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
+  syncPhotoShellZoomedState(viewEl);
 }
 
-/** @param {Element | null} shellEl */
-function reclampPan(shellEl, panEl, scaleEl) {
-  const { x, y } = readTranslate(panEl);
-  writeTranslateClamped(shellEl, panEl, scaleEl, x, y);
+/** @param {Element | null} shellEl @param {HTMLElement} viewEl */
+function reclampView(shellEl, viewEl) {
+  const { tx, ty, s } = readViewTransform(viewEl);
+  writeViewTransform(shellEl, viewEl, tx, ty, s, {});
 }
 
 function distance(x1, y1, x2, y2) {
@@ -124,23 +167,6 @@ function distance(x1, y1, x2, y2) {
 function shellLocalFromClient(shellEl, clientX, clientY) {
   const r = shellEl.getBoundingClientRect();
   return { x: clientX - r.left, y: clientY - r.top };
-}
-
-/**
- * @param {HTMLElement} scaleEl
- * @param {number} scale
- * @param {{ skipReclamp?: boolean }} [opts]
- */
-function writeScale(scaleEl, scale, opts) {
-  const skipReclamp = Boolean(opts && opts.skipReclamp);
-  const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-  scaleEl.style.transform = s <= MIN_SCALE + 1e-6 ? "" : `scale(${s})`;
-  const panEl = scaleEl.parentElement;
-  if (panEl instanceof HTMLElement && panEl.classList.contains("card-photo-pinch__pan")) {
-    if (s <= MIN_SCALE + 1e-6) panEl.style.transform = "";
-    else if (!skipReclamp) reclampPan(scaleEl.closest("[data-explorer-pinch-zoom]"), panEl, scaleEl);
-  }
-  syncPhotoShellZoomedState(scaleEl);
 }
 
 /**
@@ -170,15 +196,14 @@ export function installExplorerImagePinchZoom(root) {
 
   let pinchShell = null;
   /** @type {HTMLElement | null} */
-  let pinchInner = null;
+  let pinchView = null;
   let startDist = 1;
   let startScale = 1;
 
   /** @type {{
    *   phase: "candidate" | "dragging",
    *   shell: Element,
-   *   panEl: HTMLElement,
-   *   scaleEl: HTMLElement,
+   *   viewEl: HTMLElement,
    *   pointerId: number,
    *   x0: number,
    *   y0: number,
@@ -191,8 +216,7 @@ export function installExplorerImagePinchZoom(root) {
   /** @type {{
    *   phase: "candidate" | "dragging",
    *   shell: Element,
-   *   panEl: HTMLElement,
-   *   scaleEl: HTMLElement,
+   *   viewEl: HTMLElement,
    *   id: number,
    *   x0: number,
    *   y0: number,
@@ -210,14 +234,9 @@ export function installExplorerImagePinchZoom(root) {
   };
 
   const endPinchTracking = () => {
-    if (pinchShell && pinchInner) {
-      const panEl = pinchInner.parentElement;
-      if (panEl instanceof HTMLElement && panEl.classList.contains("card-photo-pinch__pan")) {
-        reclampPan(pinchShell, panEl, pinchInner);
-      }
-    }
+    if (pinchShell && pinchView) reclampView(pinchShell, pinchView);
     pinchShell = null;
-    pinchInner = null;
+    pinchView = null;
     startDist = 1;
     startScale = 1;
   };
@@ -245,14 +264,14 @@ export function installExplorerImagePinchZoom(root) {
     if (shellA !== shellB) return;
     clearImagePanForShell(shellA);
     clearTouchPanForShell(shellA);
-    const inner = shellA.querySelector(".card-photo-pinch__scale");
-    if (!(inner instanceof HTMLElement)) return;
+    const view = shellA.querySelector(`.${PINCH_VIEW_CLASS}`);
+    if (!(view instanceof HTMLElement)) return;
     const d = distance(entries[0].clientX, entries[0].clientY, entries[1].clientX, entries[1].clientY);
     if (d < 12) return;
     pinchShell = shellA;
-    pinchInner = inner;
+    pinchView = view;
     startDist = d;
-    startScale = readScale(inner);
+    startScale = readViewTransform(view).s;
   };
 
   const panStartBlocked = (target) => {
@@ -278,18 +297,16 @@ export function installExplorerImagePinchZoom(root) {
       return;
     }
 
-    const panEl = shell.querySelector(".card-photo-pinch__pan");
-    const scaleEl = shell.querySelector(".card-photo-pinch__scale");
-    if (!(panEl instanceof HTMLElement && scaleEl instanceof HTMLElement)) return;
-    if (readScale(scaleEl) <= 1) return;
+    const viewEl = shell.querySelector(`.${PINCH_VIEW_CLASS}`);
+    if (!(viewEl instanceof HTMLElement)) return;
+    if (readViewTransform(viewEl).s <= 1) return;
     if (panStartBlocked(e.target)) return;
 
-    const { x: tx0, y: ty0 } = readTranslate(panEl);
+    const { tx: tx0, ty: ty0 } = readViewTransform(viewEl);
     imagePan = {
       phase: "candidate",
       shell,
-      panEl,
-      scaleEl,
+      viewEl,
       pointerId: e.pointerId,
       x0: e.clientX,
       y0: e.clientY,
@@ -316,7 +333,7 @@ export function installExplorerImagePinchZoom(root) {
       if (pinchTouchCountForShell(pointers, shell) >= 2) {
         clearImagePan();
         clearTouchPanForShell(shell);
-      } else if (readScale(imagePan.scaleEl) > 1) {
+      } else if (readViewTransform(imagePan.viewEl).s > 1) {
         /* Stop the scrollable panel (and browser) from treating this as a scroll gesture. */
         e.preventDefault();
         if (imagePan.phase === "candidate") {
@@ -326,33 +343,31 @@ export function installExplorerImagePinchZoom(root) {
         if (imagePan && imagePan.phase === "dragging") {
           const tx = imagePan.tx0 + (e.clientX - imagePan.x0);
           const ty = imagePan.ty0 + (e.clientY - imagePan.y0);
-          writeTranslateClamped(shell, imagePan.panEl, imagePan.scaleEl, tx, ty);
+          const { s } = readViewTransform(imagePan.viewEl);
+          writeViewTransform(shell, imagePan.viewEl, tx, ty, s, {});
         }
       }
     }
 
-    if (!pinchInner || !pinchShell || pointers.size < 2) return;
+    if (!pinchView || !pinchShell || pointers.size < 2) return;
     const pair = [...pointers.values()].filter((p) => p.shell === pinchShell);
     if (pair.length < 2) return;
     const d = distance(pair[0].clientX, pair[0].clientY, pair[1].clientX, pair[1].clientY);
     if (d > 4 && startDist > 4) {
       e.preventDefault();
-      const panEl = pinchInner.parentElement;
-      if (!(panEl instanceof HTMLElement) || !panEl.classList.contains("card-photo-pinch__pan")) return;
-      const sNew = Math.min(MAX_SCALE, Math.max(MIN_SCALE, startScale * (d / startDist)));
-      const sOld = readScale(pinchInner);
+      const sNew = clampScale(startScale * (d / startDist));
+      const { tx: txOld, ty: tyOld, s: sOld } = readViewTransform(pinchView);
       if (sOld < 1e-6) return;
       const pa = shellLocalFromClient(pinchShell, pair[0].clientX, pair[0].clientY);
       const pb = shellLocalFromClient(pinchShell, pair[1].clientX, pair[1].clientY);
       const mx = (pa.x + pb.x) / 2;
       const my = (pa.y + pb.y) / 2;
-      const { x: txOld, y: tyOld } = readTranslate(panEl);
+      /* Shell-local content coords (scale about 0,0 then translate): mx = tx + s * u  =>  u = (mx - tx) / s */
       const u = (mx - txOld) / sOld;
       const v = (my - tyOld) / sOld;
       const txNew = mx - u * sNew;
       const tyNew = my - v * sNew;
-      writeScale(pinchInner, sNew, { skipReclamp: true });
-      writeTranslateClamped(pinchShell, panEl, pinchInner, txNew, tyNew);
+      writeViewTransform(pinchShell, pinchView, txNew, tyNew, sNew, { skipReclamp: true });
     }
   };
 
@@ -377,12 +392,11 @@ export function installExplorerImagePinchZoom(root) {
     const shell = e.target.closest("[data-explorer-pinch-zoom]");
     if (!(shell instanceof Element) || !root.contains(shell)) return;
     e.preventDefault();
-    const scaleEl = shell.querySelector(".card-photo-pinch__scale");
-    const panEl = shell.querySelector(".card-photo-pinch__pan");
-    if (!(scaleEl instanceof HTMLElement)) return;
+    const viewEl = shell.querySelector(`.${PINCH_VIEW_CLASS}`);
+    if (!(viewEl instanceof HTMLElement)) return;
     const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
-    writeScale(scaleEl, readScale(scaleEl) * factor);
-    if (panEl instanceof HTMLElement) reclampPan(shell, panEl, scaleEl);
+    const { tx, ty, s } = readViewTransform(viewEl);
+    writeViewTransform(shell, viewEl, tx, ty, s * factor, {});
   };
 
   /** @param {TouchEvent} e */
@@ -396,21 +410,19 @@ export function installExplorerImagePinchZoom(root) {
     if (!(shell instanceof Element) || !root.contains(shell)) return;
     if (shell.getAttribute("data-explorer-photo-zoomed") !== "1") return;
     if (panStartBlocked(t.target)) return;
-    const panEl = shell.querySelector(".card-photo-pinch__pan");
-    const scaleEl = shell.querySelector(".card-photo-pinch__scale");
-    if (!(panEl instanceof HTMLElement && scaleEl instanceof HTMLElement)) return;
-    if (readScale(scaleEl) <= 1) return;
-    const tr = readTranslate(panEl);
+    const viewEl = shell.querySelector(`.${PINCH_VIEW_CLASS}`);
+    if (!(viewEl instanceof HTMLElement)) return;
+    if (readViewTransform(viewEl).s <= 1) return;
+    const tr = readViewTransform(viewEl);
     touchPan = {
       phase: "candidate",
       shell,
-      panEl,
-      scaleEl,
+      viewEl,
       id: t.identifier,
       x0: t.clientX,
       y0: t.clientY,
-      tx0: tr.x,
-      ty0: tr.y,
+      tx0: tr.tx,
+      ty0: tr.ty,
     };
   };
 
@@ -427,7 +439,7 @@ export function installExplorerImagePinchZoom(root) {
       clearTouchPan();
       return;
     }
-    if (readScale(touchPan.scaleEl) <= 1) {
+    if (readViewTransform(touchPan.viewEl).s <= 1) {
       clearTouchPan();
       return;
     }
@@ -438,7 +450,8 @@ export function installExplorerImagePinchZoom(root) {
     if (touchPan && touchPan.phase === "dragging") {
       const tx = touchPan.tx0 + (t.clientX - touchPan.x0);
       const ty = touchPan.ty0 + (t.clientY - touchPan.y0);
-      writeTranslateClamped(touchPan.shell, touchPan.panEl, touchPan.scaleEl, tx, ty);
+      const { s } = readViewTransform(touchPan.viewEl);
+      writeViewTransform(touchPan.shell, touchPan.viewEl, tx, ty, s, {});
     }
   };
 

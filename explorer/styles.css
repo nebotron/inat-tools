@@ -14,8 +14,8 @@ html {
   /* Chrome Android: block overscroll from chaining to the document (pull-to-refresh) while pinch-zooming
      near a scrollable panel edge. Inner `.view-panel` still scrolls normally. */
   overscroll-behavior-y: none;
-  /* Complement viewport/JS zoom guards: keep root to pan/scroll only (photo areas use their own pinch). */
-  touch-action: pan-x pan-y;
+  /* Complement viewport/JS zoom guards: disable double-tap zoom; inner panels set their own touch-action. */
+  touch-action: manipulation;
 }
 
 *,
@@ -923,13 +923,9 @@ a.card-photo-page-link .fa {
   aspect-ratio: 1 / 1;
 }
 
-.card-photo-pinch__pan {
+.card-photo-pinch__view {
   width: 100%;
   display: block;
-  transform: translate(0px, 0px);
-}
-
-.card-photo-pinch__scale {
   transform-origin: 0 0;
 }
 
@@ -1387,8 +1383,7 @@ img.leaflet-tile.map-heat-tiles {
   border-radius: 6px;
 }
 
-#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__pan,
-#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__scale,
+#panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__view,
 #panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo {
   width: 100%;
   height: 100%;
@@ -1574,8 +1569,7 @@ img.leaflet-tile.map-heat-tiles {
     overflow: hidden;
   }
 
-  #panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__pan,
-  #panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__scale {
+  #panel-detail.detail-panel .detail-hero > .card-photo-pinch .card-photo-pinch__view {
     width: 100%;
     height: 100%;
     display: block;
