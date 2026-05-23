@@ -50,6 +50,32 @@ function isWebShareMultiFileUnsafe() {
   return isAndroidBrowser() || isIOSOrIPadOS();
 }
 
+/**
+ * Pathname + query in a stable form for BFCache `pageshow` and sync tracking.
+ * Sorts query keys so harmless `replaceState` ordering differences (and some UA
+ * serializations of the same logical URL) are not treated as navigation, which
+ * would resync from the URL and clear the Observations grid.
+ * @param {string} href
+ */
+function explorerStableRoutingKeyFromHref(href) {
+  try {
+    const u = new URL(href);
+    const keys = [...new Set(u.searchParams.keys())].sort((a, b) => a.localeCompare(b));
+    const q2 = new URLSearchParams();
+    for (const key of keys) {
+      for (const val of u.searchParams.getAll(key)) {
+        q2.append(key, val);
+      }
+    }
+    const qs = q2.toString();
+    return u.pathname + (qs ? `?${qs}` : "");
+  } catch {
+    if (typeof href !== "string") return "";
+    const hash = href.indexOf("#");
+    return hash >= 0 ? href.slice(0, hash) : href;
+  }
+}
+
 const OBS_PER_PAGE = 60;
 
 /** Set by `refreshInatAuthUser`; used for Agree UI on observation cards. */
@@ -61,12 +87,12 @@ let inatAuthUser = null;
  */
 let lastExplorerLocationHref = window.location.href;
 
-/** `pathname + search` for the same moment — some engines report `href` differences even when the routed query is unchanged. */
-let lastExplorerPathSearch = window.location.pathname + window.location.search;
+/** Stable pathname + query (see `explorerStableRoutingKeyFromHref`) after the explorer last wrote the URL. */
+let lastExplorerPathSearch = explorerStableRoutingKeyFromHref(window.location.href);
 
 function noteExplorerLocationHrefApplied() {
   lastExplorerLocationHref = window.location.href;
-  lastExplorerPathSearch = window.location.pathname + window.location.search;
+  lastExplorerPathSearch = explorerStableRoutingKeyFromHref(window.location.href);
 }
 
 /**
@@ -5222,8 +5248,10 @@ async function boot() {
  * matches the new shared link. Re-read the URL and reload the active view so the UI matches the address bar.
  *
  * On many mobile browsers, `pageshow` with `persisted` also fires after an app switch even when the
- * URL never changed; comparing to `lastExplorerLocationHref` (and `pathname + search`) avoids a
- * redundant full resync that would clear the observations grid.
+ * URL never changed; comparing a stable routing key (sorted query keys) to `lastExplorerPathSearch`
+ * avoids a redundant full resync that would clear the observations grid. A second check compares
+ * against the stable form of `lastExplorerLocationHref` for engines that tweak `pathname+search`
+ * serialization without changing the logical query.
  */
 async function resyncAppFromCurrentUrlAfterBfcache() {
   readUrl();
@@ -5239,12 +5267,15 @@ async function resyncAppFromCurrentUrlAfterBfcache() {
 
 window.addEventListener("pageshow", (e) => {
   if (!e.persisted) return;
-  const pathSearch = window.location.pathname + window.location.search;
-  if (pathSearch === lastExplorerPathSearch) {
+  const stable = explorerStableRoutingKeyFromHref(window.location.href);
+  if (stable === lastExplorerPathSearch) {
     noteExplorerLocationHrefApplied();
     return;
   }
-  if (window.location.href === lastExplorerLocationHref) return;
+  if (stable === explorerStableRoutingKeyFromHref(lastExplorerLocationHref)) {
+    noteExplorerLocationHrefApplied();
+    return;
+  }
   void resyncAppFromCurrentUrlAfterBfcache().catch((ex) => {
     console.error("resyncAppFromCurrentUrlAfterBfcache", ex);
   });
