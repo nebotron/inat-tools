@@ -918,6 +918,11 @@ a.card-photo-page-link .fa {
   transform: translateZ(0);
 }
 
+/* Ensure the pinch box always has layout height (clientHeight was 0 so pan clamp bailed out). */
+.card .card-photo-pinch {
+  aspect-ratio: 1 / 1;
+}
+
 .card-photo-pinch__pan {
   width: 100%;
   display: block;

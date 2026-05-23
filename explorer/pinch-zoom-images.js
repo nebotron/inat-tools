@@ -111,9 +111,9 @@ function writeTranslateClamped(shellEl, panEl, scaleEl, tx, ty) {
     syncPhotoShellZoomedState(scaleEl);
     return;
   }
-  const w = shellEl.clientWidth;
-  const h = shellEl.clientHeight;
-  if (w <= 0 || h <= 0) return;
+  const rect = shellEl.getBoundingClientRect();
+  const w = shellEl.clientWidth || rect.width || 1;
+  const h = shellEl.clientHeight || rect.height || 1;
   const maxX = ((s - 1) * w) / 2;
   const maxY = ((s - 1) * h) / 2;
   const x = Math.min(maxX, Math.max(-maxX, tx));
@@ -147,7 +147,7 @@ function pinchTouchCountForShell(pointers, shell) {
 /**
  * Blocks browser-level zoom (viewport meta is not enough on desktop / some mobile engines),
  * then wires application-level zoom for `[data-explorer-pinch-zoom]` (touch pinch, Ctrl/Cmd+wheel,
- * and single-pointer pan while zoomed).
+ * single-touch pan via capture TouchEvents, and mouse/pen pointer pan while zoomed).
  * @param {ParentNode | null | undefined} root
  */
 export function installExplorerImagePinchZoom(root) {
@@ -175,6 +175,28 @@ export function installExplorerImagePinchZoom(root) {
    *   ty0: number,
    * } | null} */
   let imagePan = null;
+
+  /** Touch pan (iOS / WebKit): single-finger drag uses TouchEvents + capture; pointer pan is mouse/pen only. */
+  /** @type {{
+   *   phase: "candidate" | "dragging",
+   *   shell: Element,
+   *   panEl: HTMLElement,
+   *   scaleEl: HTMLElement,
+   *   id: number,
+   *   x0: number,
+   *   y0: number,
+   *   tx0: number,
+   *   ty0: number,
+   * } | null} */
+  let touchPan = null;
+
+  const clearTouchPan = () => {
+    touchPan = null;
+  };
+
+  const clearTouchPanForShell = (shell) => {
+    if (touchPan && touchPan.shell === shell) clearTouchPan();
+  };
 
   const endPinchTracking = () => {
     pinchShell = null;
@@ -205,6 +227,7 @@ export function installExplorerImagePinchZoom(root) {
     const shellB = entries[1].shell;
     if (shellA !== shellB) return;
     clearImagePanForShell(shellA);
+    clearTouchPanForShell(shellA);
     const inner = shellA.querySelector(".card-photo-pinch__scale");
     if (!(inner instanceof HTMLElement)) return;
     const d = distance(entries[0].clientX, entries[0].clientY, entries[1].clientX, entries[1].clientY);
@@ -230,8 +253,12 @@ export function installExplorerImagePinchZoom(root) {
 
     if (e.pointerType === "touch") {
       pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY, shell });
-      if (pinchTouchCountForShell(pointers, shell) >= 2) clearImagePanForShell(shell);
+      if (pinchTouchCountForShell(pointers, shell) >= 2) {
+        clearImagePanForShell(shell);
+        clearTouchPanForShell(shell);
+      }
       tryBeginPinch();
+      return;
     }
 
     const panEl = shell.querySelector(".card-photo-pinch__pan");
@@ -271,6 +298,7 @@ export function installExplorerImagePinchZoom(root) {
       const shell = imagePan.shell;
       if (pinchTouchCountForShell(pointers, shell) >= 2) {
         clearImagePan();
+        clearTouchPanForShell(shell);
       } else if (readScale(imagePan.scaleEl) > 1) {
         /* Stop the scrollable panel (and browser) from treating this as a scroll gesture. */
         e.preventDefault();
@@ -326,9 +354,78 @@ export function installExplorerImagePinchZoom(root) {
     if (panEl instanceof HTMLElement) reclampPan(shell, panEl, scaleEl);
   };
 
+  /** @param {TouchEvent} e */
+  const onDocTouchStart = (e) => {
+    if (e.touches.length !== 1) {
+      touchPan = null;
+      return;
+    }
+    const t = e.touches[0];
+    const shell = t.target.closest("[data-explorer-pinch-zoom]");
+    if (!(shell instanceof Element) || !root.contains(shell)) return;
+    if (shell.getAttribute("data-explorer-photo-zoomed") !== "1") return;
+    if (panStartBlocked(t.target)) return;
+    const panEl = shell.querySelector(".card-photo-pinch__pan");
+    const scaleEl = shell.querySelector(".card-photo-pinch__scale");
+    if (!(panEl instanceof HTMLElement && scaleEl instanceof HTMLElement)) return;
+    if (readScale(scaleEl) <= 1) return;
+    const tr = readTranslate(panEl);
+    touchPan = {
+      phase: "candidate",
+      shell,
+      panEl,
+      scaleEl,
+      id: t.identifier,
+      x0: t.clientX,
+      y0: t.clientY,
+      tx0: tr.x,
+      ty0: tr.y,
+    };
+  };
+
+  /** @param {TouchEvent} e */
+  const onDocTouchMove = (e) => {
+    if (!touchPan) return;
+    if (e.touches.length !== 1) {
+      touchPan = null;
+      return;
+    }
+    const t = [...e.touches].find((x) => x.identifier === touchPan.id);
+    if (!t) return;
+    if (!(touchPan.shell instanceof Element) || !root.contains(touchPan.shell)) {
+      clearTouchPan();
+      return;
+    }
+    if (readScale(touchPan.scaleEl) <= 1) {
+      clearTouchPan();
+      return;
+    }
+    e.preventDefault();
+    if (touchPan.phase === "candidate") {
+      if (distance(t.clientX, t.clientY, touchPan.x0, touchPan.y0) >= PAN_SLOP_PX) touchPan.phase = "dragging";
+    }
+    if (touchPan && touchPan.phase === "dragging") {
+      const tx = touchPan.tx0 + (t.clientX - touchPan.x0);
+      const ty = touchPan.ty0 + (t.clientY - touchPan.y0);
+      writeTranslateClamped(touchPan.shell, touchPan.panEl, touchPan.scaleEl, tx, ty);
+    }
+  };
+
+  /** @param {TouchEvent} e */
+  const onDocTouchEndOrCancel = (e) => {
+    if (!touchPan) return;
+    if (![...e.changedTouches].some((ct) => ct.identifier === touchPan.id)) return;
+    clearTouchPan();
+  };
+
   root.addEventListener("pointerdown", onPointerDown);
   root.addEventListener("pointermove", onPointerMove, { passive: false });
   root.addEventListener("pointerup", onPointerUp);
   root.addEventListener("pointercancel", onPointerCancel);
   root.addEventListener("wheel", onWheel, { passive: false });
+
+  document.addEventListener("touchstart", onDocTouchStart, { passive: true, capture: true });
+  document.addEventListener("touchmove", onDocTouchMove, { passive: false, capture: true });
+  document.addEventListener("touchend", onDocTouchEndOrCancel, { passive: true, capture: true });
+  document.addEventListener("touchcancel", onDocTouchEndOrCancel, { passive: true, capture: true });
 }
