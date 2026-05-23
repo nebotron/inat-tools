@@ -70,18 +70,6 @@ function syncPhotoShellZoomedState(scaleEl) {
   else shell.removeAttribute("data-explorer-photo-zoomed");
 }
 
-/** @param {HTMLElement} scaleEl */
-function writeScale(scaleEl, scale) {
-  const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
-  scaleEl.style.transform = s <= MIN_SCALE + 1e-6 ? "" : `scale(${s})`;
-  const panEl = scaleEl.parentElement;
-  if (panEl instanceof HTMLElement && panEl.classList.contains("card-photo-pinch__pan")) {
-    if (s <= MIN_SCALE + 1e-6) panEl.style.transform = "";
-    else reclampPan(scaleEl.closest("[data-explorer-pinch-zoom]"), panEl, scaleEl);
-  }
-  syncPhotoShellZoomedState(scaleEl);
-}
-
 /** @param {HTMLElement} panEl */
 function readTranslate(panEl) {
   const t = panEl.style.transform;
@@ -132,6 +120,29 @@ function distance(x1, y1, x2, y2) {
   return Math.hypot(x2 - x1, y2 - y1);
 }
 
+/** @param {Element} shellEl */
+function shellLocalFromClient(shellEl, clientX, clientY) {
+  const r = shellEl.getBoundingClientRect();
+  return { x: clientX - r.left, y: clientY - r.top };
+}
+
+/**
+ * @param {HTMLElement} scaleEl
+ * @param {number} scale
+ * @param {{ skipReclamp?: boolean }} [opts]
+ */
+function writeScale(scaleEl, scale, opts) {
+  const skipReclamp = Boolean(opts && opts.skipReclamp);
+  const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+  scaleEl.style.transform = s <= MIN_SCALE + 1e-6 ? "" : `scale(${s})`;
+  const panEl = scaleEl.parentElement;
+  if (panEl instanceof HTMLElement && panEl.classList.contains("card-photo-pinch__pan")) {
+    if (s <= MIN_SCALE + 1e-6) panEl.style.transform = "";
+    else if (!skipReclamp) reclampPan(scaleEl.closest("[data-explorer-pinch-zoom]"), panEl, scaleEl);
+  }
+  syncPhotoShellZoomedState(scaleEl);
+}
+
 /**
  * @param {Map<number, { shell: Element }>} pointers
  * @param {Element} shell
@@ -146,8 +157,8 @@ function pinchTouchCountForShell(pointers, shell) {
 
 /**
  * Blocks browser-level zoom (viewport meta is not enough on desktop / some mobile engines),
- * then wires application-level zoom for `[data-explorer-pinch-zoom]` (touch pinch, Ctrl/Cmd+wheel,
- * single-touch pan via capture TouchEvents, and mouse/pen pointer pan while zoomed).
+ * then wires application-level zoom for `[data-explorer-pinch-zoom]` (two-finger focal pinch,
+ * Ctrl/Cmd+wheel, single-touch pan via capture TouchEvents, and mouse/pen pointer pan while zoomed).
  * @param {ParentNode | null | undefined} root
  */
 export function installExplorerImagePinchZoom(root) {
@@ -199,6 +210,12 @@ export function installExplorerImagePinchZoom(root) {
   };
 
   const endPinchTracking = () => {
+    if (pinchShell && pinchInner) {
+      const panEl = pinchInner.parentElement;
+      if (panEl instanceof HTMLElement && panEl.classList.contains("card-photo-pinch__pan")) {
+        reclampPan(pinchShell, panEl, pinchInner);
+      }
+    }
     pinchShell = null;
     pinchInner = null;
     startDist = 1;
@@ -320,8 +337,22 @@ export function installExplorerImagePinchZoom(root) {
     const d = distance(pair[0].clientX, pair[0].clientY, pair[1].clientX, pair[1].clientY);
     if (d > 4 && startDist > 4) {
       e.preventDefault();
-      const next = startScale * (d / startDist);
-      writeScale(pinchInner, next);
+      const panEl = pinchInner.parentElement;
+      if (!(panEl instanceof HTMLElement) || !panEl.classList.contains("card-photo-pinch__pan")) return;
+      const sNew = Math.min(MAX_SCALE, Math.max(MIN_SCALE, startScale * (d / startDist)));
+      const sOld = readScale(pinchInner);
+      if (sOld < 1e-6) return;
+      const pa = shellLocalFromClient(pinchShell, pair[0].clientX, pair[0].clientY);
+      const pb = shellLocalFromClient(pinchShell, pair[1].clientX, pair[1].clientY);
+      const mx = (pa.x + pb.x) / 2;
+      const my = (pa.y + pb.y) / 2;
+      const { x: txOld, y: tyOld } = readTranslate(panEl);
+      const u = (mx - txOld) / sOld;
+      const v = (my - tyOld) / sOld;
+      const txNew = mx - u * sNew;
+      const tyNew = my - v * sNew;
+      writeScale(pinchInner, sNew, { skipReclamp: true });
+      writeTranslateClamped(pinchShell, panEl, pinchInner, txNew, tyNew);
     }
   };
 

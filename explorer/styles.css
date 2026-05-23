@@ -929,6 +929,10 @@ a.card-photo-page-link .fa {
   transform: translate(0px, 0px);
 }
 
+.card-photo-pinch__scale {
+  transform-origin: 0 0;
+}
+
 /* When zoomed, disable UA scroll routing on the photo subtree (otherwise #panel-observations steals vertical drag). */
 .card-photo-pinch[data-explorer-photo-zoomed="1"],
 .card-photo-pinch[data-explorer-photo-zoomed="1"] * {
