@@ -1,12 +1,12 @@
 import { installExplorerDocumentZoomGuards } from "./pinch-zoom-images.js";
 
 const MIN_SCALE = 1;
-const MAX_SCALE = 4;
 const PAN_SLOP_PX = 8;
 const VIEW_CLASS = "explorer-photo-lightbox__view";
 
 function clampScale(s) {
-  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+  if (!Number.isFinite(s) || s <= 0) return MIN_SCALE;
+  return Math.max(MIN_SCALE, s);
 }
 
 /** @param {HTMLElement} viewEl */
