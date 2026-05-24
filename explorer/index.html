@@ -63,13 +63,12 @@
               </div>
 
               <div class="field taxon-field">
-                <label for="unobserved-input">Unseen by</label>
+                <label for="unobserved-input">Unobserved by</label>
                 <input id="unobserved-input" class="input-login" type="text" placeholder="Username" autocapitalize="none" autocomplete="username" spellcheck="false" />
               </div>
 
               <fieldset class="months-fieldset establishment-fieldset">
-                <legend>Establishment</legend>
-                <p class="establishment-fieldset-hint">Uncheck a type to hide it from results.</p>
+                <legend>Establishment Means</legend>
                 <div class="card-meta-checks">
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-endemic" checked /> Endemic</label>
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-native" checked /> Native</label>
@@ -91,10 +90,10 @@
               <div class="field">
                 <label for="sort-mode">Sort</label>
                 <select id="sort-mode">
-                  <option value="recent" selected>Upload · newest</option>
-                  <option value="oldest">Upload · oldest</option>
-                  <option value="obs_recent">Observed · newest</option>
-                  <option value="obs_oldest">Observed · oldest</option>
+                  <option value="recent" selected>Date Uploaded · newest</option>
+                  <option value="oldest">Date Uploaded · oldest</option>
+                  <option value="obs_recent">Date Observed · newest</option>
+                  <option value="obs_oldest">Date Observed · oldest</option>
                   <option value="faves">Most favorited</option>
                 </select>
               </div>
@@ -167,7 +166,6 @@
 
               <fieldset class="months-fieldset card-meta-fieldset">
                 <legend>Card layout</legend>
-                <p class="hand-layout-fieldset-hint">Put action buttons on the left or right; species title and details move to the opposite side.</p>
                 <div class="card-meta-checks card-meta-checks--hand-layout">
                   <label class="card-meta-label"><input type="radio" name="hand-layout" id="hand-layout-right" value="right" checked /> Right-handed</label>
                   <label class="card-meta-label"><input type="radio" name="hand-layout" id="hand-layout-left" value="left" /> Left-handed</label>
@@ -201,7 +199,7 @@
             </div>
           </div>
           <footer class="site-footer">
-            <p><a href="https://www.inaturalist.org/">iNaturalist</a> data via API — not affiliated. <a href="../tree/">Taxonomy tree</a></p>
+            <p><a href="https://www.inaturalist.org/">iNaturalist</a> data via API — this app is not affiliated with iNaturalist.</p>
           </footer>
         </section>
 
