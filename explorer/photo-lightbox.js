@@ -53,10 +53,14 @@ function writeViewTransform(shellEl, viewEl, tx, ty, s, opts) {
     const rect = shellEl.getBoundingClientRect();
     const w = shellEl.clientWidth || rect.width || 1;
     const h = shellEl.clientHeight || rect.height || 1;
-    const maxX = ((sc - 1) * w) / 2;
-    const maxY = ((sc - 1) * h) / 2;
-    x = Math.min(maxX, Math.max(-maxX, tx));
-    y = Math.min(maxY, Math.max(-maxY, ty));
+    /* translate(tx,ty) scale(s) with origin 0,0: scaled box spans [tx, tx+s*w] × [ty, ty+s*h] in shell coords.
+       Viewport is [0,w]×[0,h]. Avoid empty margin: tx ∈ [w - s*w, 0], ty ∈ [h - s*h, 0] (not symmetric ±). */
+    const txMax = 0;
+    const txMin = w - sc * w;
+    const tyMax = 0;
+    const tyMin = h - sc * h;
+    x = Math.min(txMax, Math.max(txMin, tx));
+    y = Math.min(tyMax, Math.max(tyMin, ty));
   }
   viewEl.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
 }
