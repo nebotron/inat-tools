@@ -2885,6 +2885,20 @@ function explorerPhotoFullscreenButtonHtml(originalUrl) {
   return `<button type="button" class="explorer-photo-fullscreen-btn" data-explorer-lightbox-src="${escapeHtml(u)}" aria-label="View full-size photo" title="Full screen photo"><i class="fa fa-arrows-alt" aria-hidden="true"></i></button>`;
 }
 
+/** One original URL, or JSON list + current src for multi-photo carousel (synced on scroll). */
+function explorerPhotoFullscreenButtonForObservationUrls(urlsMedium) {
+  if (!urlsMedium || !urlsMedium.length) return "";
+  const origs = urlsMedium
+    .map((u) => (typeof u === "string" && u.trim() ? originalPhotoUrl(u.trim()) : ""))
+    .filter(Boolean);
+  if (!origs.length) return "";
+  if (origs.length === 1) return explorerPhotoFullscreenButtonHtml(origs[0]);
+  const json = JSON.stringify(origs);
+  return `<button type="button" class="explorer-photo-fullscreen-btn" data-explorer-carousel-lightbox="1" data-explorer-lightbox-urls="${escapeHtml(
+    json,
+  )}" data-explorer-lightbox-src="${escapeHtml(origs[0])}" aria-label="View full-size photo" title="Full screen photo"><i class="fa fa-arrows-alt" aria-hidden="true"></i></button>`;
+}
+
 function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
   const raw = typeof mediumUrl === "string" ? mediumUrl.trim() : "";
   if (!raw) return "";
@@ -2892,10 +2906,7 @@ function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
   const largeU = largePhotoUrl(raw);
   const srcset = largeU && largeU !== raw ? ` srcset="${escapeHtml(largeU)} 2x"` : "";
   const loadAttr = loading === "eager" ? 'loading="eager"' : 'loading="lazy"';
-  const innerImg = `<img class="card-photo" src="${escSrc}"${srcset} alt="" ${loadAttr} decoding="async" />`;
-  const full = originalPhotoUrl(raw);
-  if (!full) return innerImg;
-  return `<div class="explorer-photo-slot">${innerImg}${explorerPhotoFullscreenButtonHtml(full)}</div>`;
+  return `<img class="card-photo" src="${escSrc}"${srcset} alt="" ${loadAttr} decoding="async" />`;
 }
 
 function buildCardImageBlockFromUrls(urls) {
@@ -2961,6 +2972,18 @@ function wireObservationCardPhotoCarousel(card) {
       dot.classList.toggle("card-media-carousel__dot--active", Number.isFinite(j) && j === idx);
     });
     root.setAttribute("aria-label", `Observation photos, ${idx + 1} of ${n}`);
+    const lbBtn = card.querySelector("button.explorer-photo-fullscreen-btn[data-explorer-carousel-lightbox]");
+    if (lbBtn instanceof HTMLButtonElement) {
+      const rawList = lbBtn.getAttribute("data-explorer-lightbox-urls");
+      if (rawList) {
+        try {
+          const list = JSON.parse(rawList);
+          if (Array.isArray(list) && list[idx]) lbBtn.setAttribute("data-explorer-lightbox-src", list[idx]);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   };
 
   let scrollRaf = 0;
@@ -3109,8 +3132,11 @@ function renderCard({
     cardMetaUi.identifyControls && agreeObservation ? observationMarkReviewedButtonHtml(agreeObservation) : "";
   const faveBtn =
     cardMetaUi.favoriteControl && agreeObservation ? observationFavoriteButtonHtml(agreeObservation) : "";
-  /** Upper-right stack: open iNat, photo page, favorite, mark reviewed, agree (top to bottom). */
-  const upperRightActions = [openAppBtn, photoPageBtn, faveBtn, reviewBtn, agreeBtn].filter((s) => typeof s === "string" && s.trim() !== "");
+  const fullscreenBtn = explorerPhotoFullscreenButtonForObservationUrls(urls);
+  /** Upper-right stack: open iNat, photo page, full screen, favorite, mark reviewed, agree (top to bottom). */
+  const upperRightActions = [openAppBtn, photoPageBtn, fullscreenBtn, faveBtn, reviewBtn, agreeBtn].filter(
+    (s) => typeof s === "string" && s.trim() !== "",
+  );
   const upperRightActionsHtml =
     upperRightActions.length > 0
       ? `<div class="card-actions-upper-right">${upperRightActions.join("")}</div>`
@@ -5152,7 +5178,7 @@ async function showSpeciesDetail(taxon, obsCount) {
     : "";
   const heroImg =
     heroMedium && heroFull
-      ? `<div class="explorer-photo-slot">${heroImgInner}${explorerPhotoFullscreenButtonHtml(heroFull)}</div>`
+      ? `<div class="detail-hero-photo-column">${heroImgInner}${explorerPhotoFullscreenButtonHtml(heroFull)}</div>`
       : heroImgInner;
   const inatAppUrl = inaturalistTaxonWebUrl(taxon.id);
   const searchUrl = buildSearchUrlWithSpecies(taxon.id, taxon.preferred_common_name || taxon.name);
