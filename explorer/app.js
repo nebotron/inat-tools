@@ -2878,6 +2878,13 @@ async function submitObservationMarkReviewed(button, obsIdStr) {
   }
 }
 
+/** Full-screen original (CDN `original`); used by `explorer-photo-fullscreen-btn` only. */
+function explorerPhotoFullscreenButtonHtml(originalUrl) {
+  const u = typeof originalUrl === "string" ? originalUrl.trim() : "";
+  if (!u) return "";
+  return `<button type="button" class="explorer-photo-fullscreen-btn" data-explorer-lightbox-src="${escapeHtml(u)}" aria-label="View full-size photo" title="Full screen photo"><i class="fa fa-arrows-alt" aria-hidden="true"></i></button>`;
+}
+
 function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
   const raw = typeof mediumUrl === "string" ? mediumUrl.trim() : "";
   if (!raw) return "";
@@ -2885,9 +2892,10 @@ function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
   const largeU = largePhotoUrl(raw);
   const srcset = largeU && largeU !== raw ? ` srcset="${escapeHtml(largeU)} 2x"` : "";
   const loadAttr = loading === "eager" ? 'loading="eager"' : 'loading="lazy"';
+  const innerImg = `<img class="card-photo" src="${escSrc}"${srcset} alt="" ${loadAttr} decoding="async" />`;
   const full = originalPhotoUrl(raw);
-  const lightboxAttr = full ? ` data-explorer-lightbox-src="${escapeHtml(full)}"` : "";
-  return `<img class="card-photo"${lightboxAttr} src="${escSrc}"${srcset} alt="" ${loadAttr} decoding="async" />`;
+  if (!full) return innerImg;
+  return `<div class="explorer-photo-slot">${innerImg}${explorerPhotoFullscreenButtonHtml(full)}</div>`;
 }
 
 function buildCardImageBlockFromUrls(urls) {
@@ -4630,7 +4638,7 @@ function wireTabs() {
 function wireObservationAgreeClicks() {
   if (!el.resultsGrid) return;
   const pointerFocusScrollSuppressionSelector =
-    "button.card-fave, button.card-mark-reviewed, button.card-agree, button.card-media-carousel__dot-slot";
+    "button.card-fave, button.card-mark-reviewed, button.card-agree, button.card-media-carousel__dot-slot, button.explorer-photo-fullscreen-btn";
   el.resultsGrid.addEventListener(
     "pointerdown",
     (e) => {
@@ -5139,10 +5147,13 @@ async function showSpeciesDetail(taxon, obsCount) {
   const heroSrcset =
     heroMedium && heroLarge && heroLarge !== heroMedium ? ` srcset="${escapeHtml(heroLarge)} 2x"` : "";
   const heroFull = rawHero ? originalPhotoUrl(rawHero) : "";
-  const heroLightboxAttr = heroFull ? ` data-explorer-lightbox-src="${escapeHtml(heroFull)}"` : "";
-  const heroImg = heroMedium
-    ? `<img class="detail-hero-photo card-photo"${heroLightboxAttr} src="${escapeHtml(heroMedium)}"${heroSrcset} alt="${escapeHtml(name)}" loading="lazy" decoding="async" />`
+  const heroImgInner = heroMedium
+    ? `<img class="detail-hero-photo card-photo" src="${escapeHtml(heroMedium)}"${heroSrcset} alt="${escapeHtml(name)}" loading="lazy" decoding="async" />`
     : "";
+  const heroImg =
+    heroMedium && heroFull
+      ? `<div class="explorer-photo-slot">${heroImgInner}${explorerPhotoFullscreenButtonHtml(heroFull)}</div>`
+      : heroImgInner;
   const inatAppUrl = inaturalistTaxonWebUrl(taxon.id);
   const searchUrl = buildSearchUrlWithSpecies(taxon.id, taxon.preferred_common_name || taxon.name);
 

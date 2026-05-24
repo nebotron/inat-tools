@@ -89,7 +89,7 @@ function pinchTouchCountForShell(pointers, shell) {
 }
 
 /**
- * Tap `img.card-photo[data-explorer-lightbox-src]` opens fullscreen uncropped photo with pinch / wheel zoom and pan.
+ * `button.explorer-photo-fullscreen-btn` opens fullscreen uncropped photo with pinch / wheel zoom and pan.
  * @param {ParentNode | null | undefined} root
  */
 export function installExplorerPhotoLightbox(root) {
@@ -380,12 +380,13 @@ export function installExplorerPhotoLightbox(root) {
       (e) => {
         const t = e.target;
         if (!(t instanceof Element)) return;
-        const hit = t.closest("img.card-photo[data-explorer-lightbox-src]");
-        if (!(hit instanceof HTMLImageElement) || !root.contains(hit)) return;
+        const btn = t.closest("button.explorer-photo-fullscreen-btn");
+        if (!(btn instanceof HTMLButtonElement) || !root.contains(btn)) return;
+        const url = btn.getAttribute("data-explorer-lightbox-src");
+        if (!url || !url.trim()) return;
         e.preventDefault();
         e.stopPropagation();
-        const url = hit.getAttribute("data-explorer-lightbox-src");
-        if (url && url.trim()) open(url.trim());
+        open(url.trim());
       },
       true
     );
