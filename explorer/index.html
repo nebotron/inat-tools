@@ -73,12 +73,12 @@
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-endemic" checked /> Endemic</label>
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-native" checked /> Native</label>
                   <label class="card-meta-label"><input type="checkbox" id="filter-est-introduced" checked /> Introduced</label>
-                  <label class="card-meta-label"><input type="checkbox" id="filter-est-invasive" checked /> Invasive (King Co.)</label>
+                  <label class="card-meta-label"><input type="checkbox" id="filter-est-invasive" checked /> King County Noxious Weeds</label>
                 </div>
               </fieldset>
 
               <div class="field">
-                <label for="quality-grade">Quality</label>
+                <label for="quality-grade">Grade</label>
                 <select id="quality-grade">
                   <option value="">Any</option>
                   <option value="research">Research</option>
@@ -104,15 +104,13 @@
                   <option value="all" selected>All</option>
                   <option value="unreviewed">Unreviewed by me</option>
                 </select>
-                <p class="field-hint muted">Uses Identify “reviewed” state. Sign in below to use this filter.</p>
               </div>
 
               <div class="field">
                 <label class="card-meta-label">
                   <input type="checkbox" id="filter-faved-by-me" />
-                  Favorited by me
+                  My Faves
                 </label>
-                <p class="field-hint muted">Only observations you have starred on iNaturalist. Sign in below to use this filter.</p>
               </div>
 
               <div class="field">
@@ -141,7 +139,7 @@
                   <label class="card-meta-label"><input type="checkbox" id="meta-species-count" checked /> # per species</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-observer" /> Observer</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-location" /> Location</label>
-                  <label class="card-meta-label"><input type="checkbox" id="meta-native-status" /> Native status</label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-native-status" /> Establishment Means</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-conservation-status" /> Conservation</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-grade" /> Grade</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-obs-date" /> Date observed</label>
@@ -152,13 +150,7 @@
               <fieldset class="months-fieldset card-meta-fieldset">
                 <legend>Controls shown</legend>
                 <div class="card-meta-checks">
-                  <label class="card-meta-label card-meta-label--with-icon">
-                    <input type="checkbox" id="meta-photo-page" />
-                    Photo page
-                    <span class="card-meta-label-icon" title="Adds a button on each card that opens the iNaturalist photo page for the first image (new tab).">
-                      <i class="fa fa-info-circle" aria-hidden="true"></i>
-                    </span>
-                  </label>
+                  <label class="card-meta-label"><input type="checkbox" id="meta-photo-page" />Photo details</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-favorite-control" checked /> Favorite</label>
                   <label class="card-meta-label"><input type="checkbox" id="meta-identify-controls" /> Agree &amp; Mark reviewed</label>
                 </div>
