@@ -306,7 +306,11 @@ const el = {
   mediaPhotos: document.getElementById("media-photos"),
   mediaSounds: document.getElementById("media-sounds"),
   observedDays: document.getElementById("observed-days"),
+  obsDateFrom: document.getElementById("obs-date-from"),
+  obsDateTo: document.getElementById("obs-date-to"),
   uploadedDays: document.getElementById("uploaded-days"),
+  uploadDateFrom: document.getElementById("upload-date-from"),
+  uploadDateTo: document.getElementById("upload-date-to"),
   popularOnly: document.getElementById("popular-only"),
   metaFaves: document.getElementById("meta-faves"),
   metaSpeciesCount: document.getElementById("meta-species-count"),
@@ -1306,6 +1310,16 @@ async function commonParams(options = {}) {
     const da = String(d.getUTCDate()).padStart(2, "0");
     p.set("d1", `${y}-${mo}-${da}`);
   }
+
+  const obsDateFrom = el.obsDateFrom && el.obsDateFrom.value;
+  if (obsDateFrom) p.set("d1", obsDateFrom);
+  const obsDateTo = el.obsDateTo && el.obsDateTo.value;
+  if (obsDateTo) p.set("d2", obsDateTo);
+
+  const uploadDateFrom = el.uploadDateFrom && el.uploadDateFrom.value;
+  if (uploadDateFrom) p.set("created_d1", new Date(uploadDateFrom).toISOString());
+  const uploadDateTo = el.uploadDateTo && el.uploadDateTo.value;
+  if (uploadDateTo) p.set("created_d2", new Date(uploadDateTo).toISOString());
 
   if (el.popularOnly.checked) p.set("popular", "true");
 
@@ -4127,6 +4141,18 @@ function syncUrl() {
   const od = el.observedDays && el.observedDays.value.trim();
   if (od) q.set("odays", od);
   else q.delete("odays");
+  const obsDateFrom = el.obsDateFrom && el.obsDateFrom.value;
+  if (obsDateFrom) q.set("obs_d1", obsDateFrom);
+  else q.delete("obs_d1");
+  const obsDateTo = el.obsDateTo && el.obsDateTo.value;
+  if (obsDateTo) q.set("obs_d2", obsDateTo);
+  else q.delete("obs_d2");
+  const uploadDateFrom = el.uploadDateFrom && el.uploadDateFrom.value;
+  if (uploadDateFrom) q.set("upl_d1", uploadDateFrom);
+  else q.delete("upl_d1");
+  const uploadDateTo = el.uploadDateTo && el.uploadDateTo.value;
+  if (uploadDateTo) q.set("upl_d2", uploadDateTo);
+  else q.delete("upl_d2");
   if (el.popularOnly.checked) q.set("popular", "1");
   else q.delete("popular");
 
@@ -4256,6 +4282,10 @@ function readUrl() {
   applyMediaFromQuery(q);
   el.uploadedDays.value = q.get("days") || "";
   if (el.observedDays) el.observedDays.value = q.get("odays") || "";
+  if (el.obsDateFrom) el.obsDateFrom.value = q.get("obs_d1") || "";
+  if (el.obsDateTo) el.obsDateTo.value = q.get("obs_d2") || "";
+  if (el.uploadDateFrom) el.uploadDateFrom.value = q.get("upl_d1") || "";
+  if (el.uploadDateTo) el.uploadDateTo.value = q.get("upl_d2") || "";
   el.popularOnly.checked = q.get("popular") === "1";
 
   parseEstablishmentFromQuery(q);
@@ -4860,6 +4890,32 @@ function wireFilterExtras() {
       queueMicrotask(() => refreshResultPanelsIfMetaChanged());
     });
   }
+  if (el.obsDateFrom) {
+    el.obsDateFrom.addEventListener("change", () => {
+      lastMapFilterKey = null;
+      onChange();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
+  if (el.obsDateTo) {
+    el.obsDateTo.addEventListener("change", () => {
+      lastMapFilterKey = null;
+      onChange();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
+  if (el.uploadDateFrom) {
+    el.uploadDateFrom.addEventListener("change", () => {
+      onChange();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
+  if (el.uploadDateTo) {
+    el.uploadDateTo.addEventListener("change", () => {
+      onChange();
+      queueMicrotask(() => refreshResultPanelsIfMetaChanged());
+    });
+  }
   el.popularOnly.addEventListener("change", onChange);
   el.radiusKm.addEventListener("input", () => {
     void onLocationFilterChanged();
@@ -4998,6 +5054,10 @@ function wireButtons() {
     el.mediaSounds.checked = false;
     el.uploadedDays.value = "";
     if (el.observedDays) el.observedDays.value = "";
+    if (el.obsDateFrom) el.obsDateFrom.value = "";
+    if (el.obsDateTo) el.obsDateTo.value = "";
+    if (el.uploadDateFrom) el.uploadDateFrom.value = "";
+    if (el.uploadDateTo) el.uploadDateTo.value = "";
     el.popularOnly.checked = false;
     if (el.metaIdentifyControls) el.metaIdentifyControls.checked = false;
     if (el.metaFavoriteControl) el.metaFavoriteControl.checked = true;

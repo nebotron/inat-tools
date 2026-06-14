@@ -213,11 +213,30 @@ main {
 .field input[type="search"],
 .field input[type="text"],
 .field select,
-.field input[type="number"] {
+.field input[type="number"],
+.field input[type="date"],
+.field input[type="datetime-local"] {
   width: 100%;
   padding: 0.55rem 0.6rem;
   border: 1px solid var(--border);
   font-size: 0.95rem;
+}
+
+.date-range-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.date-range-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.date-range-sep {
+  flex-shrink: 0;
+  color: var(--muted, #888);
+  font-size: 0.9rem;
 }
 
 .place-input-wrap {
