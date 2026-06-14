@@ -2907,10 +2907,8 @@ function explorerPhotoFullscreenButtonForObservationUrls(urlsMedium) {
     .filter(Boolean);
   if (!origs.length) return "";
   if (origs.length === 1) return explorerPhotoFullscreenButtonHtml(origs[0]);
-  const json = JSON.stringify(origs);
-  return `<button type="button" class="explorer-photo-fullscreen-btn" data-explorer-carousel-lightbox="1" data-explorer-lightbox-urls="${escapeHtml(
-    json,
-  )}" data-explorer-lightbox-src="${escapeHtml(origs[0])}" aria-label="View full-size photo" title="Full screen photo"><i class="fa fa-arrows-alt" aria-hidden="true"></i></button>`;
+  const json = JSON.stringify(origs).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return `<button type="button" class="explorer-photo-fullscreen-btn" data-explorer-carousel-lightbox="1" data-explorer-lightbox-urls="${json}" data-explorer-lightbox-src="${escapeHtml(origs[0])}" aria-label="View full-size photo" title="Full screen photo"><i class="fa fa-arrows-alt" aria-hidden="true"></i></button>`;
 }
 
 function cardPhotoImgTagFromMediumUrl(mediumUrl, loading = "lazy") {
