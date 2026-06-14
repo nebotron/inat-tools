@@ -3094,11 +3094,6 @@ function wireObservationCardPhotoCarousel(card) {
     }
   });
 
-  const fsBtn = card.querySelector("button.explorer-photo-fullscreen-btn[data-explorer-carousel-lightbox]");
-  if (fsBtn) {
-    fsBtn.addEventListener("pointerdown", syncDots, { passive: true });
-  }
-
   scheduleSyncDots();
 }
 

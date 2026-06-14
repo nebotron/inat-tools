@@ -382,7 +382,23 @@ export function installExplorerPhotoLightbox(root) {
         if (!(t instanceof Element)) return;
         const btn = t.closest("button.explorer-photo-fullscreen-btn");
         if (!(btn instanceof HTMLButtonElement) || !root.contains(btn)) return;
-        const url = btn.getAttribute("data-explorer-lightbox-src");
+        let url = btn.getAttribute("data-explorer-lightbox-src");
+        const rawUrls = btn.getAttribute("data-explorer-lightbox-urls");
+        if (rawUrls) {
+          try {
+            const urls = JSON.parse(rawUrls);
+            if (Array.isArray(urls) && urls.length > 1) {
+              const scrollEl = btn.closest("article, .card")?.querySelector(".card-media-carousel__scroll");
+              if (scrollEl instanceof HTMLElement && scrollEl.clientWidth > 0) {
+                const w = scrollEl.clientWidth;
+                const idx = Math.min(urls.length - 1, Math.max(0, Math.floor((scrollEl.scrollLeft + w * 0.5) / w)));
+                if (urls[idx]) url = urls[idx];
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        }
         if (!url || !url.trim()) return;
         e.preventDefault();
         e.stopPropagation();
