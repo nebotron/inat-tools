@@ -192,22 +192,19 @@
               Log in
             </button>
             <div id="explorer-auth-panel" class="explorer-auth-panel" hidden role="region" aria-labelledby="explorer-auth-legend">
-              <fieldset class=”months-fieldset inat-api-auth-fieldset explorer-auth-panel-fieldset”>
-                <legend id=”explorer-auth-legend”>iNaturalist sign-in</legend>
-                <p class=”inat-api-auth-hint”>
-                  Sign in via OAuth for long-lived access. Create an OAuth application at
-                  <a href=”https://www.inaturalist.org/oauth/applications” target=”_blank” rel=”noopener noreferrer”>inaturalist.org/oauth/applications</a>,
-                  set its <strong>Redirect URI</strong> to this page's URL, then paste your <strong>Client ID</strong> below.
-                  Sign-in unlocks <strong>Agree</strong>, <strong>Mark reviewed</strong>, <strong>Favorite</strong> on cards and the “Unreviewed by me” / “Favorited by me” filters.
+              <fieldset class="months-fieldset inat-api-auth-fieldset explorer-auth-panel-fieldset">
+                <legend id="explorer-auth-legend">iNaturalist sign-in</legend>
+                <p class="inat-api-auth-hint">
+                  <a href="https://www.inaturalist.org/users/api_token" target="_blank" rel="noopener noreferrer">Get a token</a> — paste the JSON or the JWT alone. Only the JWT is stored in this browser; it unlocks <strong>Agree</strong>, <strong>Mark reviewed</strong>, <strong>Favorite</strong> on cards (when enabled under Controls shown), and the “Unreviewed by me” / “Favorited by me” filters.
                 </p>
-                <label for=”inat-oauth-client-id”>OAuth Client ID</label>
-                <input type=”text” id=”inat-oauth-client-id” class=”inat-oauth-client-id” spellcheck=”false” autocomplete=”off” placeholder=”Your OAuth application client ID” />
-                <div class=”inat-api-auth-actions”>
-                  <button type=”button” id=”btn-inat-oauth-sign-in” class=”btn secondary”>Sign in with iNaturalist</button>
-                  <button type=”button” id=”btn-inat-api-token-clear” class=”btn secondary”>Sign out</button>
-                  <button type=”button” id=”btn-explorer-auth-panel-close” class=”btn secondary”>Close</button>
+                <label for="inat-api-token">Token</label>
+                <textarea id="inat-api-token" class="inat-api-token" rows="4" spellcheck="false" autocomplete="off" placeholder='{"api_token":"…"} or eyJ…'></textarea>
+                <div class="inat-api-auth-actions">
+                  <button type="button" id="btn-inat-api-token-apply" class="btn secondary">Apply</button>
+                  <button type="button" id="btn-inat-api-token-clear" class="btn secondary">Clear token</button>
+                  <button type="button" id="btn-explorer-auth-panel-close" class="btn secondary">Close</button>
                 </div>
-                <p id=”inat-api-auth-status” class=”inat-api-auth-status” role=”status” aria-live=”polite”></p>
+                <p id="inat-api-auth-status" class="inat-api-auth-status" role="status" aria-live="polite"></p>
               </fieldset>
             </div>
           </div>

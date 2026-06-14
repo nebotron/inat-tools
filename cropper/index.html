@@ -108,26 +108,24 @@
               <section id="inat-upload-section" class="inat-upload-section" hidden aria-labelledby="inat-upload-heading">
                 <h3 id="inat-upload-heading" class="inat-upload-heading">Post to iNaturalist</h3>
                 <p class="inat-upload-lede muted">
-                  Optional: upload cropped JPEGs to iNaturalist. Sign in via OAuth — uses the same
-                  account as the <a href="../explorer/">observation browser</a> on this device.
-                  Create an OAuth application at
-                  <a href="https://www.inaturalist.org/oauth/applications" rel="noopener noreferrer">inaturalist.org/oauth/applications</a>
-                  and set its Redirect URI to this page's URL.
+                  Optional: upload cropped JPEGs to iNaturalist. Uses the same API token as the
+                  <a href="../explorer/">observation browser</a> on this device (from
+                  <a href="https://www.inaturalist.org/users/api_token" rel="noopener noreferrer">your API token page</a>).
                 </p>
                 <p id="inat-upload-status" class="inat-upload-status" role="status" aria-live="polite"></p>
                 <div id="inat-upload-token-field" class="inat-upload-token-field">
-                  <label for="inat-upload-oauth-client-id" class="inat-upload-label">OAuth Client ID</label>
-                  <input
-                    type="text"
-                    id="inat-upload-oauth-client-id"
+                  <label for="inat-upload-token" class="inat-upload-label">Token (JSON or JWT)</label>
+                  <textarea
+                    id="inat-upload-token"
                     class="inat-upload-token"
+                    rows="3"
                     spellcheck="false"
                     autocomplete="off"
-                    placeholder="Your OAuth application client ID"
-                  />
+                    placeholder='{"api_token":"eyJ..."} or eyJ...'
+                  ></textarea>
                   <div class="inat-upload-token-actions">
-                    <button type="button" id="btn-inat-upload-oauth-sign-in" class="btn secondary">Sign in with iNaturalist</button>
-                    <button type="button" id="btn-inat-upload-token-clear" class="btn secondary">Sign out</button>
+                    <button type="button" id="btn-inat-upload-token-apply" class="btn secondary">Apply token</button>
+                    <button type="button" id="btn-inat-upload-token-clear" class="btn secondary">Clear token</button>
                   </div>
                 </div>
                 <div id="inat-upload-grouping" class="inat-upload-grouping" hidden>

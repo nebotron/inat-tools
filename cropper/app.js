@@ -11,6 +11,8 @@ import JSZip from "https://esm.sh/jszip@3.10.1";
 import exifr from "https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.esm.mjs";
 import piexif from "https://esm.sh/piexifjs@1.0.4";
 import {
+  parseInatApiTokenPaste,
+  persistParsedInatApiJwt,
   clearStoredInatApiJwt,
   getStoredInatApiJwt,
   fetchUsersMeWithStoredJwt,
@@ -18,12 +20,6 @@ import {
   formatInatHttpErrorForDisplay,
   validateInatJwtFormat,
   inatFetch,
-  getOAuthClientId,
-  setOAuthClientId,
-  getStoredOAuthToken,
-  clearStoredOAuthToken,
-  initiateOAuthFlow,
-  consumeOAuthCallback,
 } from "../lib/inat-api-client.js";
 
 /** Real `fetch` before any temporary patching; bare `fetch()` inside our wrapper would recurse into `window.fetch`. */
@@ -375,8 +371,8 @@ const btnStartOver = document.getElementById("btn-start-over");
 const inatUploadSection = document.getElementById("inat-upload-section");
 const inatUploadStatus = document.getElementById("inat-upload-status");
 const inatUploadTokenField = document.getElementById("inat-upload-token-field");
-const inatUploadOAuthClientId = document.getElementById("inat-upload-oauth-client-id");
-const btnInatUploadOAuthSignIn = document.getElementById("btn-inat-upload-oauth-sign-in");
+const inatUploadToken = document.getElementById("inat-upload-token");
+const btnInatUploadTokenApply = document.getElementById("btn-inat-upload-token-apply");
 const btnInatUploadTokenClear = document.getElementById("btn-inat-upload-token-clear");
 const inatUploadGrouping = document.getElementById("inat-upload-grouping");
 const inatUploadGroupingStrip = document.getElementById("inat-upload-grouping-strip");
@@ -2876,28 +2872,24 @@ async function refreshInatUploadAuthUi() {
   if (!inatUploadStatus || !inatUploadTokenField) return;
   inatUploadAuthOk = false;
   updateButtons();
-  const oauthToken = getStoredOAuthToken();
-  const jwt = oauthToken ? "" : getStoredInatApiJwt();
-  if (!oauthToken && !jwt) {
+  const jwt = getStoredInatApiJwt();
+  if (!jwt) {
     clearInatUploadIdentityAndCollisions();
     inatUploadTokenField.hidden = false;
-    if (inatUploadOAuthClientId) inatUploadOAuthClientId.value = getOAuthClientId();
     inatUploadStatus.textContent =
-      "Not signed in. Enter your OAuth Client ID and click Sign in with iNaturalist.";
+      "No API token saved. Paste the JSON or a raw JWT from iNaturalist (same storage as the observation browser), then Apply.";
     setInatUploadStatusVariant("neutral");
     updateButtons();
     return;
   }
-  if (!oauthToken && jwt) {
-    const format = validateInatJwtFormat(jwt);
-    if (!format.ok) {
-      clearInatUploadIdentityAndCollisions();
-      inatUploadTokenField.hidden = false;
-      inatUploadStatus.textContent = `Stored token failed the format check: ${format.error} Sign out and sign in again.`;
-      setInatUploadStatusVariant("error");
-      updateButtons();
-      return;
-    }
+  const format = validateInatJwtFormat(jwt);
+  if (!format.ok) {
+    clearInatUploadIdentityAndCollisions();
+    inatUploadTokenField.hidden = false;
+    inatUploadStatus.textContent = `Stored token failed the format check: ${format.error} Clear it and paste again.`;
+    setInatUploadStatusVariant("error");
+    updateButtons();
+    return;
   }
   let res;
   try {
@@ -2913,7 +2905,7 @@ async function refreshInatUploadAuthUi() {
   if (!res.ok) {
     clearInatUploadIdentityAndCollisions();
     const detail = await formatInatHttpErrorForDisplay(res);
-    inatUploadStatus.textContent = `Token not accepted: ${detail} Sign out and sign in again.`;
+    inatUploadStatus.textContent = `Token not accepted: ${detail} Try a fresh token from iNaturalist.`;
     setInatUploadStatusVariant("error");
     inatUploadTokenField.hidden = false;
     updateButtons();
@@ -2942,6 +2934,7 @@ async function refreshInatUploadAuthUi() {
   resetInatObservedTimeCollisionState();
   inatUploadAuthOk = true;
   inatUploadTokenField.hidden = true;
+  if (inatUploadToken) inatUploadToken.value = "";
   inatUploadStatus.textContent = login
     ? `Signed in as ${login}. You can upload observations below.`
     : "Signed in. You can upload observations below.";
@@ -6683,17 +6676,22 @@ if (btnShareInat) {
   });
 }
 
-if (btnInatUploadOAuthSignIn) {
-  btnInatUploadOAuthSignIn.addEventListener("click", () => {
+if (btnInatUploadTokenApply && inatUploadToken) {
+  btnInatUploadTokenApply.addEventListener("click", () => {
     clearError();
-    const clientId = (inatUploadOAuthClientId ? inatUploadOAuthClientId.value : "").trim();
-    if (!clientId) {
-      showError("Enter your OAuth Client ID first.");
+    const pasted = inatUploadToken.value;
+    const parsed = parseInatApiTokenPaste(pasted);
+    if (parsed.error || !parsed.token) {
+      showError(parsed.error || "Could not read token.");
       return;
     }
-    setOAuthClientId(clientId);
-    const redirectUri = window.location.origin + window.location.pathname;
-    initiateOAuthFlow(clientId, redirectUri);
+    const saved = persistParsedInatApiJwt(parsed.token);
+    if (!saved.ok) {
+      showError(saved.error || "Could not save token.");
+      return;
+    }
+    inatUploadToken.value = "";
+    void refreshInatUploadAuthUi();
   });
 }
 
@@ -6701,7 +6699,7 @@ if (btnInatUploadTokenClear) {
   btnInatUploadTokenClear.addEventListener("click", () => {
     clearError();
     clearStoredInatApiJwt();
-    clearStoredOAuthToken();
+    if (inatUploadToken) inatUploadToken.value = "";
     for (const g of inatUploadGroups) {
       g.species = "";
       g.taxonId = "";
@@ -6784,8 +6782,6 @@ function installE2EHooksIfNeeded() {
 }
 
 installE2EHooksIfNeeded();
-
-consumeOAuthCallback();
 
 void cropMappingsSessionRestorePromise.then(() => {
   setCurrentPage("setup");
