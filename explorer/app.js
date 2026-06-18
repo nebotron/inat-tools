@@ -2,14 +2,18 @@ import {
   INAT_API_V1 as API,
   getStoredInatApiJwt,
   validateInatJwtFormat,
-  parseInatApiTokenPaste,
-  persistParsedInatApiJwt,
   clearStoredInatApiJwt,
   inatApiJwtAuthorizationValue,
   formatInatHttpErrorForDisplay,
   fetchUsersMeWithStoredJwt,
   inatFetch,
   inatPostV2MethodOverrideGet,
+  getOAuthClientId,
+  setOAuthClientId,
+  getStoredOAuthToken,
+  clearStoredOAuthToken,
+  initiateOAuthFlow,
+  consumeOAuthCallback,
 } from "../lib/inat-api-client.js";
 import { installExplorerPhotoLightbox } from "./photo-lightbox.js";
 
@@ -284,8 +288,8 @@ const el = {
   btnClearPlace: document.getElementById("btn-clear-place"),
   userLogin: document.getElementById("user-login"),
   unobservedInput: document.getElementById("unobserved-input"),
-  inatApiToken: document.getElementById("inat-api-token"),
-  btnInatApiTokenApply: document.getElementById("btn-inat-api-token-apply"),
+  oauthClientId: document.getElementById("inat-oauth-client-id"),
+  btnOAuthSignIn: document.getElementById("btn-inat-oauth-sign-in"),
   btnInatApiTokenClear: document.getElementById("btn-inat-api-token-clear"),
   inatApiAuthStatus: document.getElementById("inat-api-auth-status"),
   btnExplorerAuthToggle: document.getElementById("btn-explorer-auth-toggle"),
@@ -2512,9 +2516,10 @@ async function openExplorerAuthPanel(options = {}) {
   setExplorerAuthPanelOpen(true);
   await refreshInatAuthUser();
   if (reason) renderInatApiAuthStatusEl(reason, "neutral");
-  if (el.inatApiToken && typeof el.inatApiToken.focus === "function") {
+  if (el.oauthClientId) {
+    if (!el.oauthClientId.value) el.oauthClientId.value = getOAuthClientId();
     try {
-      el.inatApiToken.focus({ preventScroll: false });
+      el.oauthClientId.focus({ preventScroll: false });
     } catch (ex) {
       explorerFatal(ex, "openExplorerAuthPanel:focus");
     }
@@ -2539,24 +2544,27 @@ function syncExplorerAuthChrome() {
   }
 }
 
-/** Loads `inatAuthUser` from `GET /users/me` when a JWT is stored; updates the Filters status line. */
+/** Loads `inatAuthUser` from `GET /users/me` when an OAuth token (or legacy JWT) is stored. */
 async function refreshInatAuthUser() {
   try {
+    const oauthToken = getStoredOAuthToken();
     const jwt = getStoredInatApiJwt();
-    if (!jwt) {
+    if (!oauthToken && !jwt) {
       inatAuthUser = null;
       if (!explorerAuthPanelIsOpen()) renderInatApiAuthStatusEl("", "neutral");
-      else renderInatApiAuthStatusEl("Not signed in. Paste a token (JSON or JWT), then Apply.", "neutral");
+      else renderInatApiAuthStatusEl("Not signed in. Enter your OAuth Client ID and click Sign in.", "neutral");
       return;
     }
-    const format = validateInatJwtFormat(jwt);
-    if (!format.ok) {
-      inatAuthUser = null;
-      renderInatApiAuthStatusEl(
-        `Token format: ${format.error} Clear it and paste valid JSON or a JWT from iNaturalist.`,
-        "error"
-      );
-      return;
+    if (!oauthToken && jwt) {
+      const format = validateInatJwtFormat(jwt);
+      if (!format.ok) {
+        inatAuthUser = null;
+        renderInatApiAuthStatusEl(
+          `Token format: ${format.error} Sign out and sign in again.`,
+          "error"
+        );
+        return;
+      }
     }
     let res;
     try {
@@ -2567,7 +2575,7 @@ async function refreshInatAuthUser() {
     if (!res.ok) {
       inatAuthUser = null;
       const detail = await formatInatHttpErrorForDisplay(res);
-      renderInatApiAuthStatusEl(`Token rejected. ${detail} Clear it or paste a new one.`, "error");
+      renderInatApiAuthStatusEl(`Token rejected. ${detail} Sign out and sign in again.`, "error");
       return;
     }
     let data;
@@ -2581,7 +2589,7 @@ async function refreshInatAuthUser() {
     const login = inatAuthUser && typeof inatAuthUser.login === "string" ? inatAuthUser.login.trim() : "";
     renderInatApiAuthStatusEl(
       login
-        ? `Signed in as ${login}. Under Controls shown, turn on “Favorite” for the star on cards, or “Agree & Mark reviewed” for those actions.`
+        ? `Signed in as ${login}. Under Controls shown, turn on "Favorite" for the star on cards, or "Agree & Mark reviewed" for those actions.`
         : "Signed in.",
       "ok"
     );
@@ -4750,7 +4758,7 @@ function wireExplorerAuthDock() {
   el.btnExplorerAuthToggle.addEventListener("click", () => {
     if (explorerIsSignedIn()) {
       clearStoredInatApiJwt();
-      if (el.inatApiToken) el.inatApiToken.value = "";
+      clearStoredOAuthToken();
       if (el.filterMyReview) el.filterMyReview.value = "all";
       if (el.filterFavedByMe) el.filterFavedByMe.checked = false;
       closeExplorerAuthPanel();
@@ -4772,32 +4780,27 @@ function wireExplorerAuthDock() {
   }
 }
 
-/** Filters tab: store JWT, verify with `GET /users/me`, refresh observation cards when auth changes. */
+/** Filters tab: OAuth sign-in button and sign-out button. */
 function wireExplorerApiAuth() {
-  if (el.btnInatApiTokenApply && el.inatApiToken) {
-    el.btnInatApiTokenApply.addEventListener("click", () => {
-      const pasted = el.inatApiToken.value;
-      const parsed = parseInatApiTokenPaste(pasted);
-      if (parsed.error) {
-        renderInatApiAuthStatusEl(parsed.error, "error");
+  if (el.btnOAuthSignIn) {
+    el.btnOAuthSignIn.addEventListener("click", () => {
+      const clientId = (el.oauthClientId ? el.oauthClientId.value : "").trim();
+      if (!clientId) {
+        renderInatApiAuthStatusEl("Enter your OAuth Client ID first.", "error");
         return;
       }
-      const saved = persistParsedInatApiJwt(parsed.token);
-      if (!saved.ok) {
-        renderInatApiAuthStatusEl(saved.error || "Could not save token.", "error");
-        return;
-      }
-      el.inatApiToken.value = "";
-      void (async () => {
-        await refreshInatAuthUser();
-        refreshResultPanelsIfMetaChanged();
-      })();
+      setOAuthClientId(clientId);
+      const redirectUri = window.location.origin + window.location.pathname;
+      initiateOAuthFlow(clientId, redirectUri);
     });
+  }
+  if (el.oauthClientId) {
+    el.oauthClientId.value = getOAuthClientId();
   }
   if (el.btnInatApiTokenClear) {
     el.btnInatApiTokenClear.addEventListener("click", () => {
       clearStoredInatApiJwt();
-      if (el.inatApiToken) el.inatApiToken.value = "";
+      clearStoredOAuthToken();
       if (el.filterMyReview) el.filterMyReview.value = "all";
       if (el.filterFavedByMe) el.filterFavedByMe.checked = false;
       void (async () => {
@@ -5338,6 +5341,7 @@ async function boot() {
     });
   }
 
+  consumeOAuthCallback();
   await resolvePendingNearMeUrlIfNeeded("boot");
   await refreshInatAuthUser();
   await switchView(currentView);
