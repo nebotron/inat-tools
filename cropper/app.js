@@ -24,7 +24,7 @@ import {
   clearStoredOAuthToken,
   initiateOAuthFlow,
   consumeOAuthCallback,
-} from "../lib/inat-api-client.js?v=oauth-1";
+} from "../lib/inat-api-client.js?v=oauth-2";
 
 /** Real `fetch` before any temporary patching; bare `fetch()` inside our wrapper would recurse into `window.fetch`. */
 const nativeFetch = globalThis.fetch.bind(globalThis);
