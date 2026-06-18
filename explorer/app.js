@@ -4790,7 +4790,9 @@ function wireExplorerApiAuth() {
         return;
       }
       setOAuthClientId(clientId);
-      const redirectUri = window.location.origin + window.location.pathname;
+      let redirectUri = window.location.origin + window.location.pathname;
+      if (!redirectUri.endsWith("/")) redirectUri += "/";
+      console.log("[inat-oauth] redirect_uri =", redirectUri);
       initiateOAuthFlow(clientId, redirectUri);
     });
   }
