@@ -14,7 +14,7 @@ import {
   clearStoredOAuthToken,
   initiateOAuthFlow,
   consumeOAuthCallback,
-} from "../lib/inat-api-client.js";
+} from "../lib/inat-api-client.js?v=oauth-1";
 import { installExplorerPhotoLightbox } from "./photo-lightbox.js";
 
 /**
